@@ -6984,8 +6984,56 @@
         </div>
         <!-- /Tab: Login Agreement -->
 
-	        <!-- Tab: Features (功能开关) -->
+        <!-- Tab: Features (功能开关) -->
         <div v-show="activeTab === 'features'" class="space-y-6">
+
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('admin.settings.features.checkin.title') }}</h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.settings.features.checkin.description') }}</p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.features.checkin.enabled') }}</label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.features.checkin.enabledHint') }}</p>
+              </div>
+              <Toggle v-model="checkinForm.enabled" />
+            </div>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label class="input-label">{{ t('admin.settings.features.checkin.rewardMin') }}</label>
+                <input v-model.number="checkinForm.reward_min" type="number" min="1" max="1000" step="0.1" class="input" />
+              </div>
+              <div>
+                <label class="input-label">{{ t('admin.settings.features.checkin.rewardMax') }}</label>
+                <input v-model.number="checkinForm.reward_max" type="number" min="1" max="1000" step="0.1" class="input" />
+              </div>
+            </div>
+              <div>
+                <label class="input-label">{{ t('admin.settings.features.checkin.condition') }}</label>
+                <div class="mt-1.5 inline-flex w-full max-w-md rounded-lg border border-gray-200 bg-gray-50 p-1 dark:border-dark-600 dark:bg-dark-900/40">
+                <button type="button" class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition" :class="checkinForm.condition === '' ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300' : 'text-gray-600 dark:text-dark-300'" @click="checkinForm.condition = ''">{{ t('admin.settings.features.checkin.none') }}</button>
+                <button type="button" class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition" :class="checkinForm.condition === 'request' ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300' : 'text-gray-600 dark:text-dark-300'" @click="checkinForm.condition = 'request'">{{ t('admin.settings.features.checkin.request') }}</button>
+                <button type="button" class="flex-1 rounded-md px-3 py-2 text-sm font-medium transition" :class="checkinForm.condition === 'consumption' ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-800 dark:text-primary-300' : 'text-gray-600 dark:text-dark-300'" @click="checkinForm.condition = 'consumption'">{{ t('admin.settings.features.checkin.consumption') }}</button>
+              </div>
+            </div>
+            <div v-if="checkinForm.condition === 'request'">
+              <label class="input-label">{{ t('admin.settings.features.checkin.requestThreshold') }}</label>
+              <input v-model.number="checkinForm.request_threshold" type="number" min="1" step="1" class="input" />
+            </div>
+            <div v-else-if="checkinForm.condition === 'consumption'">
+              <label class="input-label">{{ t('admin.settings.features.checkin.consumptionThreshold') }}</label>
+              <input v-model.number="checkinForm.consumption_threshold" type="number" min="0.1" step="0.1" class="input" />
+            </div>
+            <div class="flex justify-end">
+              <button type="button" class="btn btn-primary" :disabled="checkinLoading || checkinSaving" @click="saveCheckinConfig">
+                <Icon v-if="checkinSaving" name="refresh" size="sm" class="animate-spin" />
+                {{ checkinSaving ? t('common.saving') : t('common.save') }}
+              </button>
+            </div>
+          </div>
+        </div>
 
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -8796,6 +8844,7 @@ import {
 } from "@/composables/useStepUp";
 import TotpStepUpDialog from "@/components/auth/TotpStepUpDialog.vue";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
+import checkInAdminAPI, { type CheckInConfig } from "@/api/admin/checkin";
 import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiError";
 import { useAppStore } from "@/stores";
 import { useAdminSettingsStore } from "@/stores/adminSettings";
@@ -8914,6 +8963,16 @@ const { copyToClipboard } = useClipboard();
 const loading = ref(true);
 const loadFailed = ref(false);
 const saving = ref(false);
+const checkinLoading = ref(true);
+const checkinSaving = ref(false);
+const checkinForm = reactive<CheckInConfig>({
+  enabled: false,
+  reward_min: 1,
+  reward_max: 1000,
+  condition: '',
+  request_threshold: 1,
+  consumption_threshold: 0.1,
+});
 const testingSmtp = ref(false);
 const sendingTestEmail = ref(false);
 const smtpPasswordManuallyEdited = ref(false);
@@ -10734,6 +10793,61 @@ const codexSyncedVersionLabel = computed(() => {
   });
 });
 
+function normalizeCheckinAmount(value: unknown, fallback: number): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(1000, Math.max(1, Math.round(parsed * 10) / 10));
+}
+
+async function loadCheckinConfig() {
+  checkinLoading.value = true;
+  try {
+    const config = await checkInAdminAPI.getConfig();
+    checkinForm.enabled = Boolean(config.enabled);
+    checkinForm.reward_min = normalizeCheckinAmount(config.reward_min, 1);
+    checkinForm.reward_max = normalizeCheckinAmount(config.reward_max, 1000);
+    checkinForm.condition = config.condition === 'consumption' ? 'consumption' : config.condition === 'request' ? 'request' : '';
+    checkinForm.request_threshold = Math.max(1, Number(config.request_threshold || 1));
+    checkinForm.consumption_threshold = Math.max(0.1, Number(config.consumption_threshold || 0.1));
+  } catch (error: unknown) {
+    // Keep defaults when the optional feature endpoint is unavailable.
+    console.warn('[settings] Failed to load check-in config', error);
+  } finally {
+    checkinLoading.value = false;
+  }
+}
+
+async function saveCheckinConfig() {
+  const rewardMin = normalizeCheckinAmount(checkinForm.reward_min, 1);
+  const rewardMax = normalizeCheckinAmount(checkinForm.reward_max, 1000);
+  if (rewardMin > rewardMax) {
+    appStore.showError(t('admin.settings.features.checkin.rangeError'));
+    return;
+  }
+  checkinSaving.value = true;
+  try {
+    const updated = await checkInAdminAPI.updateConfig({
+      enabled: Boolean(checkinForm.enabled),
+      reward_min: rewardMin,
+      reward_max: rewardMax,
+      condition: checkinForm.condition,
+      request_threshold: Math.max(1, Number(checkinForm.request_threshold || 1)),
+      consumption_threshold: Math.max(0.1, Number(checkinForm.consumption_threshold || 0.1)),
+    });
+    checkinForm.enabled = Boolean(updated.enabled);
+    checkinForm.reward_min = normalizeCheckinAmount(updated.reward_min, rewardMin);
+    checkinForm.reward_max = normalizeCheckinAmount(updated.reward_max, rewardMax);
+    checkinForm.condition = updated.condition === 'consumption' ? 'consumption' : updated.condition === 'request' ? 'request' : '';
+    checkinForm.request_threshold = Math.max(1, Number(updated.request_threshold || 1));
+    checkinForm.consumption_threshold = Math.max(0.1, Number(updated.consumption_threshold || 0.1));
+    appStore.showSuccess(t('common.saved'));
+  } catch (error: unknown) {
+    appStore.showError(extractApiErrorMessage(error, t('common.error')));
+  } finally {
+    checkinSaving.value = false;
+  }
+}
+
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -12515,6 +12629,7 @@ async function handleDeleteProvider() {
 
 onMounted(() => {
   loadSettings();
+  loadCheckinConfig();
   loadSubscriptionGroups();
   loadAdminApiKey();
   loadUpstreamBillingProbeSettings();

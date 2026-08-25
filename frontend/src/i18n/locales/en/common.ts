@@ -162,6 +162,8 @@ export default {
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',
     usage: 'Usage',
+    checkin: 'Daily Check-in',
+    checkinRecords: 'Check-in Records',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
     affiliateManagement: 'Affiliate Rebates',
@@ -446,6 +448,24 @@ export default {
     verifyFailed: 'Verification failed, please try again',
     notEnabled: 'This operation requires two-factor authentication. Please enable TOTP in your profile first.',
     adminApiKeyForbidden: 'Admin API keys cannot perform this operation. Use a two-factor verified admin session.'
+  },
+
+  checkin: {
+    title: 'Daily Check-in',
+    description: 'Check in daily to receive a random balance reward.',
+    account: 'Check-in account',
+    monthTotal: 'Total reward this month',
+    status: 'Check-in status',
+    checkedIn: 'Checked in today',
+    notCheckedIn: 'Not checked in today',
+    streak: '{count} day streak',
+    todayTitle: "Today's check-in",
+    todayHint: 'Meet the configured check-in condition to claim your reward.',
+    action: 'Check in now',
+    checkedInToday: 'You received {amount} reward today',
+    previousMonth: 'Previous month',
+    nextMonth: 'Next month',
+    disabled: 'Daily check-in is currently disabled'
   },
 
   // Dashboard

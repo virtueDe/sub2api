@@ -162,6 +162,8 @@ export default {
     apiKeys: 'API 密钥',
     batchImage: '批量生图',
     usage: '使用记录',
+    checkin: '每日签到',
+    checkinRecords: '签到记录',
     redeem: '兑换',
     affiliate: '邀请返利',
     affiliateManagement: '邀请返利',
@@ -445,6 +447,24 @@ export default {
     verifyFailed: '验证失败，请重试',
     notEnabled: '此操作需要开启二次验证，请先在个人资料中启用 TOTP。',
     adminApiKeyForbidden: '管理 API Key 无法执行此操作，请使用已通过二次验证的管理员会话。'
+  },
+
+  checkin: {
+    title: '每日签到',
+    description: '完成每日签到，领取随机余额奖励。',
+    account: '签到账号',
+    monthTotal: '本月累计签到额度',
+    status: '签到状态',
+    checkedIn: '今日已签到',
+    notCheckedIn: '今日未签到',
+    streak: '连续签到 {count} 天',
+    todayTitle: '今日签到',
+    todayHint: '满足管理员设置的签到条件后即可领取奖励。',
+    action: '立即签到',
+    checkedInToday: '今日已领取 {amount} 奖励',
+    previousMonth: '上个月',
+    nextMonth: '下个月',
+    disabled: '每日签到当前未开启'
   },
 
   // Dashboard

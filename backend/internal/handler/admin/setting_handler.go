@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -62,6 +63,26 @@ type SettingHandler struct {
 	notificationEmailService *service.NotificationEmailService
 	totpService              *service.TotpService
 	userService              *service.UserService
+	checkInService           *service.CheckInService
+}
+
+func (h *SettingHandler) SetCheckInService(s *service.CheckInService) { h.checkInService = s }
+
+func (h *SettingHandler) GetCheckInConfig(c *gin.Context) {
+	if h.checkInService == nil { response.NotFound(c, "Check-in is unavailable"); return }
+	cfg, err := h.checkInService.GetConfig(c.Request.Context()); if err != nil { response.ErrorFrom(c, err); return }; response.Success(c, cfg)
+}
+
+func (h *SettingHandler) UpdateCheckInConfig(c *gin.Context) {
+	if h.checkInService == nil { response.NotFound(c, "Check-in is unavailable"); return }
+	var cfg service.CheckInConfig; if err := c.ShouldBindJSON(&cfg); err != nil { response.BadRequest(c, err.Error()); return }
+	updated, err := h.checkInService.UpdateConfig(c.Request.Context(), cfg); if err != nil { response.ErrorFrom(c, err); return }; response.Success(c, updated)
+}
+
+func (h *SettingHandler) ListCheckInRecords(c *gin.Context) {
+	if h.checkInService == nil { response.NotFound(c, "Check-in is unavailable"); return }
+	var userID int64; if raw := c.Query("user_id"); raw != "" { _, _ = fmt.Sscan(raw, &userID) }
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1")); size, _ := strconv.Atoi(c.DefaultQuery("page_size", "20")); records, total, err := h.checkInService.ListRecords(c.Request.Context(), userID, c.Query("month"), page, size); if err != nil { response.ErrorFrom(c, err); return }; response.Success(c, gin.H{"items": records, "total": total, "page": page, "page_size": size})
 }
 
 // NewSettingHandler 创建系统设置处理器
