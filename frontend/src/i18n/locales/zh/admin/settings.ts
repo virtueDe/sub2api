@@ -14,6 +14,21 @@ export default {
         payment: '支付设置',
       },
       features: {
+        checkin: {
+          title: '每日签到',
+          description: '配置普通用户每日签到的余额奖励和触发条件。',
+          enabled: '启用每日签到',
+          enabledHint: '关闭后用户仍可访问页面，但无法领取新的签到奖励。',
+          rewardMin: '奖励下限',
+          rewardMax: '奖励上限',
+          condition: '签到条件',
+          none: '无门槛',
+          request: '完成请求',
+          consumption: '产生消费',
+          requestThreshold: '当日请求数量',
+          consumptionThreshold: '当日消费金额',
+          rangeError: '奖励下限不能大于奖励上限。',
+        },
         channelMonitor: {
           title: '渠道监控',
           description: '启用后在 V1 主动探测与 V2 被动用量监控中二选一。关闭后两种模式的后台任务均停止，用户端入口隐藏。',
@@ -1229,6 +1244,18 @@ export default {
     },
 
     // Error Passthrough Rules
+    checkinRecords: {
+      description: '查看用户每日签到和奖励发放记录。',
+      month: '月份',
+      userId: '用户 ID',
+      date: '日期',
+      account: '签到账号',
+      reward: '奖励',
+      requests: '请求数',
+      spend: '当日消费',
+      empty: '暂无签到记录',
+      total: '共 {count} 条记录'
+    },
     errorPassthrough: {
       title: '错误透传规则',
       description: '配置上游错误如何返回给客户端',

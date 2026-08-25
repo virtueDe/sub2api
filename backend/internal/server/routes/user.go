@@ -28,6 +28,12 @@ func RegisterUserRoutes(
 		// 用户接口
 		user := authenticated.Group("/user")
 		{
+			checkIn := user.Group("/check-in")
+			{
+				checkIn.GET("/status", h.User.GetCheckInStatus)
+				checkIn.POST("", h.User.CheckIn)
+				checkIn.GET("/history", h.User.GetCheckInHistory)
+			}
 			user.GET("/profile", h.User.GetProfile)
 			user.PUT("/password", h.User.ChangePassword)
 			user.PUT("", h.User.UpdateProfile)
