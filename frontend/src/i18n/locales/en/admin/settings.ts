@@ -14,6 +14,21 @@ export default {
         payment: 'Payment',
       },
       features: {
+        checkin: {
+          title: 'Daily Check-in',
+          description: 'Configure the balance reward and trigger condition for daily user check-ins.',
+          enabled: 'Enable Daily Check-in',
+          enabledHint: 'When disabled, users can still open the page but cannot claim new rewards.',
+          rewardMin: 'Minimum reward',
+          rewardMax: 'Maximum reward',
+          condition: 'Check-in condition',
+          none: 'No condition',
+          request: 'Complete a request',
+          consumption: 'Record consumption',
+          requestThreshold: 'Requests today',
+          consumptionThreshold: 'Consumption today',
+          rangeError: 'The minimum reward cannot exceed the maximum reward.',
+        },
         channelMonitor: {
           title: 'Channel Monitor',
           description: 'Choose either V1 active probes or V2 passive usage monitoring. When disabled, both background jobs stop and the user entry is hidden.',
@@ -1235,6 +1250,18 @@ export default {
     },
 
     // Error Passthrough Rules
+    checkinRecords: {
+      description: 'Review daily user check-ins and granted rewards.',
+      month: 'Month',
+      userId: 'User ID',
+      date: 'Date',
+      account: 'Account',
+      reward: 'Reward',
+      requests: 'Requests',
+      spend: 'Daily spend',
+      empty: 'No check-in records',
+      total: '{count} records'
+    },
     errorPassthrough: {
       title: 'Error Passthrough Rules',
       description: 'Configure how upstream errors are returned to clients',

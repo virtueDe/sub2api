@@ -189,6 +189,8 @@
 
 <script setup lang="ts">
 import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { checkinAPI } from '@/api/checkin'
+import signInIcon from '@/assets/icons/sign-in.svg?raw'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
@@ -341,6 +343,15 @@ const GiftIcon = {
         })
       ]
     )
+}
+
+const SignInIcon = {
+  render: () =>
+    h('span', {
+      'aria-hidden': 'true',
+      class: 'sidebar-svg-icon block h-5 w-5 shrink-0',
+      innerHTML: sanitizeSvg(signInIcon)
+    })
 }
 
 const UserIcon = {
@@ -694,6 +705,8 @@ const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
 const flagAdminPayment = () => adminSettingsStore.paymentEnabled
 const flagBatchImageAccess = () => canUseBatchImage.value
+const checkinEnabled = ref(false)
+const flagCheckin = () => !isAdmin.value && checkinEnabled.value
 
 // buildSelfNavItems 构造用户自己的导航项（用户端主菜单和管理员的"我的账户"子菜单共享这组声明）。
 // withDashboard=true 时包含仪表盘（用户端），false 时不含（管理员的个人区已经有独立仪表盘入口）。
@@ -709,6 +722,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
+    { path: '/check-in', label: t('nav.checkin'), icon: SignInIcon, featureFlag: flagCheckin },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true },
@@ -818,6 +832,7 @@ const adminNavItems = computed((): NavItem[] => {
       ],
     },
     { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
+    { path: '/admin/check-in-records', label: t('nav.checkinRecords'), icon: SignInIcon, hideInSimpleMode: true },
     { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
   ]
 
@@ -940,6 +955,7 @@ watch(
 )
 
 onMounted(() => {
+  checkinAPI.getStatus().then((status) => { checkinEnabled.value = status.enabled === true }).catch(() => { checkinEnabled.value = false })
   void refreshBatchImageAccess()
   if (isAdmin.value) {
     adminSettingsStore.fetch()
@@ -1087,5 +1103,6 @@ onBeforeUnmount(() => {
   display: block;
   width: 1.25rem;
   height: 1.25rem;
+  fill: currentColor;
 }
 </style>
