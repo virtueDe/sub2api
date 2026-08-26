@@ -460,12 +460,21 @@ export default {
     notCheckedIn: 'Not checked in today',
     streak: '{count} day streak',
     todayTitle: "Today's check-in",
-    todayHint: 'Meet the configured check-in condition to claim your reward.',
+    conditionRequest: 'Check-in requirement: complete at least {count} requests today.',
+    conditionConsumption: 'Check-in requirement: spend at least ${amount} today.',
     action: 'Check in now',
     checkedInToday: 'You received {amount} reward today',
     previousMonth: 'Previous month',
     nextMonth: 'Next month',
-    disabled: 'Daily check-in is currently disabled'
+    disabled: 'Daily check-in is currently disabled',
+    errors: {
+      CHECK_IN_DISABLED: 'Daily check-in is currently disabled.',
+      CHECK_IN_ALREADY_DONE: 'You have already checked in today.',
+      CHECK_IN_NOT_ELIGIBLE: 'The current check-in requirement has not been met.',
+      CHECK_IN_REQUEST_THRESHOLD_NOT_MET: 'Today\'s request count does not meet the check-in requirement (current: {current}; required: at least {required}).',
+      CHECK_IN_CONSUMPTION_THRESHOLD_NOT_MET: 'Today\'s consumption does not meet the check-in requirement (current: ${current}; required: at least ${required}).',
+      fallback: 'Check-in failed. Please try again later.'
+    }
   },
 
   // Dashboard
