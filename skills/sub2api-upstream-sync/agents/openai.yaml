@@ -1,0 +1,7 @@
+interface:
+  display_name: "Sub2API Upstream Sync"
+  short_description: "Safely sync official Sub2API releases into a fork"
+  default_prompt: "Use $sub2api-upstream-sync to inspect and integrate a new official Sub2API release without losing fork customizations."
+
+policy:
+  allow_implicit_invocation: true

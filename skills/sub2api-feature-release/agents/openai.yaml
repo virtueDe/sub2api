@@ -1,0 +1,7 @@
+interface:
+  display_name: "Sub2API Feature Release"
+  short_description: "Develop, merge, version, and release Sub2API changes"
+  default_prompt: "Use $sub2api-feature-release to start or finish a Sub2API change and release it only when authorized."
+
+policy:
+  allow_implicit_invocation: true
