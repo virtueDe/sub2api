@@ -20,6 +20,7 @@ on:
 # tag push 触发时读取 vars.SIMPLE_RELEASE，workflow_dispatch 时使用输入参数
 env:
   SIMPLE_RELEASE: ${{ github.event.inputs.simple_release == 'true' || vars.SIMPLE_RELEASE == 'true' }}
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 permissions:
   contents: write
@@ -87,6 +88,9 @@ jobs:
   release:
     needs: [update-version, build-frontend]
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release_meta.outputs.version }}
+      image: ${{ steps.release_meta.outputs.image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -171,6 +175,18 @@ jobs:
       - name: Set lowercase owner for GHCR
         id: lowercase
         run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
+      - name: Set release metadata
+        id: release_meta
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG_NAME="${{ github.event.inputs.tag }}"
+          else
+            TAG_NAME="${GITHUB_REF#refs/tags/}"
+          fi
+          VERSION="${TAG_NAME#v}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image=ghcr.io/${{ steps.lowercase.outputs.owner }}/sub2api:${VERSION}" >> "$GITHUB_OUTPUT"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
@@ -272,9 +288,67 @@ jobs:
                 disable_web_page_preview: true
               }')"
 
-  sync-version-file:
+  deploy:
+    name: Deploy release to server
     needs: [release]
     if: ${{ needs.release.result == 'success' }}
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DEPLOY_DIR: ${{ secrets.DEPLOY_DIR || '/opt/proxy/sub2api' }}
+      DEPLOY_COMPOSE_FILE: ${{ secrets.DEPLOY_COMPOSE_FILE || 'docker-compose.yml' }}
+      GHCR_DEPLOY_USERNAME: ${{ secrets.GHCR_DEPLOY_USERNAME }}
+      GHCR_DEPLOY_TOKEN: ${{ secrets.GHCR_DEPLOY_TOKEN }}
+      RELEASE_IMAGE: ${{ needs.release.outputs.image }}
+    steps:
+      - name: Checkout deployment script
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: deploy/remote-deploy.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Validate deployment configuration
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_HOST" || { echo "Missing DEPLOY_HOST" >&2; exit 1; }
+          test -n "$DEPLOY_USER" || { echo "Missing DEPLOY_USER" >&2; exit 1; }
+          test -n "$DEPLOY_SSH_KEY" || { echo "Missing DEPLOY_SSH_KEY" >&2; exit 1; }
+          test -n "$DEPLOY_KNOWN_HOSTS" || { echo "Missing DEPLOY_KNOWN_HOSTS" >&2; exit 1; }
+          test -n "$RELEASE_IMAGE" || { echo "Release image output is empty" >&2; exit 1; }
+
+      - name: Configure SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Install trusted host key
+        env:
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: Login to GHCR on server
+        if: ${{ env.GHCR_DEPLOY_TOKEN != '' }}
+        run: |
+          remote_login_cmd="docker login ghcr.io --username $(printf '%q' "$GHCR_DEPLOY_USERNAME") --password-stdin"
+          printf '%s' "$GHCR_DEPLOY_TOKEN" | \
+            ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "$remote_login_cmd"
+
+      - name: Deploy image
+        run: |
+          remote_args=$(printf '%q ' "$DEPLOY_DIR" "$DEPLOY_COMPOSE_FILE" "$RELEASE_IMAGE")
+          ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "bash -s -- ${remote_args}" < deploy/remote-deploy.sh
+
+  sync-version-file:
+    needs: [release, deploy]
+    if: ${{ needs.release.result == 'success' && needs.deploy.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout default branch

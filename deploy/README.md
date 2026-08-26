@@ -152,6 +152,46 @@ When using Docker Compose with `AUTO_SETUP=true`:
 - `schema_migrations` tracks applied migrations (filename + checksum).
 - Migrations are forward-only; rollback requires a DB backup restore or a manual compensating SQL script.
 
+### Automated Release Deployment
+
+The `Release` GitHub Actions workflow can deploy a published release to a
+server over SSH. Push a version tag such as `v0.1.183`; the workflow builds
+and publishes `ghcr.io/<repository-owner>/sub2api:0.1.183`, then updates only
+the `sub2api` service. Verify the service manually after the workflow finishes.
+
+One-time server setup:
+
+1. Use the local-directory Compose deployment in `/opt/proxy/sub2api` (the
+   default deployment directory).
+2. Add the SSH user to the Docker group and start a new SSH session:
+   ```bash
+   sudo usermod -aG docker deploy
+   ```
+3. Ensure the SSH user can run `docker compose` without `sudo`.
+4. If the GHCR package is private, create a read-only GitHub token with
+   `read:packages` and store it as a GitHub Actions secret.
+
+Configure these repository secrets:
+
+| Secret | Required | Description |
+|--------|----------|-------------|
+| `DEPLOY_HOST` | Yes | Server hostname or IP |
+| `DEPLOY_USER` | Yes | SSH user in the Docker group |
+| `DEPLOY_SSH_KEY` | Yes | Private key for that user |
+| `DEPLOY_KNOWN_HOSTS` | Yes | Verified SSH host-key lines |
+| `GHCR_DEPLOY_USERNAME` | For private GHCR | GitHub username for the read-only token |
+| `GHCR_DEPLOY_TOKEN` | For private GHCR | Token with `read:packages` |
+| `DEPLOY_PORT` | No | SSH port, default `22` |
+| `DEPLOY_DIR` | No | Default `/opt/proxy/sub2api` |
+| `DEPLOY_COMPOSE_FILE` | No | Default `docker-compose.yml` |
+
+The workflow updates `SUB2API_IMAGE` in the server `.env` and creates a
+timestamped `.env.backup.*` before changing it. The production Compose files
+read this variable, so no manual YAML editing is needed. The workflow does
+not perform health polling; verify `/health`, logs, and the business flow
+manually after deployment. Database migrations remain forward-only; keep the
+existing database backup and previous image tag when promoting a release.
+
 **Verify `users.allowed_groups` → `user_allowed_groups` backfill**
 
 During the incremental GORM→Ent migration, `users.allowed_groups` (legacy `BIGINT[]`) is being replaced by a normalized join table `user_allowed_groups(user_id, group_id)`.
@@ -232,6 +272,7 @@ docker compose down -v
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `POSTGRES_PASSWORD` | **Yes** | - | PostgreSQL password |
+| `SUB2API_IMAGE` | No | `weishaw/sub2api:latest` | Application image tag or digest |
 | `JWT_SECRET` | **Recommended** | *(auto-generated)* | JWT secret (fixed for persistent sessions) |
 | `TOTP_ENCRYPTION_KEY` | **Recommended** | *(auto-generated)* | TOTP encryption key (fixed for persistent 2FA) |
 | `SERVER_PORT` | No | `8080` | Server port |
