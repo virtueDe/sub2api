@@ -1254,7 +1254,7 @@ export default {
       description: 'Review daily user check-ins and granted rewards.',
       month: 'Month',
       userId: 'User ID',
-      date: 'Date',
+      date: 'Check-in time',
       account: 'Account',
       reward: 'Reward',
       requests: 'Requests',

@@ -459,12 +459,21 @@ export default {
     notCheckedIn: '今日未签到',
     streak: '连续签到 {count} 天',
     todayTitle: '今日签到',
-    todayHint: '满足管理员设置的签到条件后即可领取奖励。',
+    conditionRequest: '签到条件：今日完成至少 {count} 次请求。',
+    conditionConsumption: '签到条件：今日消费至少 ${amount}。',
     action: '立即签到',
     checkedInToday: '今日已领取 {amount} 奖励',
     previousMonth: '上个月',
     nextMonth: '下个月',
-    disabled: '每日签到当前未开启'
+    disabled: '每日签到当前未开启',
+    errors: {
+      CHECK_IN_DISABLED: '每日签到当前未开启。',
+      CHECK_IN_ALREADY_DONE: '今天已经签到，请勿重复操作。',
+      CHECK_IN_NOT_ELIGIBLE: '当前未满足签到条件。',
+      CHECK_IN_REQUEST_THRESHOLD_NOT_MET: '今日请求数未达到签到条件（当前 {current} 次，要求至少 {required} 次）。',
+      CHECK_IN_CONSUMPTION_THRESHOLD_NOT_MET: '今日消费未达到签到条件（当前 ${current}，要求至少 ${required}）。',
+      fallback: '签到失败，请稍后重试。'
+    }
   },
 
   // Dashboard

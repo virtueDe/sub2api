@@ -1248,7 +1248,7 @@ export default {
       description: '查看用户每日签到和奖励发放记录。',
       month: '月份',
       userId: '用户 ID',
-      date: '日期',
+      date: '签到时间',
       account: '签到账号',
       reward: '奖励',
       requests: '请求数',

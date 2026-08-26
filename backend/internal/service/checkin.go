@@ -28,7 +28,8 @@ const (
 var (
     ErrCheckInDisabled = infraerrors.BadRequest("CHECK_IN_DISABLED", "check-in is disabled")
     ErrCheckInAlreadyDone = infraerrors.Conflict("CHECK_IN_ALREADY_DONE", "already checked in today")
-    ErrCheckInNotEligible = infraerrors.BadRequest("CHECK_IN_NOT_ELIGIBLE", "check-in conditions are not satisfied")
+    ErrCheckInRequestThresholdNotMet = infraerrors.BadRequest("CHECK_IN_REQUEST_THRESHOLD_NOT_MET", "daily request count does not meet the check-in requirement")
+    ErrCheckInConsumptionThresholdNotMet = infraerrors.BadRequest("CHECK_IN_CONSUMPTION_THRESHOLD_NOT_MET", "daily consumption does not meet the check-in requirement")
 )
 
 type CheckInConfig struct {
@@ -60,6 +61,7 @@ type CheckInStatus struct {
     StreakDays int `json:"streak_days"`
     Account CheckInAccount `json:"account"`
     Date string `json:"date"`
+    Config CheckInConfig `json:"config"`
 }
 
 type CheckInAccount struct {
@@ -132,6 +134,7 @@ func (s *CheckInService) GetStatus(ctx context.Context, userID int64) (CheckInSt
     var username, email string
     if err := s.db.QueryRowContext(ctx, `SELECT id, username, email, balance FROM users WHERE id = $1 AND deleted_at IS NULL`, userID).Scan(&status.Account.ID, &username, &email, &status.Account.Balance); err != nil { return status, err }
 	status.Enabled = cfg.Enabled
+	status.Config = cfg
 	status.Account.Username, status.Account.Email, status.Date = username, email, today
     var todayReward, totalReward float64
     var checked bool
@@ -179,8 +182,18 @@ func (s *CheckInService) CheckIn(ctx context.Context, userID int64) (CheckInReco
     if exists { return CheckInRecord{}, CheckInStatus{}, ErrCheckInAlreadyDone }
     var requests int64; var spend float64
     if err := tx.QueryRowContext(ctx, `SELECT COUNT(*), COALESCE(SUM(actual_cost),0) FROM usage_logs WHERE user_id=$1 AND actual_cost > 0 AND created_at >= $2 AND created_at < $3`, userID, dayStart, dayEnd).Scan(&requests, &spend); err != nil { return CheckInRecord{}, CheckInStatus{}, err }
-    if cfg.Condition == "request" && requests < int64(cfg.RequestThreshold) { return CheckInRecord{}, CheckInStatus{}, ErrCheckInNotEligible }
-    if cfg.Condition == "consumption" && spend < cfg.ConsumptionThreshold { return CheckInRecord{}, CheckInStatus{}, ErrCheckInNotEligible }
+    if cfg.Condition == "request" && requests < int64(cfg.RequestThreshold) {
+        return CheckInRecord{}, CheckInStatus{}, ErrCheckInRequestThresholdNotMet.WithMetadata(map[string]string{
+            "current": strconv.FormatInt(requests, 10),
+            "required": strconv.FormatInt(int64(cfg.RequestThreshold), 10),
+        })
+    }
+    if cfg.Condition == "consumption" && spend < cfg.ConsumptionThreshold {
+        return CheckInRecord{}, CheckInStatus{}, ErrCheckInConsumptionThresholdNotMet.WithMetadata(map[string]string{
+            "current": strconv.FormatFloat(spend, 'f', -1, 64),
+            "required": strconv.FormatFloat(cfg.ConsumptionThreshold, 'f', -1, 64),
+        })
+    }
     reward, err := randomCheckInReward(cfg.RewardMin, cfg.RewardMax); if err != nil { return CheckInRecord{}, CheckInStatus{}, err }
     if _, err = tx.ExecContext(ctx, `UPDATE users SET balance=balance+$1, total_recharged=total_recharged+$1, updated_at=NOW() WHERE id=$2`, reward, userID); err != nil { return CheckInRecord{}, CheckInStatus{}, err }
     var record CheckInRecord

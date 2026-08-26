@@ -39,7 +39,7 @@
         <div v-else-if="!status?.checked_in_today" class="card flex flex-col items-start justify-between gap-4 p-6 sm:flex-row sm:items-center">
           <div>
             <h2 class="font-semibold text-gray-900 dark:text-white">{{ t('checkin.todayTitle') }}</h2>
-            <p class="mt-1 text-sm text-gray-500 dark:text-dark-400">{{ t('checkin.todayHint') }}</p>
+            <p v-if="conditionHint" class="mt-1 text-sm text-gray-500 dark:text-dark-400">{{ conditionHint }}</p>
           </div>
           <button class="btn btn-primary" :disabled="submitting" @click="handleCheckIn">
             <Icon name="checkCircle" size="sm" class="mr-2" />
@@ -81,7 +81,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { checkinAPI, type CheckinHistoryItem, type CheckinStatus } from '@/api/checkin'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 
 const { t, locale } = useI18n()
 const authStore = useAuthStore()
@@ -100,6 +100,16 @@ const isCurrentMonth = computed(() => {
 const monthLabel = computed(() => new Intl.DateTimeFormat(locale.value, { year: 'numeric', month: 'long' }).format(selectedMonth.value))
 const weekdays = computed(() => locale.value.startsWith('zh') ? ['日', '一', '二', '三', '四', '五', '六'] : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'])
 const accountLabel = computed(() => status.value?.account?.username || status.value?.account?.email || '-')
+const conditionHint = computed(() => {
+  const config = status.value?.config
+  if (config?.condition === 'request') {
+    return t('checkin.conditionRequest', { count: Number(config.request_threshold || 0) })
+  }
+  if (config?.condition === 'consumption') {
+    return t('checkin.conditionConsumption', { amount: formatAmount(config.consumption_threshold) })
+  }
+  return ''
+})
 
 const calendarDays = computed(() => {
   const year = selectedMonth.value.getFullYear()
@@ -153,7 +163,7 @@ async function handleCheckIn() {
     // the reward transaction succeeds instead of waiting for a full page reload.
     await authStore.refreshUser().catch(() => undefined)
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('checkin.description')))
+    appStore.showError(extractI18nErrorMessage(error, t, 'checkin.errors', t('checkin.errors.fallback')))
   } finally {
     submitting.value = false
   }
