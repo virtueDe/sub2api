@@ -342,6 +342,10 @@ type UpdateSettingsRequest struct {
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
 
+	// Daily token ranking feature (authenticated user-facing)
+	DailyTokenRankingEnabled *bool `json:"daily_token_ranking_enabled"`
+	DailyTokenRankingLimit   *int  `json:"daily_token_ranking_limit"`
+
 	// Model Plaza feature switches + description
 	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth *bool   `json:"model_plaza_require_auth"`
@@ -1923,6 +1927,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AvailableChannelsEnabled
 		}(),
+		DailyTokenRankingEnabled: func() bool {
+			if req.DailyTokenRankingEnabled != nil {
+				return *req.DailyTokenRankingEnabled
+			}
+			return previousSettings.DailyTokenRankingEnabled
+		}(),
+		DailyTokenRankingLimit: func() int {
+			if req.DailyTokenRankingLimit != nil {
+				return *req.DailyTokenRankingLimit
+			}
+			return previousSettings.DailyTokenRankingLimit
+		}(),
 		ModelPlazaEnabled: func() bool {
 			if req.ModelPlazaEnabled != nil {
 				return *req.ModelPlazaEnabled
@@ -2365,6 +2381,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GrokDefaultBaseURLMode:         updatedSettings.GrokDefaultBaseURLMode,
 
 		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
+		DailyTokenRankingEnabled: updatedSettings.DailyTokenRankingEnabled,
+		DailyTokenRankingLimit:   updatedSettings.DailyTokenRankingLimit,
 
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,

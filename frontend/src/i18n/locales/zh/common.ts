@@ -162,6 +162,7 @@ export default {
     apiKeys: 'API 密钥',
     batchImage: '批量生图',
     usage: '使用记录',
+    ranking: '今日排行',
     checkin: '每日签到',
     checkinRecords: '签到记录',
     redeem: '兑换',
@@ -474,6 +475,20 @@ export default {
       CHECK_IN_CONSUMPTION_THRESHOLD_NOT_MET: '今日消费未达到签到条件（当前 ${current}，要求至少 ${required}）。',
       fallback: '签到失败，请稍后重试。'
     }
+  },
+
+  ranking: {
+    title: '今日 Token 排行',
+    description: '本站今日成功扣费请求的 Token 消耗排名。',
+    date: '统计日期：{date}',
+    timezone: '系统时区：{timezone}',
+    updatedAt: '更新于 {time}',
+    rank: '排名',
+    user: '用户',
+    tokens: 'Token 消耗',
+    empty: '今日暂无成功扣费的 Token 消耗记录',
+    loadFailed: '排行榜加载失败',
+    retry: '重新加载',
   },
 
   // Dashboard

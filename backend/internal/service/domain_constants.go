@@ -504,6 +504,14 @@ const (
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
 	SettingKeyAvailableChannelsEnabled = "available_channels_enabled"
 
+	// SettingKeyDailyTokenRankingEnabled controls the authenticated daily token
+	// leaderboard. It is opt-in and defaults to disabled.
+	SettingKeyDailyTokenRankingEnabled = "daily_token_ranking_enabled"
+
+	// SettingKeyDailyTokenRankingLimit controls how many ranked users are shown.
+	// Values are clamped to [1, 50], with a default of 10.
+	SettingKeyDailyTokenRankingLimit = "daily_token_ranking_limit"
+
 	// SettingKeyModelPlazaEnabled is a DB-backed soft switch for the Model Plaza page
 	// (public group/model pricing showcase). When false: the plaza endpoint returns 404
 	// and the header entry is hidden. Defaults to false (opt-in feature).

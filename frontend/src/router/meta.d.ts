@@ -55,6 +55,9 @@ declare module 'vue-router' {
      */
     requiresRiskControl?: boolean
 
+    /** Whether the daily token ranking feature must be enabled. */
+    requiresDailyTokenRanking?: boolean
+
     /**
      * i18n key for the page title
      */

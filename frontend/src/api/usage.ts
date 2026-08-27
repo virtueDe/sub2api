@@ -117,6 +117,19 @@ export interface UsageDashboardSnapshotV2Response {
   groups?: GroupStat[]
 }
 
+export interface DailyTokenRankingEntry {
+  rank: number
+  display_name: string
+  total_tokens: number
+}
+
+export interface DailyTokenRankingResponse {
+  ranking: DailyTokenRankingEntry[]
+  date: string
+  timezone: string
+  updated_at: string
+}
+
 /**
  * List usage logs with optional filters
  * @param page - Page number (default: 1)
@@ -261,6 +274,11 @@ export async function getDashboardStats(): Promise<UserDashboardStats> {
   return data
 }
 
+export async function getDailyTokenRanking(): Promise<DailyTokenRankingResponse> {
+  const { data } = await apiClient.get<DailyTokenRankingResponse>('/usage/daily-token-ranking')
+  return data
+}
+
 /**
  * Get user usage trend data
  * @param params - Query parameters for filtering
@@ -377,6 +395,7 @@ export const usageAPI = {
   getById,
   // Dashboard
   getDashboardStats,
+  getDailyTokenRanking,
   getDashboardTrend,
   getDashboardModels,
   getMyApiKeyDailyUsage,
