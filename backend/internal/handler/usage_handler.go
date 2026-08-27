@@ -46,10 +46,15 @@ type userGroupStat struct {
 
 // UsageHandler handles usage-related requests
 type UsageHandler struct {
-	usageService   *service.UsageService
-	apiKeyService  *service.APIKeyService
-	opsService     *service.OpsService
-	settingService *service.SettingService
+	usageService             *service.UsageService
+	apiKeyService            *service.APIKeyService
+	opsService               *service.OpsService
+	settingService           *service.SettingService
+	dailyTokenRankingService *service.DailyTokenRankingService
+}
+
+func (h *UsageHandler) SetDailyTokenRankingService(service *service.DailyTokenRankingService) {
+	h.dailyTokenRankingService = service
 }
 
 // NewUsageHandler creates a new UsageHandler
@@ -65,6 +70,25 @@ func NewUsageHandler(
 		opsService:     opsService,
 		settingService: settingService,
 	}
+}
+
+// DailyTokenRanking returns today's site-wide token ranking for logged-in users.
+func (h *UsageHandler) DailyTokenRanking(c *gin.Context) {
+	if _, ok := middleware2.GetAuthSubjectFromContext(c); !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.dailyTokenRankingService == nil {
+		response.NotFound(c, "Daily token ranking is unavailable")
+		return
+	}
+
+	ranking, err := h.dailyTokenRankingService.GetToday(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, ranking)
 }
 
 func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) (*userUsageFilters, bool) {

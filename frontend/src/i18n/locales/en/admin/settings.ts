@@ -57,6 +57,15 @@ export default {
           enabled: 'Enable Available Channels',
           enabledHint: 'When off, the sidebar entry is hidden and the endpoint returns an empty list.',
         },
+        dailyTokenRanking: {
+          title: 'Daily Token Ranking',
+          description: 'Show signed-in users today\'s token ranking based on successfully billed requests. Disabled by default.',
+          enabled: 'Enable Daily Token Ranking',
+          enabledHint: 'When disabled, the sidebar entry is hidden and direct page or API access is blocked.',
+          limit: 'Number of users',
+          limitHint: 'Show the top 1–50 users. The default is 10.',
+          limitError: 'The ranking size must be an integer between 1 and 50.',
+        },
         modelPlaza: {
           title: 'Model Plaza',
           description: 'A public page showcasing available models and pricing by group. Disabled by default.',

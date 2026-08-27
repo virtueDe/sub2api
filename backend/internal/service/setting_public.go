@@ -233,6 +233,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyChannelMonitorHideThroughput,
 		SettingKeyChannelMonitorShowQuota,
 		SettingKeyAvailableChannelsEnabled,
+		SettingKeyDailyTokenRankingEnabled,
+		SettingKeyDailyTokenRankingLimit,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
 		SettingKeyPluginManagementEnabled,
@@ -360,6 +362,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		ChannelMonitorShowQuota:              settings[SettingKeyChannelMonitorShowQuota] == "true",
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
+		DailyTokenRankingEnabled: settings[SettingKeyDailyTokenRankingEnabled] == "true",
+		DailyTokenRankingLimit:   parseDailyTokenRankingLimit(settings[SettingKeyDailyTokenRankingLimit]),
 
 		ModelPlazaEnabled:       settings[SettingKeyModelPlazaEnabled] == "true",
 		ModelPlazaRequireAuth:   settings[SettingKeyModelPlazaRequireAuth] == "true",
@@ -381,6 +385,30 @@ const (
 	channelMonitorIntervalFallback = 60
 	defaultChannelMonitorMode      = ChannelMonitorModeV1
 )
+
+const (
+	dailyTokenRankingLimitMin      = 1
+	dailyTokenRankingLimitMax      = 50
+	dailyTokenRankingLimitFallback = 10
+)
+
+func parseDailyTokenRankingLimit(raw string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return dailyTokenRankingLimitFallback
+	}
+	return clampDailyTokenRankingLimit(value)
+}
+
+func clampDailyTokenRankingLimit(value int) int {
+	if value < dailyTokenRankingLimitMin {
+		return dailyTokenRankingLimitMin
+	}
+	if value > dailyTokenRankingLimitMax {
+		return dailyTokenRankingLimitMax
+	}
+	return value
+}
 
 // normalizeChannelMonitorMode accepts only v1/v2; empty/invalid → v1 (safe default).
 func normalizeChannelMonitorMode(raw string) string {
@@ -493,6 +521,27 @@ func (s *SettingService) GetAvailableChannelsRuntime(ctx context.Context) Availa
 	}
 	return AvailableChannelsRuntime{
 		Enabled: vals[SettingKeyAvailableChannelsEnabled] == "true",
+	}
+}
+
+type DailyTokenRankingRuntime struct {
+	Enabled bool
+	Limit   int
+}
+
+// GetDailyTokenRankingRuntime reads the ranking settings directly and fails
+// closed when the settings store is unavailable.
+func (s *SettingService) GetDailyTokenRankingRuntime(ctx context.Context) DailyTokenRankingRuntime {
+	values, err := s.settingRepo.GetMultiple(ctx, []string{
+		SettingKeyDailyTokenRankingEnabled,
+		SettingKeyDailyTokenRankingLimit,
+	})
+	if err != nil {
+		return DailyTokenRankingRuntime{Enabled: false, Limit: dailyTokenRankingLimitFallback}
+	}
+	return DailyTokenRankingRuntime{
+		Enabled: values[SettingKeyDailyTokenRankingEnabled] == "true",
+		Limit:   parseDailyTokenRankingLimit(values[SettingKeyDailyTokenRankingLimit]),
 	}
 }
 
@@ -620,6 +669,8 @@ type PublicSettingsInjectionPayload struct {
 	// monitors; fail-closed (absent/false = hidden). Admin UI always shows it.
 	ChannelMonitorShowQuota    bool `json:"channel_monitor_show_quota"`
 	AvailableChannelsEnabled   bool `json:"available_channels_enabled"`
+	DailyTokenRankingEnabled   bool `json:"daily_token_ranking_enabled"`
+	DailyTokenRankingLimit     int  `json:"daily_token_ranking_limit"`
 	ModelPlazaEnabled          bool `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth      bool `json:"model_plaza_require_auth"`
 	PluginManagementEnabled    bool `json:"plugin_management_enabled"`
@@ -701,6 +752,8 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ChannelMonitorHideThroughput:         settings.ChannelMonitorHideThroughput,
 		ChannelMonitorShowQuota:              settings.ChannelMonitorShowQuota,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
+		DailyTokenRankingEnabled:             settings.DailyTokenRankingEnabled,
+		DailyTokenRankingLimit:               settings.DailyTokenRankingLimit,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                settings.ModelPlazaRequireAuth,
 		PluginManagementEnabled:              settings.PluginManagementEnabled,

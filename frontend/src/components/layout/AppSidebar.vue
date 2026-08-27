@@ -191,6 +191,7 @@
 import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { checkinAPI } from '@/api/checkin'
 import signInIcon from '@/assets/icons/sign-in.svg?raw'
+import rankingIcon from '@/assets/icons/ranking.svg?raw'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
@@ -351,6 +352,15 @@ const SignInIcon = {
       'aria-hidden': 'true',
       class: 'sidebar-svg-icon block h-5 w-5 shrink-0',
       innerHTML: sanitizeSvg(signInIcon)
+    })
+}
+
+const RankingIcon = {
+  render: () =>
+    h('span', {
+      'aria-hidden': 'true',
+      class: 'ranking-svg-icon block h-5 w-5 shrink-0',
+      innerHTML: sanitizeSvg(rankingIcon)
     })
 }
 
@@ -699,6 +709,7 @@ const ChevronDownIcon = {
 const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
 const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
+const flagDailyTokenRanking = makeSidebarFlag(FeatureFlags.dailyTokenRanking)
 const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
@@ -722,6 +733,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
+    { path: '/ranking', label: t('nav.ranking'), icon: RankingIcon, featureFlag: flagDailyTokenRanking },
     { path: '/check-in', label: t('nav.checkin'), icon: SignInIcon, featureFlag: flagCheckin },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
@@ -1103,6 +1115,16 @@ onBeforeUnmount(() => {
   display: block;
   width: 1.25rem;
   height: 1.25rem;
+  fill: currentColor;
+}
+
+.ranking-svg-icon :deep(svg) {
+  display: block;
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.ranking-svg-icon :deep(path) {
   fill: currentColor;
 }
 </style>

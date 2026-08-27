@@ -431,6 +431,10 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	// Available channels feature switch
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
 
+	// Daily token ranking feature switch and display limit
+	updates[SettingKeyDailyTokenRankingEnabled] = strconv.FormatBool(settings.DailyTokenRankingEnabled)
+	updates[SettingKeyDailyTokenRankingLimit] = strconv.Itoa(clampDailyTokenRankingLimit(settings.DailyTokenRankingLimit))
+
 	// Model plaza feature switches + description
 	updates[SettingKeyModelPlazaEnabled] = strconv.FormatBool(settings.ModelPlazaEnabled)
 	updates[SettingKeyModelPlazaRequireAuth] = strconv.FormatBool(settings.ModelPlazaRequireAuth)

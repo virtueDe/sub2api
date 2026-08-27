@@ -723,6 +723,10 @@ export interface SystemSettings {
   // Available Channels feature switch
   available_channels_enabled: boolean;
 
+  // Daily token ranking feature
+  daily_token_ranking_enabled: boolean;
+  daily_token_ranking_limit: number;
+
   // Model Plaza feature switches + description
   model_plaza_enabled: boolean;
   model_plaza_require_auth: boolean;
@@ -1022,6 +1026,10 @@ export interface UpdateSettingsRequest {
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
+
+  // Daily token ranking feature
+  daily_token_ranking_enabled?: boolean;
+  daily_token_ranking_limit?: number;
 
   // Model Plaza feature switches + description
   model_plaza_enabled?: boolean;

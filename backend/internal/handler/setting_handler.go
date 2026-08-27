@@ -110,6 +110,8 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		ChannelMonitorShowQuota:              settings.ChannelMonitorShowQuota,
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
+		DailyTokenRankingEnabled: settings.DailyTokenRankingEnabled,
+		DailyTokenRankingLimit:   settings.DailyTokenRankingLimit,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,

@@ -164,6 +164,16 @@ type UserSpendingRankingResponse struct {
 	TotalTokens     int64                     `json:"total_tokens"`
 }
 
+// DailyTokenRankingSource is the internal aggregation row used to build the
+// user-facing daily token ranking. Identity fields must be masked before they
+// leave the service layer.
+type DailyTokenRankingSource struct {
+	UserID      int64
+	Email       string
+	Username    string
+	TotalTokens int64
+}
+
 // UserBreakdownItem represents per-user usage breakdown within a dimension (group, model, endpoint).
 type UserBreakdownItem struct {
 	UserID       int64   `json:"user_id"`

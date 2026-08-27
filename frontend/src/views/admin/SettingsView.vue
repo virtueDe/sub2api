@@ -7189,6 +7189,47 @@
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
             <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.dailyTokenRanking.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.dailyTokenRanking.description') }}
+            </p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div class="min-w-0">
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.features.dailyTokenRanking.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.dailyTokenRanking.enabledHint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.daily_token_ranking_enabled" />
+            </div>
+
+            <div v-if="form.daily_token_ranking_enabled" class="max-w-sm">
+              <label class="input-label">
+                {{ t('admin.settings.features.dailyTokenRanking.limit') }}
+              </label>
+              <input
+                v-model.number="form.daily_token_ranking_limit"
+                type="number"
+                min="1"
+                max="50"
+                step="1"
+                class="input"
+              />
+              <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                {{ t('admin.settings.features.dailyTokenRanking.limitHint') }}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('admin.settings.features.modelPlaza.title') }}
             </h2>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
@@ -9831,6 +9872,9 @@ const form = reactive<SettingsForm>({
   channel_monitor_show_quota: false,
   // Available Channels feature switch
   available_channels_enabled: false,
+  // Daily token ranking feature
+  daily_token_ranking_enabled: false,
+  daily_token_ranking_limit: 10,
   // Model Plaza feature switches + description
   model_plaza_enabled: false,
   model_plaza_require_auth: false,
@@ -11093,6 +11137,20 @@ function findDuplicateDefaultSubscription(
 async function saveSettings() {
   saving.value = true;
   try {
+    const normalizedDailyTokenRankingLimit = Number(
+      form.daily_token_ranking_limit,
+    );
+    if (
+      !Number.isInteger(normalizedDailyTokenRankingLimit) ||
+      normalizedDailyTokenRankingLimit < 1 ||
+      normalizedDailyTokenRankingLimit > 50
+    ) {
+      appStore.showError(
+        t("admin.settings.features.dailyTokenRanking.limitError"),
+      );
+      return;
+    }
+
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
     );
@@ -11544,6 +11602,9 @@ async function saveSettings() {
       channel_monitor_show_quota: Boolean(form.channel_monitor_show_quota),
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
+      // Daily token ranking feature
+      daily_token_ranking_enabled: form.daily_token_ranking_enabled,
+      daily_token_ranking_limit: normalizedDailyTokenRankingLimit,
       // Model Plaza feature switches + description
       model_plaza_enabled: form.model_plaza_enabled,
       model_plaza_require_auth: form.model_plaza_require_auth,

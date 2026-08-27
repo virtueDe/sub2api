@@ -162,6 +162,7 @@ export default {
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',
     usage: 'Usage',
+    ranking: 'Today\'s Ranking',
     checkin: 'Daily Check-in',
     checkinRecords: 'Check-in Records',
     redeem: 'Redeem',
@@ -475,6 +476,20 @@ export default {
       CHECK_IN_CONSUMPTION_THRESHOLD_NOT_MET: 'Today\'s consumption does not meet the check-in requirement (current: ${current}; required: at least ${required}).',
       fallback: 'Check-in failed. Please try again later.'
     }
+  },
+
+  ranking: {
+    title: 'Daily Token Ranking',
+    description: 'Today\'s token usage ranking from successfully billed requests.',
+    date: 'Date: {date}',
+    timezone: 'System timezone: {timezone}',
+    updatedAt: 'Updated {time}',
+    rank: 'Rank',
+    user: 'User',
+    tokens: 'Tokens Used',
+    empty: 'No successfully billed token usage has been recorded today',
+    loadFailed: 'Failed to load the ranking',
+    retry: 'Reload',
   },
 
   // Dashboard

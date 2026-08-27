@@ -57,6 +57,15 @@ export default {
           enabled: '启用可用渠道',
           enabledHint: '关闭后用户端侧边栏入口隐藏，接口返回空数组。',
         },
+        dailyTokenRanking: {
+          title: '今日 Token 排行',
+          description: '向已登录用户展示本站当日成功扣费请求的 Token 消耗排名。默认关闭。',
+          enabled: '启用今日 Token 排行',
+          enabledHint: '关闭后用户侧边栏入口隐藏，手动访问页面和接口也会被阻止。',
+          limit: '展示人数',
+          limitHint: '设置榜单展示前几名，可填写 1 – 50，默认 10。',
+          limitError: '榜单展示人数必须是 1 到 50 之间的整数。',
+        },
         modelPlaza: {
           title: '模型广场',
           description: '以分组为单位向访客展示可用模型与价格的公开页面。默认关闭。',

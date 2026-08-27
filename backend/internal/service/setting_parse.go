@@ -200,6 +200,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		// Available channels feature (default disabled; opt-in)
 		SettingKeyAvailableChannelsEnabled: "false",
 
+		// Daily token ranking (default disabled, top 10)
+		SettingKeyDailyTokenRankingEnabled: "false",
+		SettingKeyDailyTokenRankingLimit:   "10",
+
 		// Model plaza feature (default disabled; opt-in, public unless require_auth)
 		SettingKeyModelPlazaEnabled:       "false",
 		SettingKeyModelPlazaRequireAuth:   "false",
@@ -816,6 +820,10 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Available channels feature (default: disabled; strict true)
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
+
+	// Daily token ranking feature (default: disabled, top 10)
+	result.DailyTokenRankingEnabled = settings[SettingKeyDailyTokenRankingEnabled] == "true"
+	result.DailyTokenRankingLimit = parseDailyTokenRankingLimit(settings[SettingKeyDailyTokenRankingLimit])
 
 	// Model plaza feature (default: disabled; strict true)
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"

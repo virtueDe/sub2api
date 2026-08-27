@@ -104,6 +104,11 @@ export const FeatureFlags = {
     mode: 'opt-in',
     label: 'Available Channels',
   }),
+  dailyTokenRanking: defineFlag({
+    key: 'daily_token_ranking_enabled',
+    mode: 'opt-in',
+    label: 'Daily Token Ranking',
+  }),
   modelPlaza: defineFlag({
     key: 'model_plaza_enabled',
     mode: 'opt-in',

@@ -402,6 +402,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		GrokDefaultBaseURLMode:         settings.GrokDefaultBaseURLMode,
 
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
+		DailyTokenRankingEnabled: settings.DailyTokenRankingEnabled,
+		DailyTokenRankingLimit:   settings.DailyTokenRankingLimit,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,
