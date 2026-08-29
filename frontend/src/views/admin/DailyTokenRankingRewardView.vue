@@ -21,7 +21,7 @@
             :aria-label="t('admin.dailyTokenRankingReward.date')"
             @change="loadPreview"
           />
-          <button type="button" class="btn btn-secondary h-10" :disabled="loading" :title="t('common.refresh')" @click="loadPreview">
+          <button type="button" class="btn btn-secondary h-10 min-w-[84px] shrink-0 justify-center whitespace-nowrap" :disabled="loading" :title="t('common.refresh')" @click="loadPreview">
             <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
             <span class="hidden sm:inline">{{ t('common.refresh') }}</span>
           </button>
