@@ -21,13 +21,9 @@
             :aria-label="t('admin.dailyTokenRankingReward.date')"
             @change="loadPreview"
           />
-          <button type="button" class="btn btn-secondary h-10 min-w-[84px] shrink-0 justify-center whitespace-nowrap" :disabled="loading" :title="t('common.refresh')" @click="loadLivePreview">
+          <button type="button" class="btn btn-secondary h-10 min-w-[84px] shrink-0 justify-center whitespace-nowrap" :disabled="loading" :title="t('common.refresh')" @click="loadPreview">
             <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
             <span class="hidden sm:inline">{{ t('common.refresh') }}</span>
-          </button>
-          <button type="button" class="btn btn-secondary h-10 shrink-0 whitespace-nowrap" :disabled="loading" @click="loadMockPreview">
-            <Icon name="sparkles" size="sm" />
-            <span class="hidden sm:inline">{{ t('admin.dailyTokenRankingReward.loadMock') }}</span>
           </button>
         </div>
       </div>
@@ -39,7 +35,6 @@
           <span class="h-1.5 w-1.5 rounded-full bg-current" />
           {{ reward.settled ? t('admin.dailyTokenRankingReward.settled') : t('admin.dailyTokenRankingReward.pending') }}
         </span>
-        <span v-if="mockMode" class="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{{ t('admin.dailyTokenRankingReward.mockMode') }}</span>
       </div>
 
       <section class="card overflow-hidden">
@@ -48,16 +43,6 @@
             <h2 class="font-semibold text-gray-900 dark:text-white">{{ t('admin.dailyTokenRankingReward.candidates') }}</h2>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.dailyTokenRankingReward.rewardRule') }}</p>
           </div>
-          <button
-            v-if="reward && !reward.settled && reward.entries.length > 0"
-            type="button"
-            class="btn btn-primary"
-            :disabled="settling"
-            @click="settle"
-          >
-            <Icon name="checkCircle" size="sm" />
-            {{ settling ? t('common.submitting') : t('admin.dailyTokenRankingReward.settle') }}
-          </button>
         </div>
 
         <div v-if="loading" class="flex min-h-56 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
@@ -78,6 +63,7 @@
                 <th class="px-4 py-3 text-right">{{ t('admin.dailyTokenRankingReward.reward') }}</th>
                 <th class="px-4 py-3">{{ t('admin.dailyTokenRankingReward.status') }}</th>
                 <th class="px-4 py-3 sm:px-6">{{ t('admin.dailyTokenRankingReward.note') }}</th>
+                <th class="px-4 py-3 text-right sm:px-6">{{ t('common.actions') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-700/70">
@@ -92,6 +78,19 @@
                   <span v-if="entry.reason" class="mt-1 block max-w-40 text-xs text-gray-500 dark:text-gray-400">{{ entry.reason }}</span>
                 </td>
                 <td class="whitespace-nowrap px-4 py-4 text-xs text-gray-500 dark:text-gray-400 sm:px-6">{{ entry.note }}</td>
+                <td class="whitespace-nowrap px-4 py-4 text-right sm:px-6">
+                  <button
+                    v-if="entry.status === 'pending'"
+                    type="button"
+                    class="btn btn-primary min-w-[96px] justify-center whitespace-nowrap"
+                    :disabled="settlingRank !== null"
+                    @click="settle(entry)"
+                  >
+                    <Icon name="checkCircle" size="sm" />
+                    {{ settlingRank === entry.rank ? t('common.submitting') : t('admin.dailyTokenRankingReward.settle') }}
+                  </button>
+                  <span v-else class="text-xs text-gray-400 dark:text-gray-500">—</span>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -108,14 +107,13 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import dailyTokenRankingRewardAPI, { type DailyTokenRankingRewardResponse } from '@/api/admin/dailyTokenRankingReward'
+import dailyTokenRankingRewardAPI, { type DailyTokenRankingRewardEntry, type DailyTokenRankingRewardResponse } from '@/api/admin/dailyTokenRankingReward'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const reward = ref<DailyTokenRankingRewardResponse | null>(null)
 const loading = ref(false)
-const settling = ref(false)
-const mockMode = ref(false)
+const settlingRank = ref<number | null>(null)
 
 const dateInBeijing = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(date)
 const yesterday = dateInBeijing(new Date(Date.now() - 86400000))
@@ -131,7 +129,7 @@ const statusLabel = (status: string) => {
 const loadPreview = async () => {
   loading.value = true
   try {
-    reward.value = await dailyTokenRankingRewardAPI.preview(selectedDate.value, mockMode.value)
+    reward.value = await dailyTokenRankingRewardAPI.preview(selectedDate.value)
     selectedDate.value = reward.value.date
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('admin.dailyTokenRankingReward.loadFailed')))
@@ -140,33 +138,20 @@ const loadPreview = async () => {
   }
 }
 
-const loadMockPreview = async () => {
-  mockMode.value = true
-  await loadPreview()
-}
-
-const loadLivePreview = async () => {
-  mockMode.value = false
-  await loadPreview()
-}
-
-const settle = async () => {
-  const confirmKey = mockMode.value
-    ? 'admin.dailyTokenRankingReward.confirmMockSettle'
-    : 'admin.dailyTokenRankingReward.confirmSettle'
-  if (!reward.value || reward.value.settled || !window.confirm(t(confirmKey))) return
-  settling.value = true
+const settle = async (entry: DailyTokenRankingRewardEntry) => {
+  if (!reward.value || entry.status !== 'pending' || !window.confirm(t('admin.dailyTokenRankingReward.confirmSettle', { rank: entry.rank, amount: entry.reward_amount.toFixed(2) }))) return
+  settlingRank.value = entry.rank
   try {
-    reward.value = await dailyTokenRankingRewardAPI.settle(reward.value.date, mockMode.value)
-    appStore.showSuccess(t('admin.dailyTokenRankingReward.settleSuccess'))
+    reward.value = await dailyTokenRankingRewardAPI.settle(reward.value.date, entry.rank)
+    appStore.showSuccess(t('admin.dailyTokenRankingReward.settleSuccess', { rank: entry.rank }))
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('admin.dailyTokenRankingReward.settleFailed')))
   } finally {
-    settling.value = false
+    settlingRank.value = null
   }
 }
 
-onMounted(loadLivePreview)
+onMounted(loadPreview)
 </script>
 
 <style scoped>

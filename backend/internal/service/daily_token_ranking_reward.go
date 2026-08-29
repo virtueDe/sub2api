@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
@@ -34,7 +35,7 @@ type DailyTokenRankingRewardResponse struct {
 
 type DailyTokenRankingRewardRepository interface {
 	ListByDate(ctx context.Context, rewardDate string) ([]DailyTokenRankingRewardEntry, error)
-	Settle(ctx context.Context, rewardDate string, operatorID int64, entries []DailyTokenRankingRewardEntry) ([]DailyTokenRankingRewardEntry, error)
+	SettleRank(ctx context.Context, rewardDate string, operatorID int64, entries []DailyTokenRankingRewardEntry, rank int) (DailyTokenRankingRewardEntry, error)
 }
 
 type DailyTokenRankingRewardService struct {
@@ -59,72 +60,61 @@ func NewDailyTokenRankingRewardService(
 }
 
 func (s *DailyTokenRankingRewardService) Preview(ctx context.Context, rewardDate string) (*DailyTokenRankingRewardResponse, error) {
-	return s.preview(ctx, rewardDate, false)
-}
-
-func (s *DailyTokenRankingRewardService) PreviewWithMock(ctx context.Context, rewardDate string, mock bool) (*DailyTokenRankingRewardResponse, error) {
-	return s.preview(ctx, rewardDate, mock)
-}
-
-func (s *DailyTokenRankingRewardService) preview(ctx context.Context, rewardDate string, mock bool) (*DailyTokenRankingRewardResponse, error) {
 	date, start, end, err := normalizeDailyTokenRankingRewardDate(rewardDate)
 	if err != nil {
 		return nil, err
 	}
-	if existing, err := s.rewardRepo.ListByDate(ctx, date); err != nil {
-		return nil, err
-	} else if len(existing) > 0 {
-		return &DailyTokenRankingRewardResponse{Date: date, Timezone: dailyTokenRankingRewardTimezone, Settled: true, Entries: filterDailyTokenRankingRewardEntries(existing)}, nil
-	}
-
-	var rows []usagestats.DailyTokenRankingSource
-	if mock {
-		rows, err = s.rankingRepo.GetMockDailyTokenRankingForSettlement(ctx, 3)
-	} else {
-		rows, err = s.rankingRepo.GetDailyTokenRankingForSettlement(ctx, start, end, 3)
-	}
+	existing, err := s.rewardRepo.ListByDate(ctx, date)
 	if err != nil {
 		return nil, err
 	}
+	rows, err := s.rankingRepo.GetDailyTokenRankingForSettlement(ctx, start, end, 3)
+	if err != nil {
+		return nil, err
+	}
+	entries := mergeDailyTokenRankingRewardEntries(buildDailyTokenRankingRewardEntries(date, rows), existing)
 	return &DailyTokenRankingRewardResponse{
 		Date:     date,
 		Timezone: dailyTokenRankingRewardTimezone,
-		Entries:  buildDailyTokenRankingRewardEntries(date, rows),
+		Settled:  dailyTokenRankingRewardsSettled(entries),
+		Entries:  entries,
 	}, nil
 }
 
-func (s *DailyTokenRankingRewardService) Settle(ctx context.Context, rewardDate string, operatorID int64) (*DailyTokenRankingRewardResponse, error) {
-	return s.settle(ctx, rewardDate, operatorID, false)
-}
-
-func (s *DailyTokenRankingRewardService) SettleWithMock(ctx context.Context, rewardDate string, operatorID int64, mock bool) (*DailyTokenRankingRewardResponse, error) {
-	return s.settle(ctx, rewardDate, operatorID, mock)
-}
-
-func (s *DailyTokenRankingRewardService) settle(ctx context.Context, rewardDate string, operatorID int64, mock bool) (*DailyTokenRankingRewardResponse, error) {
-	preview, err := s.preview(ctx, rewardDate, mock)
+func (s *DailyTokenRankingRewardService) SettleRank(ctx context.Context, rewardDate string, rank int, operatorID int64) (*DailyTokenRankingRewardResponse, error) {
+	if rank < 1 || rank > 3 {
+		return nil, fmt.Errorf("rank must be between 1 and 3")
+	}
+	preview, err := s.Preview(ctx, rewardDate)
 	if err != nil {
 		return nil, err
 	}
-	if preview.Settled {
+	var target *DailyTokenRankingRewardEntry
+	for index := range preview.Entries {
+		if preview.Entries[index].Rank == rank {
+			target = &preview.Entries[index]
+			break
+		}
+	}
+	if target == nil {
+		return nil, fmt.Errorf("rank %d is not available for %s", rank, preview.Date)
+	}
+	if target.Status != "pending" {
 		return preview, nil
 	}
-	entries, err := s.rewardRepo.Settle(ctx, preview.Date, operatorID, preview.Entries)
+	settledEntry, err := s.rewardRepo.SettleRank(ctx, preview.Date, operatorID, preview.Entries, rank)
 	if err != nil {
 		return nil, err
 	}
-	for _, entry := range entries {
-		if entry.Status != "paid" {
-			continue
-		}
+	if settledEntry.Status == "paid" {
 		if s.authCacheInvalidator != nil {
-			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, entry.UserID)
+			s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, settledEntry.UserID)
 		}
 		if s.billingCache != nil {
-			_ = s.billingCache.InvalidateUserBalance(ctx, entry.UserID)
+			_ = s.billingCache.InvalidateUserBalance(ctx, settledEntry.UserID)
 		}
 	}
-	return &DailyTokenRankingRewardResponse{Date: preview.Date, Timezone: dailyTokenRankingRewardTimezone, Settled: true, Entries: filterDailyTokenRankingRewardEntries(entries)}, nil
+	return s.Preview(ctx, preview.Date)
 }
 
 func normalizeDailyTokenRankingRewardDate(raw string) (string, time.Time, time.Time, error) {
@@ -166,12 +156,34 @@ func buildDailyTokenRankingRewardEntries(date string, rows []usagestats.DailyTok
 	return entries
 }
 
-func filterDailyTokenRankingRewardEntries(entries []DailyTokenRankingRewardEntry) []DailyTokenRankingRewardEntry {
-	filtered := make([]DailyTokenRankingRewardEntry, 0, len(entries))
-	for _, entry := range entries {
+func mergeDailyTokenRankingRewardEntries(candidates, existing []DailyTokenRankingRewardEntry) []DailyTokenRankingRewardEntry {
+	byRank := make(map[int]DailyTokenRankingRewardEntry, len(candidates)+len(existing))
+	for _, entry := range candidates {
 		if entry.Rank > 0 {
-			filtered = append(filtered, entry)
+			byRank[entry.Rank] = entry
 		}
 	}
-	return filtered
+	for _, entry := range existing {
+		if entry.Rank > 0 {
+			byRank[entry.Rank] = entry
+		}
+	}
+	merged := make([]DailyTokenRankingRewardEntry, 0, len(byRank))
+	for _, entry := range byRank {
+		merged = append(merged, entry)
+	}
+	sort.Slice(merged, func(i, j int) bool { return merged[i].Rank < merged[j].Rank })
+	return merged
+}
+
+func dailyTokenRankingRewardsSettled(entries []DailyTokenRankingRewardEntry) bool {
+	if len(entries) == 0 {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.Status == "pending" {
+			return false
+		}
+	}
+	return true
 }
