@@ -27,6 +27,35 @@ func (r *usageLogRepository) GetDailyTokenRankingForSettlement(
 	return r.getDailyTokenRanking(ctx, startTime, endTime, limit, false)
 }
 
+// GetMockDailyTokenRankingForSettlement provides explicit admin test data from
+// active ordinary users without requiring usage log rows.
+func (r *usageLogRepository) GetMockDailyTokenRankingForSettlement(
+	ctx context.Context,
+	limit int,
+) ([]usagestats.DailyTokenRankingSource, error) {
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT id, COALESCE(email, ''), COALESCE(username, ''),
+			(3000000 - ROW_NUMBER() OVER (ORDER BY id) * 500000)::bigint AS total_tokens,
+			(30 - ROW_NUMBER() OVER (ORDER BY id) * 5)::bigint AS request_count
+		FROM users
+		WHERE role = 'user' AND status = 'active' AND deleted_at IS NULL
+		ORDER BY id ASC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]usagestats.DailyTokenRankingSource, 0, limit)
+	for rows.Next() {
+		var row usagestats.DailyTokenRankingSource
+		if err := rows.Scan(&row.UserID, &row.Email, &row.Username, &row.TotalTokens, &row.RequestCount); err != nil {
+			return nil, err
+		}
+		result = append(result, row)
+	}
+	return result, rows.Err()
+}
+
 func (r *usageLogRepository) getDailyTokenRanking(
 	ctx context.Context,
 	startTime, endTime time.Time,

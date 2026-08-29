@@ -46,6 +46,14 @@ func (s *dailyTokenRankingRepoStub) GetDailyTokenRankingForSettlement(
 	return s.rows, s.err
 }
 
+func (s *dailyTokenRankingRepoStub) GetMockDailyTokenRankingForSettlement(
+	_ context.Context,
+	limit int,
+) ([]usagestats.DailyTokenRankingSource, error) {
+	s.limit = limit
+	return s.rows, s.err
+}
+
 func TestDailyTokenRankingServiceMasksIdentityAndCaches(t *testing.T) {
 	settings := &settingRepoStub{values: map[string]string{
 		SettingKeyDailyTokenRankingEnabled: "true",

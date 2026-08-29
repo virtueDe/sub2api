@@ -59,6 +59,14 @@ func NewDailyTokenRankingRewardService(
 }
 
 func (s *DailyTokenRankingRewardService) Preview(ctx context.Context, rewardDate string) (*DailyTokenRankingRewardResponse, error) {
+	return s.preview(ctx, rewardDate, false)
+}
+
+func (s *DailyTokenRankingRewardService) PreviewWithMock(ctx context.Context, rewardDate string, mock bool) (*DailyTokenRankingRewardResponse, error) {
+	return s.preview(ctx, rewardDate, mock)
+}
+
+func (s *DailyTokenRankingRewardService) preview(ctx context.Context, rewardDate string, mock bool) (*DailyTokenRankingRewardResponse, error) {
 	date, start, end, err := normalizeDailyTokenRankingRewardDate(rewardDate)
 	if err != nil {
 		return nil, err
@@ -69,7 +77,12 @@ func (s *DailyTokenRankingRewardService) Preview(ctx context.Context, rewardDate
 		return &DailyTokenRankingRewardResponse{Date: date, Timezone: dailyTokenRankingRewardTimezone, Settled: true, Entries: filterDailyTokenRankingRewardEntries(existing)}, nil
 	}
 
-	rows, err := s.rankingRepo.GetDailyTokenRankingForSettlement(ctx, start, end, 3)
+	var rows []usagestats.DailyTokenRankingSource
+	if mock {
+		rows, err = s.rankingRepo.GetMockDailyTokenRankingForSettlement(ctx, 3)
+	} else {
+		rows, err = s.rankingRepo.GetDailyTokenRankingForSettlement(ctx, start, end, 3)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +94,15 @@ func (s *DailyTokenRankingRewardService) Preview(ctx context.Context, rewardDate
 }
 
 func (s *DailyTokenRankingRewardService) Settle(ctx context.Context, rewardDate string, operatorID int64) (*DailyTokenRankingRewardResponse, error) {
-	preview, err := s.Preview(ctx, rewardDate)
+	return s.settle(ctx, rewardDate, operatorID, false)
+}
+
+func (s *DailyTokenRankingRewardService) SettleWithMock(ctx context.Context, rewardDate string, operatorID int64, mock bool) (*DailyTokenRankingRewardResponse, error) {
+	return s.settle(ctx, rewardDate, operatorID, mock)
+}
+
+func (s *DailyTokenRankingRewardService) settle(ctx context.Context, rewardDate string, operatorID int64, mock bool) (*DailyTokenRankingRewardResponse, error) {
+	preview, err := s.preview(ctx, rewardDate, mock)
 	if err != nil {
 		return nil, err
 	}

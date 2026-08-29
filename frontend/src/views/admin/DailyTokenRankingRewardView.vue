@@ -21,9 +21,13 @@
             :aria-label="t('admin.dailyTokenRankingReward.date')"
             @change="loadPreview"
           />
-          <button type="button" class="btn btn-secondary h-10 min-w-[84px] shrink-0 justify-center whitespace-nowrap" :disabled="loading" :title="t('common.refresh')" @click="loadPreview">
+          <button type="button" class="btn btn-secondary h-10 min-w-[84px] shrink-0 justify-center whitespace-nowrap" :disabled="loading" :title="t('common.refresh')" @click="loadLivePreview">
             <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
             <span class="hidden sm:inline">{{ t('common.refresh') }}</span>
+          </button>
+          <button type="button" class="btn btn-secondary h-10 shrink-0 whitespace-nowrap" :disabled="loading" @click="loadMockPreview">
+            <Icon name="sparkles" size="sm" />
+            <span class="hidden sm:inline">{{ t('admin.dailyTokenRankingReward.loadMock') }}</span>
           </button>
         </div>
       </div>
@@ -35,6 +39,7 @@
           <span class="h-1.5 w-1.5 rounded-full bg-current" />
           {{ reward.settled ? t('admin.dailyTokenRankingReward.settled') : t('admin.dailyTokenRankingReward.pending') }}
         </span>
+        <span v-if="mockMode" class="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">{{ t('admin.dailyTokenRankingReward.mockMode') }}</span>
       </div>
 
       <section class="card overflow-hidden">
@@ -110,6 +115,7 @@ const appStore = useAppStore()
 const reward = ref<DailyTokenRankingRewardResponse | null>(null)
 const loading = ref(false)
 const settling = ref(false)
+const mockMode = ref(false)
 
 const dateInBeijing = (date: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai' }).format(date)
 const yesterday = dateInBeijing(new Date(Date.now() - 86400000))
@@ -125,7 +131,7 @@ const statusLabel = (status: string) => {
 const loadPreview = async () => {
   loading.value = true
   try {
-    reward.value = await dailyTokenRankingRewardAPI.preview(selectedDate.value)
+    reward.value = await dailyTokenRankingRewardAPI.preview(selectedDate.value, mockMode.value)
     selectedDate.value = reward.value.date
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('admin.dailyTokenRankingReward.loadFailed')))
@@ -134,11 +140,24 @@ const loadPreview = async () => {
   }
 }
 
+const loadMockPreview = async () => {
+  mockMode.value = true
+  await loadPreview()
+}
+
+const loadLivePreview = async () => {
+  mockMode.value = false
+  await loadPreview()
+}
+
 const settle = async () => {
-  if (!reward.value || reward.value.settled || !window.confirm(t('admin.dailyTokenRankingReward.confirmSettle'))) return
+  const confirmKey = mockMode.value
+    ? 'admin.dailyTokenRankingReward.confirmMockSettle'
+    : 'admin.dailyTokenRankingReward.confirmSettle'
+  if (!reward.value || reward.value.settled || !window.confirm(t(confirmKey))) return
   settling.value = true
   try {
-    reward.value = await dailyTokenRankingRewardAPI.settle(reward.value.date)
+    reward.value = await dailyTokenRankingRewardAPI.settle(reward.value.date, mockMode.value)
     appStore.showSuccess(t('admin.dailyTokenRankingReward.settleSuccess'))
   } catch (error) {
     appStore.showError(extractApiErrorMessage(error, t('admin.dailyTokenRankingReward.settleFailed')))
@@ -147,7 +166,7 @@ const settle = async () => {
   }
 }
 
-onMounted(loadPreview)
+onMounted(loadLivePreview)
 </script>
 
 <style scoped>

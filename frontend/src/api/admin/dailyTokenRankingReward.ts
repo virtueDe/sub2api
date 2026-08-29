@@ -19,15 +19,15 @@ export interface DailyTokenRankingRewardResponse {
   entries: DailyTokenRankingRewardEntry[]
 }
 
-export async function previewDailyTokenRankingReward(date?: string): Promise<DailyTokenRankingRewardResponse> {
+export async function previewDailyTokenRankingReward(date?: string, mock = false): Promise<DailyTokenRankingRewardResponse> {
   const { data } = await apiClient.get<DailyTokenRankingRewardResponse>('/admin/usage/daily-token-ranking-reward', {
-    params: date ? { date } : undefined,
+    params: { ...(date ? { date } : {}), ...(mock ? { mock: 1 } : {}) },
   })
   return data
 }
 
-export async function settleDailyTokenRankingReward(date: string): Promise<DailyTokenRankingRewardResponse> {
-  const { data } = await apiClient.post<DailyTokenRankingRewardResponse>('/admin/usage/daily-token-ranking-reward/settle', { date })
+export async function settleDailyTokenRankingReward(date: string, mock = false): Promise<DailyTokenRankingRewardResponse> {
+  const { data } = await apiClient.post<DailyTokenRankingRewardResponse>('/admin/usage/daily-token-ranking-reward/settle', { date, mock })
   return data
 }
 

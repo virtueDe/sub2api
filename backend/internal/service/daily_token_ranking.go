@@ -26,6 +26,7 @@ var ErrDailyTokenRankingDisabled = infraerrors.NotFound(
 type DailyTokenRankingRepository interface {
 	GetDailyTokenRanking(ctx context.Context, startTime, endTime time.Time, limit int) ([]usagestats.DailyTokenRankingSource, error)
 	GetDailyTokenRankingForSettlement(ctx context.Context, startTime, endTime time.Time, limit int) ([]usagestats.DailyTokenRankingSource, error)
+	GetMockDailyTokenRankingForSettlement(ctx context.Context, limit int) ([]usagestats.DailyTokenRankingSource, error)
 }
 
 type DailyTokenRankingEntry struct {

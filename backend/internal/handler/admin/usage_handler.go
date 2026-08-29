@@ -37,7 +37,8 @@ func (h *UsageHandler) DailyTokenRankingRewardPreview(c *gin.Context) {
 		response.InternalError(c, "daily token ranking reward service is unavailable")
 		return
 	}
-	result, err := h.dailyTokenRankingRewardService.Preview(c.Request.Context(), strings.TrimSpace(c.Query("date")))
+	mock := c.Query("mock") == "1" || strings.EqualFold(c.Query("mock"), "true")
+	result, err := h.dailyTokenRankingRewardService.PreviewWithMock(c.Request.Context(), strings.TrimSpace(c.Query("date")), mock)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -52,6 +53,7 @@ func (h *UsageHandler) DailyTokenRankingRewardSettle(c *gin.Context) {
 	}
 	var req struct {
 		Date string `json:"date"`
+		Mock bool   `json:"mock"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
@@ -62,7 +64,7 @@ func (h *UsageHandler) DailyTokenRankingRewardSettle(c *gin.Context) {
 		response.Unauthorized(c, "authentication required")
 		return
 	}
-	result, err := h.dailyTokenRankingRewardService.Settle(c.Request.Context(), strings.TrimSpace(req.Date), subject.UserID)
+	result, err := h.dailyTokenRankingRewardService.SettleWithMock(c.Request.Context(), strings.TrimSpace(req.Date), subject.UserID, req.Mock)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
