@@ -114,6 +114,26 @@ func (_c *RedeemCodeCreate) SetNillableNotes(v *string) *RedeemCodeCreate {
 	return _c
 }
 
+// SetEntitlementProfile sets the "entitlement_profile" field.
+func (_c *RedeemCodeCreate) SetEntitlementProfile(v string) *RedeemCodeCreate {
+	_c.mutation.SetEntitlementProfile(v)
+	return _c
+}
+
+// SetNillableEntitlementProfile sets the "entitlement_profile" field if the given value is not nil.
+func (_c *RedeemCodeCreate) SetNillableEntitlementProfile(v *string) *RedeemCodeCreate {
+	if v != nil {
+		_c.SetEntitlementProfile(*v)
+	}
+	return _c
+}
+
+// SetEntitlementGroupIds sets the "entitlement_group_ids" field.
+func (_c *RedeemCodeCreate) SetEntitlementGroupIds(v []int64) *RedeemCodeCreate {
+	_c.mutation.SetEntitlementGroupIds(v)
+	return _c
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (_c *RedeemCodeCreate) SetCreatedAt(v time.Time) *RedeemCodeCreate {
 	_c.mutation.SetCreatedAt(v)
@@ -241,6 +261,14 @@ func (_c *RedeemCodeCreate) defaults() {
 		v := redeemcode.DefaultStatus
 		_c.mutation.SetStatus(v)
 	}
+	if _, ok := _c.mutation.EntitlementProfile(); !ok {
+		v := redeemcode.DefaultEntitlementProfile
+		_c.mutation.SetEntitlementProfile(v)
+	}
+	if _, ok := _c.mutation.EntitlementGroupIds(); !ok {
+		v := redeemcode.DefaultEntitlementGroupIds
+		_c.mutation.SetEntitlementGroupIds(v)
+	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		v := redeemcode.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
@@ -279,6 +307,17 @@ func (_c *RedeemCodeCreate) check() error {
 		if err := redeemcode.StatusValidator(v); err != nil {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.status": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.EntitlementProfile(); !ok {
+		return &ValidationError{Name: "entitlement_profile", err: errors.New(`ent: missing required field "RedeemCode.entitlement_profile"`)}
+	}
+	if v, ok := _c.mutation.EntitlementProfile(); ok {
+		if err := redeemcode.EntitlementProfileValidator(v); err != nil {
+			return &ValidationError{Name: "entitlement_profile", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.entitlement_profile": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.EntitlementGroupIds(); !ok {
+		return &ValidationError{Name: "entitlement_group_ids", err: errors.New(`ent: missing required field "RedeemCode.entitlement_group_ids"`)}
 	}
 	if _, ok := _c.mutation.CreatedAt(); !ok {
 		return &ValidationError{Name: "created_at", err: errors.New(`ent: missing required field "RedeemCode.created_at"`)}
@@ -336,6 +375,14 @@ func (_c *RedeemCodeCreate) createSpec() (*RedeemCode, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Notes(); ok {
 		_spec.SetField(redeemcode.FieldNotes, field.TypeString, value)
 		_node.Notes = &value
+	}
+	if value, ok := _c.mutation.EntitlementProfile(); ok {
+		_spec.SetField(redeemcode.FieldEntitlementProfile, field.TypeString, value)
+		_node.EntitlementProfile = value
+	}
+	if value, ok := _c.mutation.EntitlementGroupIds(); ok {
+		_spec.SetField(redeemcode.FieldEntitlementGroupIds, field.TypeJSON, value)
+		_node.EntitlementGroupIds = value
 	}
 	if value, ok := _c.mutation.CreatedAt(); ok {
 		_spec.SetField(redeemcode.FieldCreatedAt, field.TypeTime, value)
@@ -540,6 +587,30 @@ func (u *RedeemCodeUpsert) UpdateNotes() *RedeemCodeUpsert {
 // ClearNotes clears the value of the "notes" field.
 func (u *RedeemCodeUpsert) ClearNotes() *RedeemCodeUpsert {
 	u.SetNull(redeemcode.FieldNotes)
+	return u
+}
+
+// SetEntitlementProfile sets the "entitlement_profile" field.
+func (u *RedeemCodeUpsert) SetEntitlementProfile(v string) *RedeemCodeUpsert {
+	u.Set(redeemcode.FieldEntitlementProfile, v)
+	return u
+}
+
+// UpdateEntitlementProfile sets the "entitlement_profile" field to the value that was provided on create.
+func (u *RedeemCodeUpsert) UpdateEntitlementProfile() *RedeemCodeUpsert {
+	u.SetExcluded(redeemcode.FieldEntitlementProfile)
+	return u
+}
+
+// SetEntitlementGroupIds sets the "entitlement_group_ids" field.
+func (u *RedeemCodeUpsert) SetEntitlementGroupIds(v []int64) *RedeemCodeUpsert {
+	u.Set(redeemcode.FieldEntitlementGroupIds, v)
+	return u
+}
+
+// UpdateEntitlementGroupIds sets the "entitlement_group_ids" field to the value that was provided on create.
+func (u *RedeemCodeUpsert) UpdateEntitlementGroupIds() *RedeemCodeUpsert {
+	u.SetExcluded(redeemcode.FieldEntitlementGroupIds)
 	return u
 }
 
@@ -765,6 +836,34 @@ func (u *RedeemCodeUpsertOne) UpdateNotes() *RedeemCodeUpsertOne {
 func (u *RedeemCodeUpsertOne) ClearNotes() *RedeemCodeUpsertOne {
 	return u.Update(func(s *RedeemCodeUpsert) {
 		s.ClearNotes()
+	})
+}
+
+// SetEntitlementProfile sets the "entitlement_profile" field.
+func (u *RedeemCodeUpsertOne) SetEntitlementProfile(v string) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetEntitlementProfile(v)
+	})
+}
+
+// UpdateEntitlementProfile sets the "entitlement_profile" field to the value that was provided on create.
+func (u *RedeemCodeUpsertOne) UpdateEntitlementProfile() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateEntitlementProfile()
+	})
+}
+
+// SetEntitlementGroupIds sets the "entitlement_group_ids" field.
+func (u *RedeemCodeUpsertOne) SetEntitlementGroupIds(v []int64) *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetEntitlementGroupIds(v)
+	})
+}
+
+// UpdateEntitlementGroupIds sets the "entitlement_group_ids" field to the value that was provided on create.
+func (u *RedeemCodeUpsertOne) UpdateEntitlementGroupIds() *RedeemCodeUpsertOne {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateEntitlementGroupIds()
 	})
 }
 
@@ -1165,6 +1264,34 @@ func (u *RedeemCodeUpsertBulk) UpdateNotes() *RedeemCodeUpsertBulk {
 func (u *RedeemCodeUpsertBulk) ClearNotes() *RedeemCodeUpsertBulk {
 	return u.Update(func(s *RedeemCodeUpsert) {
 		s.ClearNotes()
+	})
+}
+
+// SetEntitlementProfile sets the "entitlement_profile" field.
+func (u *RedeemCodeUpsertBulk) SetEntitlementProfile(v string) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetEntitlementProfile(v)
+	})
+}
+
+// UpdateEntitlementProfile sets the "entitlement_profile" field to the value that was provided on create.
+func (u *RedeemCodeUpsertBulk) UpdateEntitlementProfile() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateEntitlementProfile()
+	})
+}
+
+// SetEntitlementGroupIds sets the "entitlement_group_ids" field.
+func (u *RedeemCodeUpsertBulk) SetEntitlementGroupIds(v []int64) *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.SetEntitlementGroupIds(v)
+	})
+}
+
+// UpdateEntitlementGroupIds sets the "entitlement_group_ids" field to the value that was provided on create.
+func (u *RedeemCodeUpsertBulk) UpdateEntitlementGroupIds() *RedeemCodeUpsertBulk {
+	return u.Update(func(s *RedeemCodeUpsert) {
+		s.UpdateEntitlementGroupIds()
 	})
 }
 

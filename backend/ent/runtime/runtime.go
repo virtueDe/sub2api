@@ -1735,12 +1735,22 @@ func init() {
 	redeemcode.DefaultStatus = redeemcodeDescStatus.Default.(string)
 	// redeemcode.StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	redeemcode.StatusValidator = redeemcodeDescStatus.Validators[0].(func(string) error)
+	// redeemcodeDescEntitlementProfile is the schema descriptor for entitlement_profile field.
+	redeemcodeDescEntitlementProfile := redeemcodeFields[7].Descriptor()
+	// redeemcode.DefaultEntitlementProfile holds the default value on creation for the entitlement_profile field.
+	redeemcode.DefaultEntitlementProfile = redeemcodeDescEntitlementProfile.Default.(string)
+	// redeemcode.EntitlementProfileValidator is a validator for the "entitlement_profile" field. It is called by the builders before save.
+	redeemcode.EntitlementProfileValidator = redeemcodeDescEntitlementProfile.Validators[0].(func(string) error)
+	// redeemcodeDescEntitlementGroupIds is the schema descriptor for entitlement_group_ids field.
+	redeemcodeDescEntitlementGroupIds := redeemcodeFields[8].Descriptor()
+	// redeemcode.DefaultEntitlementGroupIds holds the default value on creation for the entitlement_group_ids field.
+	redeemcode.DefaultEntitlementGroupIds = redeemcodeDescEntitlementGroupIds.Default.([]int64)
 	// redeemcodeDescCreatedAt is the schema descriptor for created_at field.
-	redeemcodeDescCreatedAt := redeemcodeFields[7].Descriptor()
+	redeemcodeDescCreatedAt := redeemcodeFields[9].Descriptor()
 	// redeemcode.DefaultCreatedAt holds the default value on creation for the created_at field.
 	redeemcode.DefaultCreatedAt = redeemcodeDescCreatedAt.Default.(func() time.Time)
 	// redeemcodeDescValidityDays is the schema descriptor for validity_days field.
-	redeemcodeDescValidityDays := redeemcodeFields[10].Descriptor()
+	redeemcodeDescValidityDays := redeemcodeFields[12].Descriptor()
 	// redeemcode.DefaultValidityDays holds the default value on creation for the validity_days field.
 	redeemcode.DefaultValidityDays = redeemcodeDescValidityDays.Default.(int)
 	securitysecretMixin := schema.SecuritySecret{}.Mixin()

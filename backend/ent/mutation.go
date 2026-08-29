@@ -38484,28 +38484,31 @@ func (m *ProxyMutation) ResetEdge(name string) error {
 // RedeemCodeMutation represents an operation that mutates the RedeemCode nodes in the graph.
 type RedeemCodeMutation struct {
 	config
-	op               Op
-	typ              string
-	id               *int64
-	code             *string
-	_type            *string
-	value            *float64
-	addvalue         *float64
-	status           *string
-	used_at          *time.Time
-	notes            *string
-	created_at       *time.Time
-	expires_at       *time.Time
-	validity_days    *int
-	addvalidity_days *int
-	clearedFields    map[string]struct{}
-	user             *int64
-	cleareduser      bool
-	group            *int64
-	clearedgroup     bool
-	done             bool
-	oldValue         func(context.Context) (*RedeemCode, error)
-	predicates       []predicate.RedeemCode
+	op                          Op
+	typ                         string
+	id                          *int64
+	code                        *string
+	_type                       *string
+	value                       *float64
+	addvalue                    *float64
+	status                      *string
+	used_at                     *time.Time
+	notes                       *string
+	entitlement_profile         *string
+	entitlement_group_ids       *[]int64
+	appendentitlement_group_ids []int64
+	created_at                  *time.Time
+	expires_at                  *time.Time
+	validity_days               *int
+	addvalidity_days            *int
+	clearedFields               map[string]struct{}
+	user                        *int64
+	cleareduser                 bool
+	group                       *int64
+	clearedgroup                bool
+	done                        bool
+	oldValue                    func(context.Context) (*RedeemCode, error)
+	predicates                  []predicate.RedeemCode
 }
 
 var _ ent.Mutation = (*RedeemCodeMutation)(nil)
@@ -38917,6 +38920,93 @@ func (m *RedeemCodeMutation) ResetNotes() {
 	delete(m.clearedFields, redeemcode.FieldNotes)
 }
 
+// SetEntitlementProfile sets the "entitlement_profile" field.
+func (m *RedeemCodeMutation) SetEntitlementProfile(s string) {
+	m.entitlement_profile = &s
+}
+
+// EntitlementProfile returns the value of the "entitlement_profile" field in the mutation.
+func (m *RedeemCodeMutation) EntitlementProfile() (r string, exists bool) {
+	v := m.entitlement_profile
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEntitlementProfile returns the old "entitlement_profile" field's value of the RedeemCode entity.
+// If the RedeemCode object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RedeemCodeMutation) OldEntitlementProfile(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEntitlementProfile is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEntitlementProfile requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEntitlementProfile: %w", err)
+	}
+	return oldValue.EntitlementProfile, nil
+}
+
+// ResetEntitlementProfile resets all changes to the "entitlement_profile" field.
+func (m *RedeemCodeMutation) ResetEntitlementProfile() {
+	m.entitlement_profile = nil
+}
+
+// SetEntitlementGroupIds sets the "entitlement_group_ids" field.
+func (m *RedeemCodeMutation) SetEntitlementGroupIds(i []int64) {
+	m.entitlement_group_ids = &i
+	m.appendentitlement_group_ids = nil
+}
+
+// EntitlementGroupIds returns the value of the "entitlement_group_ids" field in the mutation.
+func (m *RedeemCodeMutation) EntitlementGroupIds() (r []int64, exists bool) {
+	v := m.entitlement_group_ids
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldEntitlementGroupIds returns the old "entitlement_group_ids" field's value of the RedeemCode entity.
+// If the RedeemCode object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *RedeemCodeMutation) OldEntitlementGroupIds(ctx context.Context) (v []int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldEntitlementGroupIds is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldEntitlementGroupIds requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldEntitlementGroupIds: %w", err)
+	}
+	return oldValue.EntitlementGroupIds, nil
+}
+
+// AppendEntitlementGroupIds adds i to the "entitlement_group_ids" field.
+func (m *RedeemCodeMutation) AppendEntitlementGroupIds(i []int64) {
+	m.appendentitlement_group_ids = append(m.appendentitlement_group_ids, i...)
+}
+
+// AppendedEntitlementGroupIds returns the list of values that were appended to the "entitlement_group_ids" field in this mutation.
+func (m *RedeemCodeMutation) AppendedEntitlementGroupIds() ([]int64, bool) {
+	if len(m.appendentitlement_group_ids) == 0 {
+		return nil, false
+	}
+	return m.appendentitlement_group_ids, true
+}
+
+// ResetEntitlementGroupIds resets all changes to the "entitlement_group_ids" field.
+func (m *RedeemCodeMutation) ResetEntitlementGroupIds() {
+	m.entitlement_group_ids = nil
+	m.appendentitlement_group_ids = nil
+}
+
 // SetCreatedAt sets the "created_at" field.
 func (m *RedeemCodeMutation) SetCreatedAt(t time.Time) {
 	m.created_at = &t
@@ -39208,7 +39298,7 @@ func (m *RedeemCodeMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *RedeemCodeMutation) Fields() []string {
-	fields := make([]string, 0, 11)
+	fields := make([]string, 0, 13)
 	if m.code != nil {
 		fields = append(fields, redeemcode.FieldCode)
 	}
@@ -39229,6 +39319,12 @@ func (m *RedeemCodeMutation) Fields() []string {
 	}
 	if m.notes != nil {
 		fields = append(fields, redeemcode.FieldNotes)
+	}
+	if m.entitlement_profile != nil {
+		fields = append(fields, redeemcode.FieldEntitlementProfile)
+	}
+	if m.entitlement_group_ids != nil {
+		fields = append(fields, redeemcode.FieldEntitlementGroupIds)
 	}
 	if m.created_at != nil {
 		fields = append(fields, redeemcode.FieldCreatedAt)
@@ -39264,6 +39360,10 @@ func (m *RedeemCodeMutation) Field(name string) (ent.Value, bool) {
 		return m.UsedAt()
 	case redeemcode.FieldNotes:
 		return m.Notes()
+	case redeemcode.FieldEntitlementProfile:
+		return m.EntitlementProfile()
+	case redeemcode.FieldEntitlementGroupIds:
+		return m.EntitlementGroupIds()
 	case redeemcode.FieldCreatedAt:
 		return m.CreatedAt()
 	case redeemcode.FieldExpiresAt:
@@ -39295,6 +39395,10 @@ func (m *RedeemCodeMutation) OldField(ctx context.Context, name string) (ent.Val
 		return m.OldUsedAt(ctx)
 	case redeemcode.FieldNotes:
 		return m.OldNotes(ctx)
+	case redeemcode.FieldEntitlementProfile:
+		return m.OldEntitlementProfile(ctx)
+	case redeemcode.FieldEntitlementGroupIds:
+		return m.OldEntitlementGroupIds(ctx)
 	case redeemcode.FieldCreatedAt:
 		return m.OldCreatedAt(ctx)
 	case redeemcode.FieldExpiresAt:
@@ -39360,6 +39464,20 @@ func (m *RedeemCodeMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetNotes(v)
+		return nil
+	case redeemcode.FieldEntitlementProfile:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEntitlementProfile(v)
+		return nil
+	case redeemcode.FieldEntitlementGroupIds:
+		v, ok := value.([]int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetEntitlementGroupIds(v)
 		return nil
 	case redeemcode.FieldCreatedAt:
 		v, ok := value.(time.Time)
@@ -39518,6 +39636,12 @@ func (m *RedeemCodeMutation) ResetField(name string) error {
 		return nil
 	case redeemcode.FieldNotes:
 		m.ResetNotes()
+		return nil
+	case redeemcode.FieldEntitlementProfile:
+		m.ResetEntitlementProfile()
+		return nil
+	case redeemcode.FieldEntitlementGroupIds:
+		m.ResetEntitlementGroupIds()
 		return nil
 	case redeemcode.FieldCreatedAt:
 		m.ResetCreatedAt()

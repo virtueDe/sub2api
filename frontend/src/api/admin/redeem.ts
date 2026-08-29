@@ -70,7 +70,9 @@ export async function generate(
   value: number,
   groupId?: number | null,
   validityDays?: number,
-  expiresInDays?: number | null
+  expiresInDays?: number | null,
+  entitlementProfile?: string,
+  entitlementGroupIds?: number[]
 ): Promise<RedeemCode[]> {
   const payload: GenerateRedeemCodesRequest = {
     count,
@@ -87,6 +89,10 @@ export async function generate(
   }
   if (expiresInDays && expiresInDays > 0) {
     payload.expires_in_days = expiresInDays
+  }
+  if (type === 'balance' && entitlementProfile && entitlementProfile !== 'none') {
+    payload.entitlement_profile = entitlementProfile
+    payload.entitlement_group_ids = entitlementGroupIds ?? []
   }
 
   const { data } = await apiClient.post<RedeemCode[]>('/admin/redeem-codes/generate', payload)

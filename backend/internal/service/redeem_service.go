@@ -254,6 +254,17 @@ func (s *RedeemService) CreateCode(ctx context.Context, code *RedeemCode) error 
 	if code.Type == "" {
 		code.Type = RedeemTypeBalance
 	}
+	code.EntitlementProfile = strings.TrimSpace(code.EntitlementProfile)
+	if code.EntitlementProfile == "" {
+		code.EntitlementProfile = "none"
+	}
+	code.EntitlementGroupIDs = normalizeEntitlementGroupIDs(code.EntitlementGroupIDs)
+	if code.EntitlementProfile == "none" && len(code.EntitlementGroupIDs) > 0 {
+		return infraerrors.BadRequest("REDEEM_CODE_ENTITLEMENT_INVALID", "entitlement groups require a non-none profile")
+	}
+	if code.EntitlementProfile != "none" && code.Type != RedeemTypeBalance {
+		return infraerrors.BadRequest("REDEEM_CODE_ENTITLEMENT_INVALID", "entitlements are only supported for balance codes")
+	}
 	if code.Type != RedeemTypeInvitation && code.Value == 0 {
 		return errors.New("value must not be zero")
 	}
@@ -268,6 +279,25 @@ func (s *RedeemService) CreateCode(ctx context.Context, code *RedeemCode) error 
 		return fmt.Errorf("create redeem code: %w", err)
 	}
 	return nil
+}
+
+func normalizeEntitlementGroupIDs(groupIDs []int64) []int64 {
+	if len(groupIDs) == 0 {
+		return []int64{}
+	}
+	seen := make(map[int64]struct{}, len(groupIDs))
+	result := make([]int64, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			continue
+		}
+		if _, exists := seen[groupID]; exists {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		result = append(result, groupID)
+	}
+	return result
 }
 
 func (s *RedeemService) BatchUpdate(ctx context.Context, input *RedeemCodeBatchUpdateInput) (*RedeemCodeBatchUpdateResult, error) {
@@ -466,6 +496,13 @@ func (s *RedeemService) Redeem(ctx context.Context, userID int64, code string) (
 			}
 		} else if err := s.userRepo.UpdateBalance(txCtx, userID, amount); err != nil {
 			return nil, fmt.Errorf("update user balance: %w", err)
+		}
+		if redeemCode.EntitlementProfile != "none" {
+			for _, groupID := range redeemCode.EntitlementGroupIDs {
+				if err := s.userRepo.AddGroupToAllowedGroups(txCtx, userID, groupID); err != nil {
+					return nil, fmt.Errorf("grant entitlement group %d: %w", groupID, err)
+				}
+			}
 		}
 
 	case RedeemTypeConcurrency:

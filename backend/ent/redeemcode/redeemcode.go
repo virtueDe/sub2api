@@ -28,6 +28,10 @@ const (
 	FieldUsedAt = "used_at"
 	// FieldNotes holds the string denoting the notes field in the database.
 	FieldNotes = "notes"
+	// FieldEntitlementProfile holds the string denoting the entitlement_profile field in the database.
+	FieldEntitlementProfile = "entitlement_profile"
+	// FieldEntitlementGroupIds holds the string denoting the entitlement_group_ids field in the database.
+	FieldEntitlementGroupIds = "entitlement_group_ids"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// FieldExpiresAt holds the string denoting the expires_at field in the database.
@@ -68,6 +72,8 @@ var Columns = []string{
 	FieldUsedBy,
 	FieldUsedAt,
 	FieldNotes,
+	FieldEntitlementProfile,
+	FieldEntitlementGroupIds,
 	FieldCreatedAt,
 	FieldExpiresAt,
 	FieldGroupID,
@@ -97,6 +103,12 @@ var (
 	DefaultStatus string
 	// StatusValidator is a validator for the "status" field. It is called by the builders before save.
 	StatusValidator func(string) error
+	// DefaultEntitlementProfile holds the default value on creation for the "entitlement_profile" field.
+	DefaultEntitlementProfile string
+	// EntitlementProfileValidator is a validator for the "entitlement_profile" field. It is called by the builders before save.
+	EntitlementProfileValidator func(string) error
+	// DefaultEntitlementGroupIds holds the default value on creation for the "entitlement_group_ids" field.
+	DefaultEntitlementGroupIds []int64
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultValidityDays holds the default value on creation for the "validity_days" field.
@@ -144,6 +156,11 @@ func ByUsedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByNotes orders the results by the notes field.
 func ByNotes(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldNotes, opts...).ToFunc()
+}
+
+// ByEntitlementProfile orders the results by the entitlement_profile field.
+func ByEntitlementProfile(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldEntitlementProfile, opts...).ToFunc()
 }
 
 // ByCreatedAt orders the results by the created_at field.

@@ -59,6 +59,12 @@ func (RedeemCode) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "text"}),
+		field.String("entitlement_profile").
+			MaxLen(50).
+			Default("none"),
+		field.JSON("entitlement_group_ids", []int64{}).
+			Default([]int64{}).
+			SchemaType(map[string]string{dialect.Postgres: "jsonb"}),
 		field.Time("created_at").
 			Immutable().
 			Default(time.Now).

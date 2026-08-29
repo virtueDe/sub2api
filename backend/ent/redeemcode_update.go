@@ -10,6 +10,7 @@ import (
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
@@ -150,6 +151,32 @@ func (_u *RedeemCodeUpdate) SetNillableNotes(v *string) *RedeemCodeUpdate {
 // ClearNotes clears the value of the "notes" field.
 func (_u *RedeemCodeUpdate) ClearNotes() *RedeemCodeUpdate {
 	_u.mutation.ClearNotes()
+	return _u
+}
+
+// SetEntitlementProfile sets the "entitlement_profile" field.
+func (_u *RedeemCodeUpdate) SetEntitlementProfile(v string) *RedeemCodeUpdate {
+	_u.mutation.SetEntitlementProfile(v)
+	return _u
+}
+
+// SetNillableEntitlementProfile sets the "entitlement_profile" field if the given value is not nil.
+func (_u *RedeemCodeUpdate) SetNillableEntitlementProfile(v *string) *RedeemCodeUpdate {
+	if v != nil {
+		_u.SetEntitlementProfile(*v)
+	}
+	return _u
+}
+
+// SetEntitlementGroupIds sets the "entitlement_group_ids" field.
+func (_u *RedeemCodeUpdate) SetEntitlementGroupIds(v []int64) *RedeemCodeUpdate {
+	_u.mutation.SetEntitlementGroupIds(v)
+	return _u
+}
+
+// AppendEntitlementGroupIds appends value to the "entitlement_group_ids" field.
+func (_u *RedeemCodeUpdate) AppendEntitlementGroupIds(v []int64) *RedeemCodeUpdate {
+	_u.mutation.AppendEntitlementGroupIds(v)
 	return _u
 }
 
@@ -299,6 +326,11 @@ func (_u *RedeemCodeUpdate) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.EntitlementProfile(); ok {
+		if err := redeemcode.EntitlementProfileValidator(v); err != nil {
+			return &ValidationError{Name: "entitlement_profile", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.entitlement_profile": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -340,6 +372,17 @@ func (_u *RedeemCodeUpdate) sqlSave(ctx context.Context) (_node int, err error) 
 	}
 	if _u.mutation.NotesCleared() {
 		_spec.ClearField(redeemcode.FieldNotes, field.TypeString)
+	}
+	if value, ok := _u.mutation.EntitlementProfile(); ok {
+		_spec.SetField(redeemcode.FieldEntitlementProfile, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.EntitlementGroupIds(); ok {
+		_spec.SetField(redeemcode.FieldEntitlementGroupIds, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedEntitlementGroupIds(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, redeemcode.FieldEntitlementGroupIds, value)
+		})
 	}
 	if value, ok := _u.mutation.ExpiresAt(); ok {
 		_spec.SetField(redeemcode.FieldExpiresAt, field.TypeTime, value)
@@ -554,6 +597,32 @@ func (_u *RedeemCodeUpdateOne) ClearNotes() *RedeemCodeUpdateOne {
 	return _u
 }
 
+// SetEntitlementProfile sets the "entitlement_profile" field.
+func (_u *RedeemCodeUpdateOne) SetEntitlementProfile(v string) *RedeemCodeUpdateOne {
+	_u.mutation.SetEntitlementProfile(v)
+	return _u
+}
+
+// SetNillableEntitlementProfile sets the "entitlement_profile" field if the given value is not nil.
+func (_u *RedeemCodeUpdateOne) SetNillableEntitlementProfile(v *string) *RedeemCodeUpdateOne {
+	if v != nil {
+		_u.SetEntitlementProfile(*v)
+	}
+	return _u
+}
+
+// SetEntitlementGroupIds sets the "entitlement_group_ids" field.
+func (_u *RedeemCodeUpdateOne) SetEntitlementGroupIds(v []int64) *RedeemCodeUpdateOne {
+	_u.mutation.SetEntitlementGroupIds(v)
+	return _u
+}
+
+// AppendEntitlementGroupIds appends value to the "entitlement_group_ids" field.
+func (_u *RedeemCodeUpdateOne) AppendEntitlementGroupIds(v []int64) *RedeemCodeUpdateOne {
+	_u.mutation.AppendEntitlementGroupIds(v)
+	return _u
+}
+
 // SetExpiresAt sets the "expires_at" field.
 func (_u *RedeemCodeUpdateOne) SetExpiresAt(v time.Time) *RedeemCodeUpdateOne {
 	_u.mutation.SetExpiresAt(v)
@@ -713,6 +782,11 @@ func (_u *RedeemCodeUpdateOne) check() error {
 			return &ValidationError{Name: "status", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.status": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.EntitlementProfile(); ok {
+		if err := redeemcode.EntitlementProfileValidator(v); err != nil {
+			return &ValidationError{Name: "entitlement_profile", err: fmt.Errorf(`ent: validator failed for field "RedeemCode.entitlement_profile": %w`, err)}
+		}
+	}
 	return nil
 }
 
@@ -771,6 +845,17 @@ func (_u *RedeemCodeUpdateOne) sqlSave(ctx context.Context) (_node *RedeemCode, 
 	}
 	if _u.mutation.NotesCleared() {
 		_spec.ClearField(redeemcode.FieldNotes, field.TypeString)
+	}
+	if value, ok := _u.mutation.EntitlementProfile(); ok {
+		_spec.SetField(redeemcode.FieldEntitlementProfile, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.EntitlementGroupIds(); ok {
+		_spec.SetField(redeemcode.FieldEntitlementGroupIds, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedEntitlementGroupIds(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, redeemcode.FieldEntitlementGroupIds, value)
+		})
 	}
 	if value, ok := _u.mutation.ExpiresAt(); ok {
 		_spec.SetField(redeemcode.FieldExpiresAt, field.TypeTime, value)

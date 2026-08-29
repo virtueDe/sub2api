@@ -90,6 +90,11 @@ func Notes(v string) predicate.RedeemCode {
 	return predicate.RedeemCode(sql.FieldEQ(FieldNotes, v))
 }
 
+// EntitlementProfile applies equality check predicate on the "entitlement_profile" field. It's identical to EntitlementProfileEQ.
+func EntitlementProfile(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldEntitlementProfile, v))
+}
+
 // CreatedAt applies equality check predicate on the "created_at" field. It's identical to CreatedAtEQ.
 func CreatedAt(v time.Time) predicate.RedeemCode {
 	return predicate.RedeemCode(sql.FieldEQ(FieldCreatedAt, v))
@@ -498,6 +503,71 @@ func NotesEqualFold(v string) predicate.RedeemCode {
 // NotesContainsFold applies the ContainsFold predicate on the "notes" field.
 func NotesContainsFold(v string) predicate.RedeemCode {
 	return predicate.RedeemCode(sql.FieldContainsFold(FieldNotes, v))
+}
+
+// EntitlementProfileEQ applies the EQ predicate on the "entitlement_profile" field.
+func EntitlementProfileEQ(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEQ(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileNEQ applies the NEQ predicate on the "entitlement_profile" field.
+func EntitlementProfileNEQ(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNEQ(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileIn applies the In predicate on the "entitlement_profile" field.
+func EntitlementProfileIn(vs ...string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldIn(FieldEntitlementProfile, vs...))
+}
+
+// EntitlementProfileNotIn applies the NotIn predicate on the "entitlement_profile" field.
+func EntitlementProfileNotIn(vs ...string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldNotIn(FieldEntitlementProfile, vs...))
+}
+
+// EntitlementProfileGT applies the GT predicate on the "entitlement_profile" field.
+func EntitlementProfileGT(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGT(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileGTE applies the GTE predicate on the "entitlement_profile" field.
+func EntitlementProfileGTE(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldGTE(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileLT applies the LT predicate on the "entitlement_profile" field.
+func EntitlementProfileLT(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLT(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileLTE applies the LTE predicate on the "entitlement_profile" field.
+func EntitlementProfileLTE(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldLTE(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileContains applies the Contains predicate on the "entitlement_profile" field.
+func EntitlementProfileContains(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldContains(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileHasPrefix applies the HasPrefix predicate on the "entitlement_profile" field.
+func EntitlementProfileHasPrefix(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldHasPrefix(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileHasSuffix applies the HasSuffix predicate on the "entitlement_profile" field.
+func EntitlementProfileHasSuffix(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldHasSuffix(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileEqualFold applies the EqualFold predicate on the "entitlement_profile" field.
+func EntitlementProfileEqualFold(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldEqualFold(FieldEntitlementProfile, v))
+}
+
+// EntitlementProfileContainsFold applies the ContainsFold predicate on the "entitlement_profile" field.
+func EntitlementProfileContainsFold(v string) predicate.RedeemCode {
+	return predicate.RedeemCode(sql.FieldContainsFold(FieldEntitlementProfile, v))
 }
 
 // CreatedAtEQ applies the EQ predicate on the "created_at" field.

@@ -29,6 +29,8 @@ func (r *redeemCodeRepository) Create(ctx context.Context, code *service.RedeemC
 		SetValue(code.Value).
 		SetStatus(code.Status).
 		SetNotes(code.Notes).
+		SetEntitlementProfile(code.EntitlementProfile).
+		SetEntitlementGroupIds(code.EntitlementGroupIDs).
 		SetValidityDays(code.ValidityDays).
 		SetNillableExpiresAt(code.ExpiresAt).
 		SetNillableUsedBy(code.UsedBy).
@@ -56,6 +58,8 @@ func (r *redeemCodeRepository) CreateBatch(ctx context.Context, codes []service.
 			SetValue(c.Value).
 			SetStatus(c.Status).
 			SetNotes(c.Notes).
+			SetEntitlementProfile(c.EntitlementProfile).
+			SetEntitlementGroupIds(c.EntitlementGroupIDs).
 			SetValidityDays(c.ValidityDays).
 			SetNillableExpiresAt(c.ExpiresAt).
 			SetNillableUsedBy(c.UsedBy).
@@ -202,6 +206,8 @@ func (r *redeemCodeRepository) Update(ctx context.Context, code *service.RedeemC
 		SetValue(code.Value).
 		SetStatus(code.Status).
 		SetNotes(code.Notes).
+		SetEntitlementProfile(code.EntitlementProfile).
+		SetEntitlementGroupIds(code.EntitlementGroupIDs).
 		SetValidityDays(code.ValidityDays)
 
 	if code.UsedBy != nil {
@@ -413,18 +419,20 @@ func redeemCodeEntityToService(m *dbent.RedeemCode) *service.RedeemCode {
 		return nil
 	}
 	out := &service.RedeemCode{
-		ID:           m.ID,
-		Code:         m.Code,
-		Type:         m.Type,
-		Value:        m.Value,
-		Status:       m.Status,
-		UsedBy:       m.UsedBy,
-		UsedAt:       m.UsedAt,
-		Notes:        derefString(m.Notes),
-		CreatedAt:    m.CreatedAt,
-		ExpiresAt:    m.ExpiresAt,
-		GroupID:      m.GroupID,
-		ValidityDays: m.ValidityDays,
+		ID:                  m.ID,
+		Code:                m.Code,
+		Type:                m.Type,
+		Value:               m.Value,
+		Status:              m.Status,
+		UsedBy:              m.UsedBy,
+		UsedAt:              m.UsedAt,
+		Notes:               derefString(m.Notes),
+		EntitlementProfile:  m.EntitlementProfile,
+		EntitlementGroupIDs: append([]int64(nil), m.EntitlementGroupIds...),
+		CreatedAt:           m.CreatedAt,
+		ExpiresAt:           m.ExpiresAt,
+		GroupID:             m.GroupID,
+		ValidityDays:        m.ValidityDays,
 	}
 	if m.Edges.User != nil {
 		out.User = userEntityToService(m.Edges.User)

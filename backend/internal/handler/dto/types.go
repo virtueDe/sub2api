@@ -420,7 +420,9 @@ type RedeemCode struct {
 type AdminRedeemCode struct {
 	RedeemCode
 
-	Notes string `json:"notes"`
+	Notes               string  `json:"notes"`
+	EntitlementProfile  string  `json:"entitlement_profile"`
+	EntitlementGroupIDs []int64 `json:"entitlement_group_ids"`
 }
 
 type NullableTimeField struct {

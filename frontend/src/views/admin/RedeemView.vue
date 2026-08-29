@@ -305,6 +305,31 @@
                 class="input"
               />
             </div>
+            <div v-if="generateForm.type === 'balance'" class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+              <div>
+                <label class="input-label">{{ t('admin.redeem.entitlementProfile') }}</label>
+                <Select v-model="generateForm.entitlement_profile" :options="entitlementProfileOptions" />
+              </div>
+              <div v-if="generateForm.entitlement_profile !== 'none'" class="space-y-2">
+                <label class="input-label">{{ t('admin.redeem.entitlementGroups') }}</label>
+                <label
+                  v-for="option in entitlementGroupOptions"
+                  :key="option.value"
+                  class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
+                >
+                  <input
+                    v-model="generateForm.entitlement_group_ids"
+                    type="checkbox"
+                    :value="option.value"
+                    class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span>{{ option.label }}</span>
+                </label>
+                <p v-if="entitlementGroupOptions.length === 0" class="text-sm text-gray-500">
+                  {{ t('admin.redeem.noEntitlementGroups') }}
+                </p>
+              </div>
+            </div>
             <!-- 邀请码类型：显示提示信息 -->
             <div v-if="generateForm.type === 'invitation'" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
               <p class="text-sm text-blue-700 dark:text-blue-300">
@@ -667,6 +692,17 @@ const subscriptionGroupOptions = computed(() => {
     }))
 })
 
+const entitlementGroupOptions = computed(() => {
+  return subscriptionGroups.value
+    .filter((g) => g.status === 'active' && g.subscription_type !== 'subscription' && g.is_exclusive)
+    .map((g) => ({ value: g.id, label: g.name }))
+})
+
+const entitlementProfileOptions = computed(() => [
+  { value: 'none', label: t('admin.redeem.entitlementNone') },
+  { value: 'paid_default', label: t('admin.redeem.entitlementPaidDefault') }
+])
+
 const batchGroupOptions = computed(() => [
   { value: null, label: t('admin.redeem.clearGroup') },
   ...subscriptionGroupOptions.value
@@ -834,7 +870,9 @@ const generateForm = reactive({
   group_id: null as number | null,
   validity_days: 30,
   expiry_option: 'never' as RedeemCodeExpiryOption,
-  custom_expiry_days: 7
+  custom_expiry_days: 7,
+  entitlement_profile: 'none',
+  entitlement_group_ids: [] as number[]
 })
 
 // 监听类型变化，邀请码类型时自动设置 value 为 0
@@ -845,6 +883,10 @@ watch(
       generateForm.value = 0
     } else if (generateForm.value === 0) {
       generateForm.value = 10
+    }
+    if (newType !== 'balance') {
+      generateForm.entitlement_profile = 'none'
+      generateForm.entitlement_group_ids = []
     }
   }
 )
@@ -1023,6 +1065,10 @@ const handleGenerateCodes = async () => {
     appStore.showError(t('admin.redeem.groupRequired'))
     return
   }
+  if (generateForm.type === 'balance' && generateForm.entitlement_profile !== 'none' && generateForm.entitlement_group_ids.length === 0) {
+    appStore.showError(t('admin.redeem.entitlementGroupsRequired'))
+    return
+  }
 
   const expiresInDays = getRedeemCodeExpiresInDays()
   if (expiresInDays === null) {
@@ -1038,7 +1084,9 @@ const handleGenerateCodes = async () => {
       generateForm.value,
       generateForm.type === 'subscription' ? generateForm.group_id : undefined,
       generateForm.type === 'subscription' ? generateForm.validity_days : undefined,
-      expiresInDays
+      expiresInDays,
+      generateForm.entitlement_profile,
+      generateForm.entitlement_group_ids
     )
     showGenerateDialog.value = false
     generatedCodes.value = result
@@ -1048,6 +1096,8 @@ const handleGenerateCodes = async () => {
     generateForm.validity_days = 30
     generateForm.expiry_option = 'never'
     generateForm.custom_expiry_days = 7
+    generateForm.entitlement_profile = 'none'
+    generateForm.entitlement_group_ids = []
     loadCodes()
   } catch (error: any) {
     appStore.showError(error.response?.data?.detail || t('admin.redeem.failedToGenerate'))

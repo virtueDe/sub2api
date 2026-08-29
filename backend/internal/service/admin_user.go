@@ -849,13 +849,13 @@ LIMIT $3`, userID, params.Offset(), params.Limit())
 		usedBy := userID
 		usedAt := createdAt
 		codes = append(codes, RedeemCode{
-			ID: id,
-			Code: fmt.Sprintf("CHECKIN-%d", id),
-			Type: RedeemTypeCheckInBalance,
-			Value: reward,
-			Status: StatusUsed,
-			UsedBy: &usedBy,
-			UsedAt: &usedAt,
+			ID:        id,
+			Code:      fmt.Sprintf("CHECKIN-%d", id),
+			Type:      RedeemTypeCheckInBalance,
+			Value:     reward,
+			Status:    StatusUsed,
+			UsedBy:    &usedBy,
+			UsedAt:    &usedAt,
 			CreatedAt: createdAt,
 		})
 	}
@@ -1334,8 +1334,16 @@ func (s *adminServiceImpl) GetRedeemCode(ctx context.Context, id int64) (*Redeem
 }
 
 func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *GenerateRedeemCodesInput) ([]RedeemCode, error) {
+	if input == nil {
+		return nil, infraerrors.BadRequest("REDEEM_CODE_GENERATE_INVALID", "generate input is required")
+	}
 	if input.ExpiresAt != nil && !input.ExpiresAt.After(time.Now()) {
 		return nil, ErrRedeemCodeExpired
+	}
+
+	entitlementProfile, entitlementGroupIDs, err := s.validateRedeemEntitlements(ctx, input.Type, input.EntitlementProfile, input.EntitlementGroupIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	// 如果是订阅类型，验证必须有 GroupID
@@ -1360,11 +1368,13 @@ func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *Gener
 			return nil, err
 		}
 		code := RedeemCode{
-			Code:      codeValue,
-			Type:      input.Type,
-			Value:     input.Value,
-			Status:    StatusUnused,
-			ExpiresAt: input.ExpiresAt,
+			Code:                codeValue,
+			Type:                input.Type,
+			Value:               input.Value,
+			Status:              StatusUnused,
+			ExpiresAt:           input.ExpiresAt,
+			EntitlementProfile:  entitlementProfile,
+			EntitlementGroupIDs: entitlementGroupIDs,
 		}
 		// 订阅类型专用字段
 		if input.Type == RedeemTypeSubscription {
@@ -1380,6 +1390,58 @@ func (s *adminServiceImpl) GenerateRedeemCodes(ctx context.Context, input *Gener
 		codes = append(codes, code)
 	}
 	return codes, nil
+}
+
+func (s *adminServiceImpl) validateRedeemEntitlements(ctx context.Context, codeType, profile string, groupIDs []int64) (string, []int64, error) {
+	profile = strings.TrimSpace(profile)
+	if profile == "" {
+		profile = "none"
+	}
+
+	seen := make(map[int64]struct{}, len(groupIDs))
+	normalized := make([]int64, 0, len(groupIDs))
+	for _, groupID := range groupIDs {
+		if groupID <= 0 {
+			return "", nil, infraerrors.BadRequest("REDEEM_CODE_ENTITLEMENT_GROUP_INVALID", "entitlement group ids must be positive")
+		}
+		if _, ok := seen[groupID]; ok {
+			continue
+		}
+		seen[groupID] = struct{}{}
+		normalized = append(normalized, groupID)
+	}
+
+	if profile == "none" {
+		if len(normalized) > 0 {
+			return "", nil, infraerrors.BadRequest("REDEEM_CODE_ENTITLEMENT_INVALID", "entitlement groups require a non-none profile")
+		}
+		return profile, normalized, nil
+	}
+	if codeType != RedeemTypeBalance {
+		return "", nil, infraerrors.BadRequest("REDEEM_CODE_ENTITLEMENT_INVALID", "entitlements are only supported for balance codes")
+	}
+	if len(normalized) == 0 {
+		return "", nil, infraerrors.BadRequest("REDEEM_CODE_ENTITLEMENT_GROUPS_REQUIRED", "at least one entitlement group is required")
+	}
+	if s.groupRepo == nil {
+		return "", nil, errors.New("group repository is not configured")
+	}
+	for _, groupID := range normalized {
+		group, err := s.groupRepo.GetByID(ctx, groupID)
+		if err != nil {
+			return "", nil, fmt.Errorf("entitlement group %d not found: %w", groupID, err)
+		}
+		if !group.IsActive() {
+			return "", nil, infraerrors.BadRequest("REDEEM_CODE_ENTITLEMENT_GROUP_INACTIVE", fmt.Sprintf("entitlement group %d is not active", groupID))
+		}
+		if group.IsSubscriptionType() {
+			return "", nil, infraerrors.BadRequest("REDEEM_CODE_ENTITLEMENT_GROUP_INVALID", fmt.Sprintf("entitlement group %d is a subscription group", groupID))
+		}
+		if !group.IsExclusive {
+			return "", nil, infraerrors.BadRequest("REDEEM_CODE_ENTITLEMENT_GROUP_INVALID", fmt.Sprintf("entitlement group %d is not exclusive", groupID))
+		}
+	}
+	return profile, normalized, nil
 }
 
 func (s *adminServiceImpl) DeleteRedeemCode(ctx context.Context, id int64) error {
