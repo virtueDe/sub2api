@@ -37,6 +37,7 @@ import adminComplianceAPI from './compliance'
 import auditAPI from './audit'
 import pluginsAPI from './plugins'
 import checkInAPI from './checkin'
+import dailyTokenRankingRewardAPI from './dailyTokenRankingReward'
 
 /**
  * Unified admin API object for convenient access
@@ -77,6 +78,7 @@ export const adminAPI = {
   plugins: pluginsAPI,
   checkIn: checkInAPI,
   checkin: checkInAPI,
+  dailyTokenRankingReward: dailyTokenRankingRewardAPI,
 }
 
 export {
@@ -114,6 +116,7 @@ export {
   auditAPI,
   pluginsAPI,
   checkInAPI,
+  dailyTokenRankingRewardAPI,
 }
 
 export default adminAPI

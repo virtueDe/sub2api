@@ -13,11 +13,36 @@ func (r *usageLogRepository) GetDailyTokenRanking(
 	startTime, endTime time.Time,
 	limit int,
 ) (results []usagestats.DailyTokenRankingSource, err error) {
+	return r.getDailyTokenRanking(ctx, startTime, endTime, limit, true)
+}
+
+// GetDailyTokenRankingForSettlement includes ordinary users whose status may
+// have changed after the ranking day, so settlement can record a skipped award
+// instead of silently dropping a previous winner.
+func (r *usageLogRepository) GetDailyTokenRankingForSettlement(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	limit int,
+) ([]usagestats.DailyTokenRankingSource, error) {
+	return r.getDailyTokenRanking(ctx, startTime, endTime, limit, false)
+}
+
+func (r *usageLogRepository) getDailyTokenRanking(
+	ctx context.Context,
+	startTime, endTime time.Time,
+	limit int,
+	activeOnly bool,
+) (results []usagestats.DailyTokenRankingSource, err error) {
+	userFilter := "u.role = 'user'"
+	if activeOnly {
+		userFilter += " AND u.status = 'active' AND u.deleted_at IS NULL"
+	}
 	query := `
 		SELECT
 			u.id,
 			COALESCE(u.email, '') AS email,
 			COALESCE(u.username, '') AS username,
+			COUNT(*)::bigint AS request_count,
 			COALESCE(SUM(
 				ul.input_tokens + ul.output_tokens +
 				ul.cache_creation_tokens + ul.cache_read_tokens
@@ -27,9 +52,7 @@ func (r *usageLogRepository) GetDailyTokenRanking(
 		WHERE ul.created_at >= $1
 			AND ul.created_at < $2
 			AND ` + usageLogSuccessFilterUL + `
-			AND u.role = 'user'
-			AND u.status = 'active'
-			AND u.deleted_at IS NULL
+			AND ` + userFilter + `
 		GROUP BY u.id, u.email, u.username
 		HAVING SUM(
 			ul.input_tokens + ul.output_tokens +
@@ -53,7 +76,7 @@ func (r *usageLogRepository) GetDailyTokenRanking(
 	results = make([]usagestats.DailyTokenRankingSource, 0, limit)
 	for rows.Next() {
 		var row usagestats.DailyTokenRankingSource
-		if err = rows.Scan(&row.UserID, &row.Email, &row.Username, &row.TotalTokens); err != nil {
+		if err = rows.Scan(&row.UserID, &row.Email, &row.Username, &row.RequestCount, &row.TotalTokens); err != nil {
 			return nil, err
 		}
 		results = append(results, row)

@@ -21,10 +21,54 @@ import (
 
 // UsageHandler handles admin usage-related requests
 type UsageHandler struct {
-	usageService   *service.UsageService
-	apiKeyService  *service.APIKeyService
-	adminService   service.AdminService
-	cleanupService *service.UsageCleanupService
+	usageService                   *service.UsageService
+	apiKeyService                  *service.APIKeyService
+	adminService                   service.AdminService
+	cleanupService                 *service.UsageCleanupService
+	dailyTokenRankingRewardService *service.DailyTokenRankingRewardService
+}
+
+func (h *UsageHandler) SetDailyTokenRankingRewardService(rewardService *service.DailyTokenRankingRewardService) {
+	h.dailyTokenRankingRewardService = rewardService
+}
+
+func (h *UsageHandler) DailyTokenRankingRewardPreview(c *gin.Context) {
+	if h.dailyTokenRankingRewardService == nil {
+		response.InternalError(c, "daily token ranking reward service is unavailable")
+		return
+	}
+	result, err := h.dailyTokenRankingRewardService.Preview(c.Request.Context(), strings.TrimSpace(c.Query("date")))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
+}
+
+func (h *UsageHandler) DailyTokenRankingRewardSettle(c *gin.Context) {
+	if h.dailyTokenRankingRewardService == nil {
+		response.InternalError(c, "daily token ranking reward service is unavailable")
+		return
+	}
+	var req struct {
+		Date string `json:"date" binding:"required"`
+		Rank int    `json:"rank" binding:"required,min=1,max=3"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Unauthorized(c, "authentication required")
+		return
+	}
+	result, err := h.dailyTokenRankingRewardService.SettleRank(c.Request.Context(), strings.TrimSpace(req.Date), req.Rank, subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 // NewUsageHandler creates a new admin usage handler

@@ -671,6 +671,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/daily-token-ranking-reward',
+    name: 'AdminDailyTokenRankingReward',
+    component: () => import('@/views/admin/DailyTokenRankingRewardView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Daily Token Ranking Rewards',
+      titleKey: 'admin.dailyTokenRankingReward.title',
+      descriptionKey: 'admin.dailyTokenRankingReward.description'
+    }
+  },
+  {
     path: '/admin/affiliates',
     redirect: '/admin/affiliates/invites'
   },

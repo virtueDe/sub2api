@@ -163,6 +163,7 @@ export default {
     batchImage: 'Batch Images',
     usage: 'Usage',
     ranking: 'Today\'s Ranking',
+    dailyTokenRankingReward: 'Ranking Reward Settlement',
     checkin: 'Daily Check-in',
     checkinRecords: 'Check-in Records',
     redeem: 'Redeem',
