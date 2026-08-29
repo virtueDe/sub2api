@@ -1,6 +1,5 @@
 export default {
-  admin: {
-    dailyTokenRankingReward: {
+  dailyTokenRankingReward: {
       title: 'Daily Token Ranking Rewards',
       description: 'Review the previous day\'s Beijing-time ranking and issue rewards to the top three users.',
       date: 'Settlement date',
@@ -23,6 +22,5 @@ export default {
       settleFailed: 'Failed to issue ranking rewards',
       empty: 'No eligible ranking users for this date.',
       statuses: { pending: 'Pending', paid: 'Paid', skipped: 'Skipped', empty: 'No eligible users' }
-    }
   }
 }

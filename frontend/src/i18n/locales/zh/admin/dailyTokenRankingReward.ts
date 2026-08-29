@@ -1,6 +1,5 @@
 export default {
-  admin: {
-    dailyTokenRankingReward: {
+  dailyTokenRankingReward: {
       title: '每日 Token 排行奖励结算',
       description: '按北京时区核对上一日排行并发放前三名余额奖励。',
       date: '结算日期',
@@ -23,6 +22,5 @@ export default {
       settleFailed: '发放排行奖励失败',
       empty: '该日期没有符合条件的排行用户。',
       statuses: { pending: '待发放', paid: '已发放', skipped: '已跳过', empty: '无符合条件用户' }
-    }
   }
 }
