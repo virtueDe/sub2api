@@ -9,11 +9,14 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
 
 const dailyTokenRankingCacheTTL = time.Minute
+
+const dailyTokenRankingTimezone = "Asia/Shanghai"
+
+var dailyTokenRankingLocation = time.FixedZone(dailyTokenRankingTimezone, 8*60*60)
 
 var ErrDailyTokenRankingDisabled = infraerrors.NotFound(
 	"DAILY_TOKEN_RANKING_DISABLED",
@@ -71,10 +74,10 @@ func (s *DailyTokenRankingService) GetToday(ctx context.Context) (*DailyTokenRan
 		return nil, ErrDailyTokenRankingDisabled
 	}
 
-	start := timezone.Today()
+	now := time.Now().In(dailyTokenRankingLocation)
+	start := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, dailyTokenRankingLocation)
 	end := start.AddDate(0, 0, 1)
-	cacheKey := start.Format("2006-01-02") + "|" + timezone.Name() + "|" + strconv.Itoa(runtime.Limit)
-	now := timezone.Now()
+	cacheKey := start.Format("2006-01-02") + "|" + dailyTokenRankingTimezone + "|" + strconv.Itoa(runtime.Limit)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -98,7 +101,7 @@ func (s *DailyTokenRankingService) GetToday(ctx context.Context) (*DailyTokenRan
 	result := &DailyTokenRankingResponse{
 		Ranking:   entries,
 		Date:      start.Format("2006-01-02"),
-		Timezone:  timezone.Name(),
+		Timezone:  dailyTokenRankingTimezone,
 		UpdatedAt: now,
 	}
 	s.cache = dailyTokenRankingCacheEntry{

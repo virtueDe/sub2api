@@ -481,6 +481,8 @@ export default {
   ranking: {
     title: 'Daily Token Ranking',
     description: 'Today\'s token usage ranking from successfully billed requests.',
+    topThree: 'Top three',
+    otherRanks: 'Other ranks',
     date: 'Date: {date}',
     timezone: 'System timezone: {timezone}',
     updatedAt: 'Updated {time}',

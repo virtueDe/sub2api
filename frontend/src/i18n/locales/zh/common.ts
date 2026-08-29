@@ -480,6 +480,8 @@ export default {
   ranking: {
     title: '今日 Token 排行',
     description: '本站今日成功扣费请求的 Token 消耗排名。',
+    topThree: '前三名',
+    otherRanks: '其他排名',
     date: '统计日期：{date}',
     timezone: '系统时区：{timezone}',
     updatedAt: '更新于 {time}',

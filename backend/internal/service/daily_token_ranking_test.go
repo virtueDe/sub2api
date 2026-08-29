@@ -48,7 +48,10 @@ func TestDailyTokenRankingServiceMasksIdentityAndCaches(t *testing.T) {
 	first, err := service.GetToday(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, 2, repo.limit)
+	require.Equal(t, dailyTokenRankingTimezone, repo.start.Location().String())
+	require.Equal(t, 0, repo.start.Hour())
 	require.Equal(t, repo.start.AddDate(0, 0, 1), repo.end)
+	require.Equal(t, dailyTokenRankingTimezone, first.Timezone)
 	require.Equal(t, []DailyTokenRankingEntry{
 		{Rank: 1, DisplayName: "x***g", TotalTokens: 1234},
 		{Rank: 2, DisplayName: "x***g@example.com", TotalTokens: 456},

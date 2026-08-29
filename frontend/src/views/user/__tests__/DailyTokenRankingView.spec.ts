@@ -27,6 +27,8 @@ describe('DailyTokenRankingView', () => {
       ranking: [
         { rank: 1, display_name: 'x***g', total_tokens: 1200 },
         { rank: 2, display_name: 'd***o@example.com', total_tokens: 800 },
+        { rank: 3, display_name: 'a***a', total_tokens: 600 },
+        { rank: 4, display_name: 'u***r', total_tokens: 400 },
       ],
       date: '2026-08-26',
       timezone: 'Asia/Shanghai',
@@ -51,5 +53,10 @@ describe('DailyTokenRankingView', () => {
     expect(wrapper.text()).not.toContain('xiaoming')
     expect(wrapper.find('.rank-row-gold').exists()).toBe(true)
     expect(wrapper.find('.rank-row-silver').exists()).toBe(true)
+    expect(wrapper.find('.rank-row-bronze').exists()).toBe(true)
+    expect(wrapper.find('.podium-slot-1').exists()).toBe(true)
+    expect(wrapper.find('.podium-slot-2').exists()).toBe(true)
+    expect(wrapper.find('.podium-slot-3').exists()).toBe(true)
+    expect(wrapper.find('.ranking-list .ranking-row').exists()).toBe(true)
   })
 })
