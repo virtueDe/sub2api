@@ -172,6 +172,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		return nil, err
 	}
 	dailyTokenRankingService := service.NewDailyTokenRankingService(dailyTokenRankingRepository, settingService)
+	dailyTokenRankingRewardRepository := repository.NewDailyTokenRankingRewardRepository(db)
+	dailyTokenRankingRewardService := service.NewDailyTokenRankingRewardService(dailyTokenRankingRepository, dailyTokenRankingRewardRepository, billingCacheService, apiKeyAuthCacheInvalidator)
 	usageHandler := handler.ProvideUsageHandlerWithDailyTokenRanking(usageService, apiKeyService, opsService, settingService, dailyTokenRankingService)
 	redeemHandler := handler.NewRedeemHandler(redeemService)
 	subscriptionHandler := handler.NewSubscriptionHandler(subscriptionService)
@@ -253,7 +255,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	adminSubscriptionHandler := admin.NewSubscriptionHandler(subscriptionService)
 	usageCleanupRepository := repository.NewUsageCleanupRepository(client, db)
 	usageCleanupService := service.ProvideUsageCleanupService(usageCleanupRepository, timingWheelService, dashboardAggregationService, configConfig)
-	adminUsageHandler := admin.NewUsageHandler(usageService, apiKeyService, adminService, usageCleanupService)
+	adminUsageHandler := handler.ProvideAdminUsageHandler(usageService, apiKeyService, adminService, usageCleanupService, dailyTokenRankingRewardService)
 	userAttributeHandler := admin.NewUserAttributeHandler(userAttributeService)
 	errorPassthroughRepository := repository.NewErrorPassthroughRepository(client)
 	errorPassthroughCache := repository.NewErrorPassthroughCache(redisClient)

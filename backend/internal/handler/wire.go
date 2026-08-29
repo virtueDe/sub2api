@@ -195,6 +195,18 @@ func ProvideUsageHandlerWithDailyTokenRanking(
 	return h
 }
 
+func ProvideAdminUsageHandler(
+	usageService *service.UsageService,
+	apiKeyService *service.APIKeyService,
+	adminService service.AdminService,
+	cleanupService *service.UsageCleanupService,
+	rewardService *service.DailyTokenRankingRewardService,
+) *admin.UsageHandler {
+	h := admin.NewUsageHandler(usageService, apiKeyService, adminService, cleanupService)
+	h.SetDailyTokenRankingRewardService(rewardService)
+	return h
+}
+
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
 	authHandler *AuthHandler,
@@ -292,7 +304,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewOpsHandler,
 	ProvideSystemHandler,
 	admin.NewSubscriptionHandler,
-	admin.NewUsageHandler,
+	ProvideAdminUsageHandler,
 	admin.NewUserAttributeHandler,
 	admin.NewErrorPassthroughHandler,
 	admin.NewTLSFingerprintProfileHandler,

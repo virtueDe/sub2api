@@ -844,6 +844,7 @@ const adminNavItems = computed((): NavItem[] => {
       ],
     },
     { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
+    { path: '/admin/daily-token-ranking-reward', label: t('nav.dailyTokenRankingReward'), icon: RankingIcon },
     { path: '/admin/check-in-records', label: t('nav.checkinRecords'), icon: SignInIcon, hideInSimpleMode: true },
     { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
   ]

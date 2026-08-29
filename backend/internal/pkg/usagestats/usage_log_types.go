@@ -168,10 +168,11 @@ type UserSpendingRankingResponse struct {
 // user-facing daily token ranking. Identity fields must be masked before they
 // leave the service layer.
 type DailyTokenRankingSource struct {
-	UserID      int64
-	Email       string
-	Username    string
-	TotalTokens int64
+	UserID       int64
+	Email        string
+	Username     string
+	TotalTokens  int64
+	RequestCount int64
 }
 
 // UserBreakdownItem represents per-user usage breakdown within a dimension (group, model, endpoint).
