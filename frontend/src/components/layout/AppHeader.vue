@@ -137,6 +137,20 @@
                   {{ displayName }}
                 </div>
                 <div class="text-xs text-gray-500 dark:text-dark-400">{{ user.email }}</div>
+                <button
+                  type="button"
+                  class="group mt-2 flex w-full items-center justify-between rounded px-1 py-1 text-left text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-700 dark:hover:text-dark-200"
+                  :aria-label="`${t('common.copy')} ID ${user.id}`"
+                  :title="t('common.copy')"
+                  @click="copyUserId"
+                >
+                  <span class="truncate">id: {{ user.id }}</span>
+                  <Icon
+                    name="copy"
+                    size="xs"
+                    class="ml-2 shrink-0 opacity-60 transition-opacity group-hover:opacity-100"
+                  />
+                </button>
               </div>
 
               <!-- Balance (mobile only) -->
@@ -259,6 +273,7 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMini.vue'
 import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { useClipboard } from '@/composables/useClipboard'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
 
@@ -269,6 +284,7 @@ const appStore = useAppStore()
 const authStore = useAuthStore()
 const adminSettingsStore = useAdminSettingsStore()
 const onboardingStore = useOnboardingStore()
+const { copyToClipboard } = useClipboard()
 
 const user = computed(() => authStore.user)
 const dropdownOpen = ref(false)
@@ -343,6 +359,11 @@ function toggleDropdown() {
 
 function closeDropdown() {
   dropdownOpen.value = false
+}
+
+function copyUserId() {
+  if (!user.value) return
+  void copyToClipboard(`我的id: ${user.value.id}`)
 }
 
 async function handleLogout() {
