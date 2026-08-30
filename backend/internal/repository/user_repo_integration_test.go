@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -372,6 +373,26 @@ func (s *UserRepoSuite) TestListWithFilters_SearchByUsername() {
 	s.Require().NoError(err)
 	s.Require().Len(users, 1)
 	s.Require().Equal("JohnDoe", users[0].Username)
+}
+
+func (s *UserRepoSuite) TestListWithFilters_SearchByIDSubstring() {
+	target := s.mustCreateUser(&service.User{Email: "id-search-target@test.com"})
+	search := fmt.Sprintf("%d", target.ID)
+	if len(search) > 1 {
+		search = search[1:]
+	}
+
+	users, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.UserListFilters{Search: search})
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), page.Total)
+	found := false
+	for _, user := range users {
+		if user.ID == target.ID {
+			found = true
+			break
+		}
+	}
+	s.Require().True(found, "expected user ID %d to match search %q", target.ID, search)
 }
 
 func (s *UserRepoSuite) TestListWithFilters_LoadsActiveSubscriptions() {

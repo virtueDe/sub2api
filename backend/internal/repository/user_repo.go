@@ -541,6 +541,11 @@ func (r *userRepository) ListWithFilters(ctx context.Context, params pagination.
 				dbuser.UsernameContainsFold(filters.Search),
 				dbuser.NotesContainsFold(filters.Search),
 				dbuser.HasAPIKeysWith(apikey.KeyContainsFold(filters.Search)),
+				predicate.User(func(s *entsql.Selector) {
+					s.Where(entsql.P(func(b *entsql.Builder) {
+						b.Ident(s.C(dbuser.FieldID)).WriteString("::text ILIKE ").Arg("%" + filters.Search + "%")
+					}))
+				}),
 			),
 		)
 	}
