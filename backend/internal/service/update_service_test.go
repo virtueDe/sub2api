@@ -69,6 +69,42 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
 }
 
+func TestUpdateServiceCheckUpdateCustomVersionOnlyWhenUpstreamAhead(t *testing.T) {
+	tests := []struct {
+		name          string
+		latestVersion string
+		hasUpdate     bool
+	}{
+		{name: "older upstream version", latestVersion: "v0.1.182", hasUpdate: false},
+		{name: "same upstream version", latestVersion: "v0.1.183", hasUpdate: false},
+		{name: "newer upstream version", latestVersion: "v0.1.184", hasUpdate: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := NewUpdateService(
+				&updateServiceCacheStub{},
+				&updateServiceGitHubClientStub{
+					release: &GitHubRelease{TagName: tt.latestVersion},
+				},
+				"0.1.183-custom.7",
+				"release",
+			)
+
+			info, err := svc.CheckUpdate(context.Background(), true)
+
+			require.NoError(t, err)
+			require.Equal(t, tt.hasUpdate, info.HasUpdate)
+
+			cachedInfo, err := svc.CheckUpdate(context.Background(), false)
+
+			require.NoError(t, err)
+			require.True(t, cachedInfo.Cached)
+			require.Equal(t, tt.hasUpdate, cachedInfo.HasUpdate)
+		})
+	}
+}
+
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
 	return NewUpdateService(
 		&updateServiceCacheStub{},
