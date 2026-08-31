@@ -28,23 +28,57 @@ type UserHandler struct {
 func (h *UserHandler) SetCheckInService(s *service.CheckInService) { h.checkInService = s }
 
 func (h *UserHandler) GetCheckInStatus(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c); if !ok { response.Unauthorized(c, "User not authenticated"); return }
-	if h.checkInService == nil { response.NotFound(c, "Check-in is unavailable"); return }
-	status, err := h.checkInService.GetStatus(c.Request.Context(), subject.UserID); if err != nil { response.ErrorFrom(c, err); return }
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.checkInService == nil {
+		response.NotFound(c, "Check-in is unavailable")
+		return
+	}
+	status, err := h.checkInService.GetStatus(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.Success(c, status)
 }
 
 func (h *UserHandler) CheckIn(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c); if !ok { response.Unauthorized(c, "User not authenticated"); return }
-	if h.checkInService == nil { response.NotFound(c, "Check-in is unavailable"); return }
-	record, status, err := h.checkInService.CheckIn(c.Request.Context(), subject.UserID); if err != nil { response.ErrorFrom(c, err); return }
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.checkInService == nil {
+		response.NotFound(c, "Check-in is unavailable")
+		return
+	}
+	record, status, err := h.checkInService.CheckIn(c.Request.Context(), subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.Success(c, gin.H{"checked_in_today": true, "reward": record.Reward, "total_reward": status.TotalReward, "streak_days": status.StreakDays, "checked_in_at": record.CreatedAt, "balance": status.Account.Balance})
 }
 
 func (h *UserHandler) GetCheckInHistory(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c); if !ok { response.Unauthorized(c, "User not authenticated"); return }
-	if h.checkInService == nil { response.NotFound(c, "Check-in is unavailable"); return }
-	month := c.Query("month"); records, total, err := h.checkInService.ListRecords(c.Request.Context(), subject.UserID, month, 1, 100); if err != nil { response.ErrorFrom(c, err); return }
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	if h.checkInService == nil {
+		response.NotFound(c, "Check-in is unavailable")
+		return
+	}
+	month := c.Query("month")
+	records, total, err := h.checkInService.ListRecords(c.Request.Context(), subject.UserID, month, 1, 100)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.Success(c, gin.H{"items": records, "total": total})
 }
 
