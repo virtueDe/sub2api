@@ -37,7 +37,7 @@
         </span>
       </div>
 
-      <section class="card overflow-hidden">
+      <section class="card mobile-list-shell overflow-hidden">
         <div class="flex flex-col gap-3 border-b border-gray-200 px-4 py-4 dark:border-dark-700 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
             <h2 class="font-semibold text-gray-900 dark:text-white">{{ t('admin.dailyTokenRankingReward.candidates') }}</h2>
@@ -52,7 +52,54 @@
           <Icon name="inbox" size="lg" />
           <span>{{ t('admin.dailyTokenRankingReward.empty') }}</span>
         </div>
-        <div v-else class="overflow-x-auto">
+        <div v-else-if="reward?.entries.length" class="space-y-3 md:hidden">
+          <article
+            v-for="entry in reward.entries"
+            :key="entry.rank"
+            class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900"
+          >
+            <div class="flex items-start justify-between gap-4">
+              <div class="flex min-w-0 items-center gap-3">
+                <span class="rank-badge shrink-0" :class="`rank-${entry.rank}`">{{ entry.rank }}</span>
+                <span class="min-w-0 break-words text-sm font-semibold text-gray-900 dark:text-white">{{ entry.display_name }}</span>
+              </div>
+              <span class="status-badge shrink-0" :class="`status-${entry.status}`">{{ statusLabel(entry.status) }}</span>
+            </div>
+            <dl class="mt-4 space-y-3 border-t border-gray-100 pt-3 dark:border-dark-700">
+              <div class="flex items-start justify-between gap-4">
+                <dt class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.dailyTokenRankingReward.tokens') }}</dt>
+                <dd class="text-right text-sm tabular-nums text-gray-700 dark:text-dark-200">{{ formatNumber(entry.total_tokens) }}</dd>
+              </div>
+              <div class="flex items-start justify-between gap-4">
+                <dt class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.dailyTokenRankingReward.requests') }}</dt>
+                <dd class="text-right text-sm tabular-nums text-gray-700 dark:text-dark-200">{{ formatNumber(entry.request_count) }}</dd>
+              </div>
+              <div class="flex items-start justify-between gap-4">
+                <dt class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.dailyTokenRankingReward.reward') }}</dt>
+                <dd class="text-right text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">${{ entry.reward_amount.toFixed(2) }}</dd>
+              </div>
+              <div v-if="entry.reason" class="flex items-start justify-between gap-4">
+                <dt class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.dailyTokenRankingReward.status') }}</dt>
+                <dd class="max-w-[65%] text-right text-xs text-gray-500 dark:text-gray-400">{{ entry.reason }}</dd>
+              </div>
+              <div v-if="entry.note" class="flex items-start justify-between gap-4">
+                <dt class="text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('admin.dailyTokenRankingReward.note') }}</dt>
+                <dd class="max-w-[65%] text-right text-xs text-gray-500 dark:text-gray-400">{{ entry.note }}</dd>
+              </div>
+            </dl>
+            <button
+              v-if="entry.status === 'pending'"
+              type="button"
+              class="btn btn-primary mt-4 w-full justify-center whitespace-nowrap"
+              :disabled="settlingRank !== null"
+              @click="settle(entry)"
+            >
+              <Icon name="checkCircle" size="sm" />
+              {{ settlingRank === entry.rank ? t('common.submitting') : t('admin.dailyTokenRankingReward.settle') }}
+            </button>
+          </article>
+        </div>
+        <div v-if="!loading && reward?.entries.length" class="hidden overflow-x-auto md:block">
           <table class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
             <thead class="bg-gray-50 dark:bg-dark-800/70">
               <tr class="text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -180,4 +227,12 @@ onMounted(loadPreview)
 :global(html.dark) .status-paid { background: rgb(20 83 45 / 0.5); color: rgb(134 239 172); }
 :global(html.dark) .status-skipped { background: rgb(127 29 29 / 0.5); color: rgb(252 165 165); }
 :global(html.dark) .status-pending { background: rgb(113 63 18 / 0.5); color: rgb(253 224 71); }
+@media (max-width: 767px) {
+  .mobile-list-shell {
+    border-color: transparent;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+}
 </style>
