@@ -153,7 +153,6 @@ func (r *userRepository) create(ctx context.Context, userIn *service.User, guard
 		SetNillableLastLoginAt(userIn.LastLoginAt).
 		SetNillableLastActiveAt(userIn.LastActiveAt).
 		SetRpmLimit(userIn.RPMLimit).
-		SetRestrictPublicGroups(userIn.RestrictPublicGroups).
 		Save(txCtx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrEmailExists)
@@ -316,9 +315,6 @@ func (r *userRepository) Update(ctx context.Context, userIn *service.User, field
 	}
 	if fields.Status {
 		updateOp = updateOp.SetStatus(userIn.Status)
-	}
-	if fields.RestrictPublicGroups {
-		updateOp = updateOp.SetRestrictPublicGroups(userIn.RestrictPublicGroups)
 	}
 	if fields.BalanceNotifySettings {
 		updateOp = updateOp.

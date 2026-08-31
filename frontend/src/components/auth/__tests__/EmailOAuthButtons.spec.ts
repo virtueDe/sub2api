@@ -33,7 +33,6 @@ describe('EmailOAuthButtons', () => {
       props: {
         githubEnabled: true,
         googleEnabled: false,
-        promoCode: ' PROMO123 ',
       },
       global: {
         stubs: {
@@ -48,7 +47,7 @@ describe('EmailOAuthButtons', () => {
     expect(wrapper.emitted('start')).toEqual([[
       {
         provider: 'github',
-        params: { redirect: '/billing?plan=pro', aff_code: 'AFF123', promo_code: 'PROMO123' }
+        params: { redirect: '/billing?plan=pro', aff_code: 'AFF123' }
       }
     ]])
     expect(window.sessionStorage.getItem('oauth_aff_code')).toBe('AFF123')
@@ -61,7 +60,6 @@ describe('EmailOAuthButtons', () => {
       props: {
         githubEnabled: false,
         googleEnabled: true,
-        promoCode: 'PROMO456',
       },
       global: {
         stubs: {
@@ -75,7 +73,7 @@ describe('EmailOAuthButtons', () => {
 
     expect(wrapper.emitted('start')?.[0]?.[0]).toEqual({
       provider: 'google',
-      params: { redirect: '/billing?plan=pro', aff_code: 'AFF123', promo_code: 'PROMO456' }
+      params: { redirect: '/billing?plan=pro', aff_code: 'AFF123' }
     })
     expect(window.location.href).toBe(originalHref)
   })

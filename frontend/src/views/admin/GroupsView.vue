@@ -6087,7 +6087,7 @@ const handleCreateGroup = async () => {
     }
   } catch (error: any) {
     appStore.showError(
-      extractApiErrorMessage(error, t("admin.groups.failedToCreate")),
+      error.response?.data?.detail || t("admin.groups.failedToCreate"),
     );
     console.error("Error creating group:", error);
     // Don't advance tour on error
@@ -6358,7 +6358,7 @@ const handleUpdateGroup = async () => {
     loadGroups();
   } catch (error: any) {
     appStore.showError(
-      extractApiErrorMessage(error, t("admin.groups.failedToUpdate")),
+      error.response?.data?.detail || t("admin.groups.failedToUpdate"),
     );
     console.error("Error updating group:", error);
   } finally {

@@ -17,14 +17,7 @@ type TestSMTPRequest struct {
 	SMTPPort     int    `json:"smtp_port"`
 	SMTPUsername string `json:"smtp_username"`
 	SMTPPassword string `json:"smtp_password"`
-	SMTPUseTLS   *bool  `json:"smtp_use_tls"`
-}
-
-func resolveSMTPUseTLS(requested *bool, savedConfig *service.SMTPConfig) bool {
-	if requested != nil {
-		return *requested
-	}
-	return savedConfig != nil && savedConfig.UseTLS
+	SMTPUseTLS   bool   `json:"smtp_use_tls"`
 }
 
 // TestSMTPConnection 测试SMTP连接
@@ -71,7 +64,7 @@ func (h *SettingHandler) TestSMTPConnection(c *gin.Context) {
 		Port:     req.SMTPPort,
 		Username: req.SMTPUsername,
 		Password: password,
-		UseTLS:   resolveSMTPUseTLS(req.SMTPUseTLS, savedConfig),
+		UseTLS:   req.SMTPUseTLS,
 	}
 
 	err := h.emailService.TestSMTPConnectionWithConfig(config)
@@ -92,7 +85,7 @@ type SendTestEmailRequest struct {
 	SMTPPassword string `json:"smtp_password"`
 	SMTPFrom     string `json:"smtp_from_email"`
 	SMTPFromName string `json:"smtp_from_name"`
-	SMTPUseTLS   *bool  `json:"smtp_use_tls"`
+	SMTPUseTLS   bool   `json:"smtp_use_tls"`
 }
 
 // SendTestEmail 发送测试邮件
@@ -149,7 +142,7 @@ func (h *SettingHandler) SendTestEmail(c *gin.Context) {
 		Password: password,
 		From:     req.SMTPFrom,
 		FromName: req.SMTPFromName,
-		UseTLS:   resolveSMTPUseTLS(req.SMTPUseTLS, savedConfig),
+		UseTLS:   req.SMTPUseTLS,
 	}
 
 	siteName := h.settingService.GetSiteName(c.Request.Context())

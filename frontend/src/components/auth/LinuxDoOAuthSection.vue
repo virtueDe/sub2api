@@ -48,7 +48,6 @@ import { resolveAffiliateReferralCode, storeOAuthAffiliateCode } from '@/utils/o
 const props = withDefaults(defineProps<{
   disabled?: boolean
   affCode?: string
-  promoCode?: string
   showDivider?: boolean
 }>(), {
   showDivider: true
@@ -63,11 +62,6 @@ const { t } = useI18n()
 function startLogin(): void {
   const redirectTo = (route.query.redirect as string) || '/dashboard'
   storeOAuthAffiliateCode(resolveAffiliateReferralCode(props.affCode, route.query.aff, route.query.aff_code))
-  const params: Record<string, string> = { redirect: redirectTo }
-  const promoCode = props.promoCode?.trim()
-  if (promoCode) {
-    params.promo_code = promoCode
-  }
-  emit('start', { provider: 'linuxdo', params })
+  emit('start', { provider: 'linuxdo', params: { redirect: redirectTo } })
 }
 </script>
