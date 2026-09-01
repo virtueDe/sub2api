@@ -27,7 +27,7 @@ func (r *dailyTokenRankingRewardRepository) ListByDate(ctx context.Context, rewa
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	entries := make([]service.DailyTokenRankingRewardEntry, 0, 3)
 	for rows.Next() {
 		var entry service.DailyTokenRankingRewardEntry
