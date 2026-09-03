@@ -160,6 +160,7 @@ export default {
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
+    imageGeneration: '图片生成',
     batchImage: '批量生图',
     usage: '使用记录',
     ranking: '今日排行',

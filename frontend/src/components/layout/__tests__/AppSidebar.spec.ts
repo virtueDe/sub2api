@@ -19,6 +19,16 @@ describe('AppSidebar custom SVG styles', () => {
   })
 })
 
+describe('AppSidebar studio entry', () => {
+  it('uses the shared studio icon and an external page navigation', () => {
+    expect(componentSource).toContain("import studioIcon from '@/assets/icons/studio.svg?raw'")
+    expect(componentSource).toContain("path: '/studio/'")
+    expect(componentSource).toContain('external: true')
+    expect(componentSource).toContain("t('nav.imageGeneration')")
+    expect(componentSource).toContain(":is=\"item.external ? 'a' : 'router-link'\"")
+  })
+})
+
 describe('AppSidebar scroll position persistence', () => {
   it('binds a template ref to the sidebar nav element', () => {
     expect(componentSource).toContain('ref="sidebarNavRef"')
