@@ -689,6 +689,17 @@ func TestEmbeddedFrontendBypassesBareVideoAPIRoutes(t *testing.T) {
 	}
 }
 
+func TestEmbeddedFrontendBypassesImageAPIRoutes(t *testing.T) {
+	for _, path := range []string{
+		"/image-api/v1/generate",
+		"/image-api/v1/edit",
+		"/image-api/v1/generate/async",
+		"/image-api/v1/jobs/task-123",
+	} {
+		require.True(t, shouldBypassEmbeddedFrontend(path), "path=%s", path)
+	}
+}
+
 func TestNewFrontendServer(t *testing.T) {
 	t.Run("creates_server_successfully", func(t *testing.T) {
 		provider := &mockSettingsProvider{

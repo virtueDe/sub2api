@@ -502,6 +502,55 @@ func RegisterGatewayRoutes(
 		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
 	}
 
+	// 图片业务 API：对外提供稳定的业务路径，同时复用现有 OpenAI 图片网关
+	// 的鉴权、分组校验、调度、计费和异步任务实现。
+	imageAPI := r.Group("/image-api/v1")
+	imageAPI.Use(bodyLimit)
+	imageAPI.Use(clientRequestID)
+	imageAPI.Use(opsErrorLogger)
+	imageAPI.Use(imageAPIRouteRewrite())
+	imageAPI.Use(endpointNorm)
+	imageAPI.Use(gin.HandlerFunc(apiKeyAuth))
+	imageAPI.Use(compositeTarget)
+	imageAPI.Use(requireGroupAnthropic)
+	{
+		imageAPI.POST("/generate", imagesHandler)
+		imageAPI.POST("/edit", imagesHandler)
+		imageAPI.POST("/generate/async", h.AsyncImage.Submit)
+		imageAPI.POST("/edit/async", h.AsyncImage.Submit)
+		imageAPI.GET("/jobs/:task_id", h.AsyncImage.Get)
+
+		// OpenAI-compatible aliases under the dedicated business namespace.
+		imageAPI.POST("/images/generations", imagesHandler)
+		imageAPI.POST("/images/edits", imagesHandler)
+		imageAPI.POST("/images/generations/async", h.AsyncImage.Submit)
+		imageAPI.POST("/images/edits/async", h.AsyncImage.Submit)
+		imageAPI.GET("/images/tasks/:task_id", h.AsyncImage.Get)
+	}
+
+}
+
+// imageAPIRouteRewrite maps the public business API paths to the canonical
+// internal image endpoints so all existing image behavior remains centralized.
+func imageAPIRouteRewrite() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		switch {
+		case path == "/image-api/v1/generate":
+			c.Request.URL.Path = "/v1/images/generations"
+		case path == "/image-api/v1/edit":
+			c.Request.URL.Path = "/v1/images/edits"
+		case path == "/image-api/v1/generate/async":
+			c.Request.URL.Path = "/v1/images/generations/async"
+		case path == "/image-api/v1/edit/async":
+			c.Request.URL.Path = "/v1/images/edits/async"
+		case strings.HasPrefix(path, "/image-api/v1/jobs/"):
+			c.Request.URL.Path = "/v1/images/tasks/" + strings.TrimPrefix(path, "/image-api/v1/jobs/")
+		case strings.HasPrefix(path, "/image-api/v1/images/"):
+			c.Request.URL.Path = "/v1/" + strings.TrimPrefix(path, "/image-api/v1/images/")
+		}
+		c.Next()
+	}
 }
 
 func dispatchCodexModelsGateway(c *gin.Context, openAIHandler, generatedHandler gin.HandlerFunc) {
