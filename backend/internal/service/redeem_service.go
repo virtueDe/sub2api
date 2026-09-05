@@ -497,8 +497,16 @@ func (s *RedeemService) Redeem(ctx context.Context, userID int64, code string) (
 		} else if err := s.userRepo.UpdateBalance(txCtx, userID, amount); err != nil {
 			return nil, fmt.Errorf("update user balance: %w", err)
 		}
+		entitlementGroupIDs := redeemCode.EntitlementGroupIDs
+		if IsPaidBalanceRedeemCode(redeemCode) {
+			paidGroupIDs, err := activePaidEntitlementGroupIDs(txCtx, tx.Client())
+			if err != nil {
+				return nil, fmt.Errorf("load current paid entitlement groups: %w", err)
+			}
+			entitlementGroupIDs = mergeUniqueInt64(entitlementGroupIDs, paidGroupIDs)
+		}
 		if redeemCode.EntitlementProfile != "none" {
-			for _, groupID := range redeemCode.EntitlementGroupIDs {
+			for _, groupID := range entitlementGroupIDs {
 				if err := s.userRepo.AddGroupToAllowedGroups(txCtx, userID, groupID); err != nil {
 					return nil, fmt.Errorf("grant entitlement group %d: %w", groupID, err)
 				}

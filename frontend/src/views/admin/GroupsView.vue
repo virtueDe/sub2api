@@ -709,6 +709,39 @@
           </div>
         </div>
 
+        <div
+          v-if="createForm.subscription_type === 'standard' && createForm.is_exclusive"
+          class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-700"
+        >
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.groups.form.paidEntitlement") }}
+          </label>
+          <div class="mt-2 flex items-center gap-3">
+            <button
+              type="button"
+              :aria-checked="createForm.is_paid_entitlement"
+              role="switch"
+              @click="createForm.is_paid_entitlement = !createForm.is_paid_entitlement"
+              :class="[
+                'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
+                createForm.is_paid_entitlement
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  createForm.is_paid_entitlement ? 'translate-x-6' : 'translate-x-1',
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.form.paidEntitlementHint") }}
+            </span>
+          </div>
+        </div>
+
         <!-- Subscription Configuration -->
         <div class="mt-4 border-t pt-4">
           <div>
@@ -2508,6 +2541,38 @@
           <label class="input-label">{{ t("admin.groups.form.status") }}</label>
           <Select v-model="editForm.status" :options="editStatusOptions" />
         </div>
+        <div
+          v-if="editForm.subscription_type === 'standard' && editForm.is_exclusive && editForm.status === 'active'"
+          class="border-t border-gray-200 pt-4 dark:border-dark-700"
+        >
+          <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.groups.form.paidEntitlement") }}
+          </label>
+          <div class="mt-2 flex items-center gap-3">
+            <button
+              type="button"
+              :aria-checked="editForm.is_paid_entitlement"
+              role="switch"
+              @click="editForm.is_paid_entitlement = !editForm.is_paid_entitlement"
+              :class="[
+                'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors',
+                editForm.is_paid_entitlement
+                  ? 'bg-primary-500'
+                  : 'bg-gray-300 dark:bg-dark-600',
+              ]"
+            >
+              <span
+                :class="[
+                  'inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform',
+                  editForm.is_paid_entitlement ? 'translate-x-6' : 'translate-x-1',
+                ]"
+              />
+            </button>
+            <span class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.form.paidEntitlementHint") }}
+            </span>
+          </div>
+        </div>
 
         <!-- Subscription Configuration -->
         <div class="mt-4 border-t pt-4">
@@ -4057,6 +4122,96 @@
       </template>
     </BaseDialog>
 
+    <BaseDialog
+      :show="showPaidEntitlementDialog"
+      :title="t('admin.groups.paidEntitlement.previewTitle')"
+      width="extra-wide"
+      :close-on-escape="!submitting"
+      :show-close-button="!submitting"
+      @close="closePaidEntitlementDialog"
+    >
+      <div v-if="paidEntitlementPreview" class="space-y-5">
+        <p class="text-sm leading-6 text-gray-600 dark:text-gray-300">
+          {{ t("admin.groups.paidEntitlement.previewDescription") }}
+        </p>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="border-l-4 border-primary-500 bg-gray-50 px-4 py-3 dark:bg-dark-800">
+            <div class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.paidEntitlement.userCount") }}
+            </div>
+            <div class="mt-1 text-xl font-semibold text-gray-900 dark:text-white">
+              {{ paidEntitlementPreview.user_count }}
+            </div>
+          </div>
+          <div class="border-l-4 border-amber-500 bg-gray-50 px-4 py-3 dark:bg-dark-800">
+            <div class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.paidEntitlement.unusedCodeCount") }}
+            </div>
+            <div class="mt-1 text-xl font-semibold text-gray-900 dark:text-white">
+              {{ paidEntitlementPreview.unused_code_count }}
+            </div>
+          </div>
+        </div>
+        <div class="max-h-[55vh] overflow-auto border border-gray-200 dark:border-dark-700">
+          <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-700">
+            <thead class="sticky top-0 bg-gray-50 dark:bg-dark-800">
+              <tr>
+                <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">ID</th>
+                <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ t("admin.groups.paidEntitlement.user") }}</th>
+                <th class="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300">{{ t("admin.groups.paidEntitlement.codeCount") }}</th>
+                <th class="px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300">{{ t("admin.groups.paidEntitlement.totalAmount") }}</th>
+                <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ t("admin.groups.paidEntitlement.currentGroups") }}</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100 bg-white dark:divide-dark-700 dark:bg-dark-900">
+              <tr v-for="user in paidEntitlementPreview.users" :key="user.user_id">
+                <td class="whitespace-nowrap px-3 py-2 text-gray-600 dark:text-gray-300">{{ user.user_id }}</td>
+                <td class="px-3 py-2">
+                  <div class="font-medium text-gray-900 dark:text-white">{{ user.username || '-' }}</div>
+                  <div class="text-xs text-gray-500 dark:text-gray-400">{{ user.email }}</div>
+                </td>
+                <td class="whitespace-nowrap px-3 py-2 text-right text-gray-700 dark:text-gray-200">{{ user.redeem_code_count }}</td>
+                <td class="whitespace-nowrap px-3 py-2 text-right text-gray-700 dark:text-gray-200">{{ user.total_redeemed_amount.toFixed(2) }}</td>
+                <td class="px-3 py-2 text-gray-600 dark:text-gray-300">
+                  <span v-if="user.current_exclusive_groups.length === 0">-</span>
+                  <span v-else>{{ user.current_exclusive_groups.map((group) => group.name).join(', ') }}</span>
+                </td>
+              </tr>
+              <tr v-if="paidEntitlementPreview.users.length === 0">
+                <td colspan="5" class="px-3 py-8 text-center text-gray-500 dark:text-gray-400">
+                  {{ t("admin.groups.paidEntitlement.noUsers") }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="text-xs leading-5 text-amber-700 dark:text-amber-300">
+          {{ t("admin.groups.paidEntitlement.disableHint") }}
+        </p>
+      </div>
+
+      <template #footer>
+        <div class="flex justify-end gap-3 pt-4">
+          <button
+            type="button"
+            class="btn btn-secondary"
+            :disabled="submitting"
+            @click="closePaidEntitlementDialog"
+          >
+            {{ t("common.cancel") }}
+          </button>
+          <button
+            type="button"
+            class="btn btn-primary"
+            :disabled="submitting || !paidEntitlementPreview"
+            @click="confirmPaidEntitlementSync"
+          >
+            {{ submitting ? t("admin.groups.paidEntitlement.syncing") : t("admin.groups.paidEntitlement.confirm") }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
     <!-- Delete Confirmation Dialog -->
     <ConfirmDialog
       :show="showDeleteDialog"
@@ -4569,6 +4724,7 @@ import type {
   CompositeRouteEndpoint,
   CompositeRouteMatchType,
   GroupPlatform,
+  PaidEntitlementSyncPreview,
   SubscriptionType,
 } from "@/types";
 import {
@@ -5111,6 +5267,9 @@ let abortController: AbortController | null = null;
 const showCreateModal = ref(false);
 const showEditModal = ref(false);
 const showDeleteDialog = ref(false);
+const showPaidEntitlementDialog = ref(false);
+const paidEntitlementPreview = ref<PaidEntitlementSyncPreview | null>(null);
+const paidEntitlementGroupId = ref<number | null>(null);
 const pendingLiveForm = ref<"create" | "edit" | null>(null);
 const showUnsupportedLiveConfirm = computed(
   () => pendingLiveForm.value !== null,
@@ -5189,6 +5348,7 @@ const createForm = reactive({
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
   is_exclusive: false,
+  is_paid_entitlement: false,
   subscription_type: "standard" as SubscriptionType,
   daily_limit_usd: null as number | null,
   weekly_limit_usd: null as number | null,
@@ -5552,6 +5712,7 @@ const editForm = reactive({
   platform: "anthropic" as GroupPlatform,
   rate_multiplier: 1.0,
   is_exclusive: false,
+  is_paid_entitlement: false,
   status: "active" as "active" | "inactive",
   subscription_type: "standard" as SubscriptionType,
   daily_limit_usd: null as number | null,
@@ -6015,6 +6176,7 @@ const closeCreateModal = () => {
   createForm.platform = "anthropic";
   createForm.rate_multiplier = 1.0;
   createForm.is_exclusive = false;
+  createForm.is_paid_entitlement = false;
   createForm.subscription_type = "standard";
   createForm.daily_limit_usd = null;
   createForm.weekly_limit_usd = null;
@@ -6111,6 +6273,61 @@ const validateProfitControlForm = (form: ProfitControlFormState): boolean => {
   return true;
 };
 
+const openPaidEntitlementPreview = async (groupId: number) => {
+  try {
+    paidEntitlementPreview.value =
+      await adminAPI.groups.previewPaidEntitlementSync();
+    paidEntitlementGroupId.value = groupId;
+    showPaidEntitlementDialog.value = true;
+  } catch (error: any) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.groups.paidEntitlement.previewFailed"),
+      ),
+    );
+    console.error("Error loading paid entitlement preview:", error);
+  }
+};
+
+const closePaidEntitlementDialog = () => {
+  if (submitting.value) return;
+  showPaidEntitlementDialog.value = false;
+  paidEntitlementPreview.value = null;
+  paidEntitlementGroupId.value = null;
+};
+
+const confirmPaidEntitlementSync = async () => {
+  if (!paidEntitlementGroupId.value) return;
+
+  submitting.value = true;
+  try {
+    const result = await adminAPI.groups.activatePaidEntitlement(
+      paidEntitlementGroupId.value,
+    );
+    appStore.showSuccess(
+      t("admin.groups.paidEntitlement.syncSuccess", {
+        users: result.synced_user_count,
+        codes: result.updated_code_count,
+      }),
+    );
+    showPaidEntitlementDialog.value = false;
+    paidEntitlementPreview.value = null;
+    paidEntitlementGroupId.value = null;
+    loadGroups();
+  } catch (error: any) {
+    appStore.showError(
+      extractApiErrorMessage(
+        error,
+        t("admin.groups.paidEntitlement.syncFailed"),
+      ),
+    );
+    console.error("Error synchronizing paid entitlement group:", error);
+  } finally {
+    submitting.value = false;
+  }
+};
+
 const handleCreateGroup = async () => {
   if (!createForm.name.trim()) {
     appStore.showError(t("admin.groups.nameRequired"));
@@ -6130,6 +6347,7 @@ const handleCreateGroup = async () => {
   try {
     const {
       video_model_prices: _createFormVideoModelPrices,
+      is_paid_entitlement: wantsPaidEntitlement,
       ...createGroupForm
     } = createForm;
     const videoModelPrices = serializeVideoModelPrices(
@@ -6241,10 +6459,13 @@ const handleCreateGroup = async () => {
     requestData.peak_rate_multiplier = normalizeRateMultiplier(
       createForm.peak_rate_multiplier,
     );
-    await adminAPI.groups.create(requestData);
+    const createdGroup = await adminAPI.groups.create(requestData);
     appStore.showSuccess(t("admin.groups.groupCreated"));
     closeCreateModal();
     loadGroups();
+    if (wantsPaidEntitlement) {
+      await openPaidEntitlementPreview(createdGroup.id);
+    }
     // Only advance tour if active, on submit step, and creation succeeded
     if (onboardingStore.isCurrentStep('[data-tour="group-form-submit"]')) {
       onboardingStore.nextStep(500);
@@ -6267,6 +6488,7 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.platform = group.platform;
   editForm.rate_multiplier = group.rate_multiplier;
   editForm.is_exclusive = group.is_exclusive;
+  editForm.is_paid_entitlement = group.is_paid_entitlement ?? false;
   editForm.status = group.status;
   editForm.subscription_type = group.subscription_type || "standard";
   editForm.daily_limit_usd = group.daily_limit_usd;
@@ -6366,6 +6588,7 @@ const closeEditModal = () => {
   clearAllAccountSearchState();
   showEditModal.value = false;
   editingGroup.value = null;
+  editForm.is_paid_entitlement = false;
   editForm.max_reasoning_effort = "";
   editForm.max_reasoning_effort_over_limit = reasoningEffortOverLimitDowngrade;
   editForm.reasoning_effort_mappings = [];
@@ -6418,6 +6641,8 @@ const handleUpdateGroup = async () => {
 
   submitting.value = true;
   try {
+    const shouldActivatePaidEntitlement =
+      editForm.is_paid_entitlement && !editingGroup.value.is_paid_entitlement;
     // 转换 fallback_group_id: null -> 0 (后端使用 0 表示清除)
     const payload = {
       ...editForm,
@@ -6483,6 +6708,9 @@ const handleUpdateGroup = async () => {
     };
     delete (payload as Record<string, unknown>).profit_min_margin_percent;
     delete (payload as Record<string, unknown>).profit_safety_buffer_percent;
+    if (shouldActivatePaidEntitlement) {
+      delete (payload as Record<string, unknown>).is_paid_entitlement;
+    }
     // v-model.number 清空输入框时产生 ""，转为 null 让后端设为无限制
     const emptyToNull = (v: any) => (v === "" ? null : v);
     payload.daily_limit_usd = emptyToNull(payload.daily_limit_usd);
@@ -6532,10 +6760,14 @@ const handleUpdateGroup = async () => {
     payload.peak_rate_multiplier = normalizeRateMultiplier(
       editForm.peak_rate_multiplier,
     );
-    await adminAPI.groups.update(editingGroup.value.id, payload);
+    const groupId = editingGroup.value.id;
+    await adminAPI.groups.update(groupId, payload);
     appStore.showSuccess(t("admin.groups.groupUpdated"));
     closeEditModal();
     loadGroups();
+    if (shouldActivatePaidEntitlement) {
+      await openPaidEntitlementPreview(groupId);
+    }
   } catch (error: any) {
     appStore.showError(
       extractApiErrorMessage(error, t("admin.groups.failedToUpdate")),
@@ -6809,6 +7041,7 @@ watch(
   (newVal) => {
     if (newVal === "subscription") {
       createForm.is_exclusive = true;
+      createForm.is_paid_entitlement = false;
       createForm.fallback_group_id_on_invalid_request = null;
     } else {
       createForm.peak_rate_enabled = false;
@@ -6823,11 +7056,29 @@ watch(
 watch(
   () => editForm.subscription_type,
   (newVal) => {
-    if (newVal !== "subscription") {
+    if (newVal === "subscription") {
+      editForm.is_paid_entitlement = false;
+    } else {
       editForm.peak_rate_enabled = false;
       editForm.peak_start = "";
       editForm.peak_end = "";
       editForm.peak_rate_multiplier = 1.0;
+    }
+  },
+);
+
+watch(
+  () => createForm.is_exclusive,
+  (isExclusive) => {
+    if (!isExclusive) createForm.is_paid_entitlement = false;
+  },
+);
+
+watch(
+  () => [editForm.is_exclusive, editForm.status] as const,
+  ([isExclusive, status]) => {
+    if (!isExclusive || status !== "active") {
+      editForm.is_paid_entitlement = false;
     }
   },
 );

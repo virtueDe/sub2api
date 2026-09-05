@@ -831,6 +831,8 @@ export default {
         rateMultiplier: '费率倍数',
         status: '状态',
         exclusive: '专属分组',
+        paidEntitlement: '付费专属分组',
+        paidEntitlementHint: '启用后，保存分组会先列出历史付费用户，确认后再同步用户权限和未使用付费兑换码',
         nameLabel: '分组名称',
         namePlaceholder: '请输入分组名称',
         descriptionLabel: '描述',
@@ -894,6 +896,23 @@ export default {
         example: '使用场景：',
         exampleContent:
           '公开分组费率 0.8，您可以创建一个费率 0.7 的专属分组，手动分配给 VIP 用户，让他们享受更优惠的价格。'
+      },
+      paidEntitlement: {
+        previewTitle: '确认同步付费专属分组',
+        previewDescription: '以下用户曾使用余额充值（兑换）类型、金额大于等于 10 且为整数的兑换码。确认后将把当前分组授予这些用户，并写入符合条件的未使用付费兑换码。',
+        userCount: '待同步用户数',
+        unusedCodeCount: '待更新未使用兑换码数',
+        user: '用户',
+        codeCount: '符合条件的已兑换码数',
+        totalAmount: '累计兑换金额',
+        currentGroups: '当前专属分组',
+        noUsers: '没有符合历史付费条件的用户',
+        disableHint: '以后关闭该开关只会停止后续自动授予，不会移除用户已经拥有的分组。',
+        confirm: '确认并同步',
+        syncing: '同步中...',
+        previewFailed: '分组已保存，但加载付费用户清单失败，可在编辑分组时重试',
+        syncSuccess: '同步完成：已处理 {users} 个用户，更新 {codes} 个未使用兑换码',
+        syncFailed: '同步失败，分组尚未启用付费权益，可再次确认重试'
       },
       rateMultiplierHint: '1.0 = 标准费率，0.5 = 半价，2.0 = 双倍',
       platforms: {

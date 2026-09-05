@@ -618,6 +618,7 @@ export interface Group {
 }
 
 export interface AdminGroup extends Group {
+  is_paid_entitlement: boolean
   force_openai_fast: boolean
   free_openai_fast: boolean
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]
@@ -843,6 +844,7 @@ export interface UpdateGroupRequest {
   platform?: GroupPlatform
   rate_multiplier?: number
   is_exclusive?: boolean
+  is_paid_entitlement?: boolean
   status?: 'active' | 'inactive'
   subscription_type?: SubscriptionType
   daily_limit_usd?: number | null
@@ -899,6 +901,33 @@ export interface UpdateGroupRequest {
   require_oauth_only?: boolean
   require_privacy_set?: boolean
   copy_accounts_from_group_ids?: number[]
+}
+
+export interface PaidEntitlementGroupPreview {
+  id: number
+  name: string
+  status: 'active' | 'inactive'
+}
+
+export interface PaidEntitlementUserPreview {
+  user_id: number
+  email: string
+  username: string
+  redeem_code_count: number
+  total_redeemed_amount: number
+  current_exclusive_groups: PaidEntitlementGroupPreview[]
+}
+
+export interface PaidEntitlementSyncPreview {
+  users: PaidEntitlementUserPreview[]
+  user_count: number
+  unused_code_count: number
+}
+
+export interface PaidEntitlementSyncResult {
+  group_id: number
+  synced_user_count: number
+  updated_code_count: number
 }
 
 // ==================== Account & Proxy Types ====================

@@ -176,6 +176,20 @@ func (_c *GroupCreate) SetNillableIsExclusive(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetIsPaidEntitlement sets the "is_paid_entitlement" field.
+func (_c *GroupCreate) SetIsPaidEntitlement(v bool) *GroupCreate {
+	_c.mutation.SetIsPaidEntitlement(v)
+	return _c
+}
+
+// SetNillableIsPaidEntitlement sets the "is_paid_entitlement" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableIsPaidEntitlement(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetIsPaidEntitlement(*v)
+	}
+	return _c
+}
+
 // SetStatus sets the "status" field.
 func (_c *GroupCreate) SetStatus(v string) *GroupCreate {
 	_c.mutation.SetStatus(v)
@@ -1057,6 +1071,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultIsExclusive
 		_c.mutation.SetIsExclusive(v)
 	}
+	if _, ok := _c.mutation.IsPaidEntitlement(); !ok {
+		v := group.DefaultIsPaidEntitlement
+		_c.mutation.SetIsPaidEntitlement(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := group.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -1239,6 +1257,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.IsExclusive(); !ok {
 		return &ValidationError{Name: "is_exclusive", err: errors.New(`ent: missing required field "Group.is_exclusive"`)}
+	}
+	if _, ok := _c.mutation.IsPaidEntitlement(); !ok {
+		return &ValidationError{Name: "is_paid_entitlement", err: errors.New(`ent: missing required field "Group.is_paid_entitlement"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "Group.status"`)}
@@ -1467,6 +1488,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.IsExclusive(); ok {
 		_spec.SetField(group.FieldIsExclusive, field.TypeBool, value)
 		_node.IsExclusive = value
+	}
+	if value, ok := _c.mutation.IsPaidEntitlement(); ok {
+		_spec.SetField(group.FieldIsPaidEntitlement, field.TypeBool, value)
+		_node.IsPaidEntitlement = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(group.FieldStatus, field.TypeString, value)
@@ -1981,6 +2006,18 @@ func (u *GroupUpsert) SetIsExclusive(v bool) *GroupUpsert {
 // UpdateIsExclusive sets the "is_exclusive" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateIsExclusive() *GroupUpsert {
 	u.SetExcluded(group.FieldIsExclusive)
+	return u
+}
+
+// SetIsPaidEntitlement sets the "is_paid_entitlement" field.
+func (u *GroupUpsert) SetIsPaidEntitlement(v bool) *GroupUpsert {
+	u.Set(group.FieldIsPaidEntitlement, v)
+	return u
+}
+
+// UpdateIsPaidEntitlement sets the "is_paid_entitlement" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateIsPaidEntitlement() *GroupUpsert {
+	u.SetExcluded(group.FieldIsPaidEntitlement)
 	return u
 }
 
@@ -3097,6 +3134,20 @@ func (u *GroupUpsertOne) SetIsExclusive(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateIsExclusive() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateIsExclusive()
+	})
+}
+
+// SetIsPaidEntitlement sets the "is_paid_entitlement" field.
+func (u *GroupUpsertOne) SetIsPaidEntitlement(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetIsPaidEntitlement(v)
+	})
+}
+
+// UpdateIsPaidEntitlement sets the "is_paid_entitlement" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateIsPaidEntitlement() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateIsPaidEntitlement()
 	})
 }
 
@@ -4529,6 +4580,20 @@ func (u *GroupUpsertBulk) SetIsExclusive(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateIsExclusive() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateIsExclusive()
+	})
+}
+
+// SetIsPaidEntitlement sets the "is_paid_entitlement" field.
+func (u *GroupUpsertBulk) SetIsPaidEntitlement(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetIsPaidEntitlement(v)
+	})
+}
+
+// UpdateIsPaidEntitlement sets the "is_paid_entitlement" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateIsPaidEntitlement() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateIsPaidEntitlement()
 	})
 }
 

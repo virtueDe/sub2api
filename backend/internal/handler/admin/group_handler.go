@@ -173,6 +173,7 @@ type UpdateGroupRequest struct {
 	Platform                  string                         `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek composite"`
 	RateMultiplier            *float64                       `json:"rate_multiplier"`
 	IsExclusive               *bool                          `json:"is_exclusive"`
+	IsPaidEntitlement         *bool                          `json:"is_paid_entitlement"`
 	Status                    string                         `json:"status" binding:"omitempty,oneof=active inactive"`
 	SubscriptionType          string                         `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
 	DailyLimitUSD             optionalLimitField             `json:"daily_limit_usd"`
@@ -647,6 +648,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		Platform:                        req.Platform,
 		RateMultiplier:                  req.RateMultiplier,
 		IsExclusive:                     req.IsExclusive,
+		IsPaidEntitlement:               req.IsPaidEntitlement,
 		Status:                          req.Status,
 		SubscriptionType:                req.SubscriptionType,
 		DailyLimitUSD:                   req.DailyLimitUSD.ToServiceInput(),
@@ -709,6 +711,33 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	}
 
 	response.Success(c, dto.GroupFromServiceAdmin(group))
+}
+
+// PreviewPaidEntitlementSync lists the historical paid users and unused paid
+// codes that will be affected before an admin confirms activation.
+func (h *GroupHandler) PreviewPaidEntitlementSync(c *gin.Context) {
+	preview, err := h.adminService.PreviewPaidEntitlementSync(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, preview)
+}
+
+// ActivatePaidEntitlement enables a group and atomically synchronizes its
+// access to historical paid users and unused paid entitlement codes.
+func (h *GroupHandler) ActivatePaidEntitlement(c *gin.Context) {
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+	result, err := h.adminService.ActivatePaidEntitlementGroup(c.Request.Context(), groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
 // Delete handles deleting a group

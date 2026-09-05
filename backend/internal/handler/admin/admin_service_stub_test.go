@@ -357,6 +357,14 @@ func (s *stubAdminService) CreateGroup(ctx context.Context, input *service.Creat
 	return &group, nil
 }
 
+func (s *stubAdminService) PreviewPaidEntitlementSync(context.Context) (*service.PaidEntitlementSyncPreview, error) {
+	return &service.PaidEntitlementSyncPreview{}, nil
+}
+
+func (s *stubAdminService) ActivatePaidEntitlementGroup(_ context.Context, id int64) (*service.PaidEntitlementSyncResult, error) {
+	return &service.PaidEntitlementSyncResult{GroupID: id}, nil
+}
+
 func (s *stubAdminService) DuplicateGroup(ctx context.Context, id int64, actorScope, operationKey string) (*service.Group, error) {
 	group := service.Group{ID: 201, Name: "group (Copy)", Status: "inactive"}
 	return &group, nil

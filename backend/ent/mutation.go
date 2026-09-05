@@ -22094,6 +22094,7 @@ type GroupMutation struct {
 	peak_rate_multiplier                    *float64
 	addpeak_rate_multiplier                 *float64
 	is_exclusive                            *bool
+	is_paid_entitlement                     *bool
 	status                                  *string
 	duplicate_operation_id                  *string
 	platform                                *string
@@ -22758,6 +22759,42 @@ func (m *GroupMutation) OldIsExclusive(ctx context.Context) (v bool, err error) 
 // ResetIsExclusive resets all changes to the "is_exclusive" field.
 func (m *GroupMutation) ResetIsExclusive() {
 	m.is_exclusive = nil
+}
+
+// SetIsPaidEntitlement sets the "is_paid_entitlement" field.
+func (m *GroupMutation) SetIsPaidEntitlement(b bool) {
+	m.is_paid_entitlement = &b
+}
+
+// IsPaidEntitlement returns the value of the "is_paid_entitlement" field in the mutation.
+func (m *GroupMutation) IsPaidEntitlement() (r bool, exists bool) {
+	v := m.is_paid_entitlement
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldIsPaidEntitlement returns the old "is_paid_entitlement" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldIsPaidEntitlement(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldIsPaidEntitlement is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldIsPaidEntitlement requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldIsPaidEntitlement: %w", err)
+	}
+	return oldValue.IsPaidEntitlement, nil
+}
+
+// ResetIsPaidEntitlement resets all changes to the "is_paid_entitlement" field.
+func (m *GroupMutation) ResetIsPaidEntitlement() {
+	m.is_paid_entitlement = nil
 }
 
 // SetStatus sets the "status" field.
@@ -25884,7 +25921,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 65)
+	fields := make([]string, 0, 66)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25917,6 +25954,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.is_exclusive != nil {
 		fields = append(fields, group.FieldIsExclusive)
+	}
+	if m.is_paid_entitlement != nil {
+		fields = append(fields, group.FieldIsPaidEntitlement)
 	}
 	if m.status != nil {
 		fields = append(fields, group.FieldStatus)
@@ -26110,6 +26150,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.PeakRateMultiplier()
 	case group.FieldIsExclusive:
 		return m.IsExclusive()
+	case group.FieldIsPaidEntitlement:
+		return m.IsPaidEntitlement()
 	case group.FieldStatus:
 		return m.Status()
 	case group.FieldDuplicateOperationID:
@@ -26249,6 +26291,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldPeakRateMultiplier(ctx)
 	case group.FieldIsExclusive:
 		return m.OldIsExclusive(ctx)
+	case group.FieldIsPaidEntitlement:
+		return m.OldIsPaidEntitlement(ctx)
 	case group.FieldStatus:
 		return m.OldStatus(ctx)
 	case group.FieldDuplicateOperationID:
@@ -26442,6 +26486,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetIsExclusive(v)
+		return nil
+	case group.FieldIsPaidEntitlement:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetIsPaidEntitlement(v)
 		return nil
 	case group.FieldStatus:
 		v, ok := value.(string)
@@ -27364,6 +27415,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldIsExclusive:
 		m.ResetIsExclusive()
+		return nil
+	case group.FieldIsPaidEntitlement:
+		m.ResetIsPaidEntitlement()
 		return nil
 	case group.FieldStatus:
 		m.ResetStatus()
