@@ -28,6 +28,7 @@ type Group struct {
 	PeakEnd            string
 	PeakRateMultiplier float64
 	IsExclusive        bool
+	IsPaidEntitlement  bool
 	Status             string
 	Hydrated           bool // indicates the group was loaded from a trusted repository source
 	// DuplicateOperationID is internal persistence metadata used only to recover

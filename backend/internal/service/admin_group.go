@@ -701,6 +701,18 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.SubscriptionType != "" {
 		group.SubscriptionType = input.SubscriptionType
 	}
+	if input.IsPaidEntitlement != nil {
+		if *input.IsPaidEntitlement && !group.IsPaidEntitlement {
+			return nil, infraerrors.BadRequest(
+				"PAID_ENTITLEMENT_ACTIVATION_REQUIRED",
+				"use the paid entitlement activation endpoint after preview confirmation",
+			)
+		}
+		group.IsPaidEntitlement = *input.IsPaidEntitlement
+	}
+	if group.SubscriptionType == SubscriptionTypeSubscription || !group.IsExclusive {
+		group.IsPaidEntitlement = false
+	}
 	// 限额字段：nil 表示不修改，负数表示"无限制"，0 表示"不允许用量"，正数表示具体限额。
 	if input.DailyLimitUSD != nil {
 		group.DailyLimitUSD = normalizeLimit(input.DailyLimitUSD)

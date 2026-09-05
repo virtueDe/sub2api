@@ -110,6 +110,11 @@ func IsExclusive(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldIsExclusive, v))
 }
 
+// IsPaidEntitlement applies equality check predicate on the "is_paid_entitlement" field. It's identical to IsPaidEntitlementEQ.
+func IsPaidEntitlement(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldIsPaidEntitlement, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldStatus, v))
@@ -843,6 +848,16 @@ func IsExclusiveEQ(v bool) predicate.Group {
 // IsExclusiveNEQ applies the NEQ predicate on the "is_exclusive" field.
 func IsExclusiveNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldIsExclusive, v))
+}
+
+// IsPaidEntitlementEQ applies the EQ predicate on the "is_paid_entitlement" field.
+func IsPaidEntitlementEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldIsPaidEntitlement, v))
+}
+
+// IsPaidEntitlementNEQ applies the NEQ predicate on the "is_paid_entitlement" field.
+func IsPaidEntitlementNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldIsPaidEntitlement, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

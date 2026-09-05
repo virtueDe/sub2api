@@ -13,6 +13,8 @@ import type {
   CompositeRouteDecision,
   CreateGroupRequest,
   UpdateGroupRequest,
+  PaidEntitlementSyncPreview,
+  PaidEntitlementSyncResult,
   PaginatedResponse
 } from '@/types'
 
@@ -217,6 +219,20 @@ export async function duplicate(id: number): Promise<AdminGroup> {
  */
 export async function update(id: number, updates: UpdateGroupRequest): Promise<AdminGroup> {
   const { data } = await apiClient.put<AdminGroup>(`/admin/groups/${id}`, updates)
+  return data
+}
+
+export async function previewPaidEntitlementSync(): Promise<PaidEntitlementSyncPreview> {
+  const { data } = await apiClient.get<PaidEntitlementSyncPreview>(
+    '/admin/groups/paid-entitlement-preview'
+  )
+  return data
+}
+
+export async function activatePaidEntitlement(id: number): Promise<PaidEntitlementSyncResult> {
+  const { data } = await apiClient.post<PaidEntitlementSyncResult>(
+    `/admin/groups/${id}/paid-entitlement`
+  )
   return data
 }
 
@@ -481,6 +497,8 @@ export const groupsAPI = {
   create,
   duplicate,
   update,
+  previewPaidEntitlementSync,
+  activatePaidEntitlement,
   delete: deleteGroup,
   toggleStatus,
   getStats,
