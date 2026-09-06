@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Image API Smoke Test</title>
+    <style>
+      body { max-width: 760px; margin: 48px auto; padding: 0 20px; font: 16px/1.6 system-ui, sans-serif; color: #1f2937; }
+      code { background: #f3f4f6; padding: 2px 5px; border-radius: 4px; }
+      pre { padding: 16px; overflow: auto; background: #111827; color: #e5e7eb; border-radius: 8px; }
+    </style>
+  </head>
+  <body>
+    <h1>Image API Smoke Test</h1>
+    <p>服务已启动。使用 <code>/health</code>、<code>/generate</code>、<code>/generate/async</code> 和 <code>/edit</code> 验证外部调用。</p>
+    <pre>POST /generate
+POST /generate/async?wait=true
+POST /edit (multipart/form-data)</pre>
+  </body>
+</html>
