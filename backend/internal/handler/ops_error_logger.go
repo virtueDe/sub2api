@@ -31,6 +31,7 @@ const (
 	opsAccountIDKey              = "ops_account_id"
 	opsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
 	opsDedicatedErrorRecordedKey = "ops_dedicated_error_recorded"
+	opsImageRequestSummaryKey   = "ops_image_request_summary"
 
 	opsUpstreamModelKey = service.OpsUpstreamModelKey
 	opsRequestTypeKey   = "ops_request_type"
@@ -1088,6 +1089,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			releaseOpsCaptureWriter(w)
 		}()
 		c.Writer = w
+		captureImageRequestSummary(c)
 		c.Next()
 		w.finalizeCapture()
 
@@ -1233,6 +1235,11 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			ErrorOwner:  errorOwner,
 
 			CreatedAt: time.Now(),
+		}
+		if summary, ok := c.Get(opsImageRequestSummaryKey); ok {
+			if value, ok := summary.(string); ok && strings.TrimSpace(value) != "" {
+				entry.ErrorMessage = truncateString(entry.ErrorMessage+" params="+value, 2048)
+			}
 		}
 		applyOpsLatencyFieldsFromContext(c, entry)
 		applyOpsUpstreamFieldsFromContext(c, entry)

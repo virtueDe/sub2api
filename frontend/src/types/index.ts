@@ -2179,6 +2179,7 @@ export interface UsageQueryParams {
   native_compaction_v2?: boolean | null
   billing_type?: number | null
   billing_mode?: string | null
+  image_only?: boolean
   start_date?: string
   end_date?: string
   timezone?: string

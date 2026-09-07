@@ -262,6 +262,9 @@ func (h *UsageHandler) List(c *gin.Context) {
 	if !ok {
 		return
 	}
+	if strings.EqualFold(strings.TrimSpace(c.Query("image_only")), "true") {
+		parsed.Filters.ImageOnly = true
+	}
 
 	params := pagination.PaginationParams{
 		Page:      page,

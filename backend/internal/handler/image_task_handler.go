@@ -6,11 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -23,11 +26,16 @@ import (
 type AsyncImageHandler struct {
 	tasks   *service.ImageTaskService
 	openAI  *OpenAIGatewayHandler
+	ops     *service.OpsService
 	execute func(platform string, c *gin.Context)
 }
 
-func NewAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGatewayHandler) *AsyncImageHandler {
-	h := &AsyncImageHandler{tasks: tasks, openAI: openAI}
+func NewAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGatewayHandler, ops ...*service.OpsService) *AsyncImageHandler {
+	var opsService *service.OpsService
+	if len(ops) > 0 {
+		opsService = ops[0]
+	}
+	h := &AsyncImageHandler{tasks: tasks, openAI: openAI, ops: opsService}
 	h.execute = h.executeWithGateway
 	return h
 }
@@ -225,14 +233,14 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			logger.L().Error("image_task.execution_panicked", zap.String("task_id", taskID), zap.Any("panic", recovered))
-			h.failTask(taskID, http.StatusInternalServerError, imageTaskErrorPayload("api_error", "image generation task panicked"))
+			h.failTask(taskID, platform, taskCtx, http.StatusInternalServerError, imageTaskErrorPayload("api_error", "image generation task panicked"))
 		}
 	}()
 
 	h.execute(platform, taskCtx)
 	body := bytes.TrimSpace(recorder.Body.Bytes())
 	if err := taskCtx.Request.Context().Err(); err != nil && len(body) == 0 {
-		h.failTask(taskID, http.StatusGatewayTimeout, imageTaskErrorPayload("timeout_error", "image generation task timed out"))
+		h.failTask(taskID, platform, taskCtx, http.StatusGatewayTimeout, imageTaskErrorPayload("timeout_error", "image generation task timed out"))
 		return
 	}
 	statusCode := recorder.Code
@@ -241,7 +249,7 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 	}
 	if statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices {
 		if len(body) == 0 || !json.Valid(body) {
-			h.failTask(taskID, http.StatusBadGateway, imageTaskErrorPayload("api_error", "upstream returned an invalid image response"))
+			h.failTask(taskID, platform, taskCtx, http.StatusBadGateway, imageTaskErrorPayload("api_error", "upstream returned an invalid image response"))
 			return
 		}
 		if err := h.tasks.Complete(context.Background(), taskID, statusCode, json.RawMessage(body)); err != nil {
@@ -249,12 +257,211 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 		}
 		return
 	}
-	h.failTask(taskID, statusCode, extractImageTaskError(body))
+	h.failTask(taskID, platform, taskCtx, statusCode, extractImageTaskError(body))
 }
 
-func (h *AsyncImageHandler) failTask(taskID string, statusCode int, taskErr json.RawMessage) {
+func (h *AsyncImageHandler) failTask(taskID, platform string, taskCtx *gin.Context, statusCode int, taskErr json.RawMessage) {
+	if statusCode <= 0 {
+		statusCode = http.StatusBadGateway
+	}
 	if err := h.tasks.Fail(context.Background(), taskID, statusCode, taskErr); err != nil {
 		logger.L().Error("image_task.failure_store_failed", zap.String("task_id", taskID), zap.Error(err))
+	}
+	h.recordAsyncFailure(taskID, platform, taskCtx, statusCode, taskErr)
+}
+
+// recordAsyncFailure bridges the background task lifecycle into the normal Ops
+// error stream. The submit middleware only observes the initial 202 response.
+func (h *AsyncImageHandler) recordAsyncFailure(taskID, platform string, taskCtx *gin.Context, statusCode int, taskErr json.RawMessage) {
+	if h == nil || h.ops == nil || taskCtx == nil {
+		return
+	}
+	message, errorType := "image generation task failed", "api_error"
+	var payload struct {
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	if json.Unmarshal(taskErr, &payload) == nil {
+		if strings.TrimSpace(payload.Message) != "" {
+			message = strings.TrimSpace(payload.Message)
+		}
+		if strings.TrimSpace(payload.Type) != "" {
+			errorType = strings.TrimSpace(payload.Type)
+		} else if strings.TrimSpace(payload.Code) != "" {
+			errorType = strings.TrimSpace(payload.Code)
+		}
+	}
+	if statusCode == http.StatusTooManyRequests {
+		errorType = "rate_limit_error"
+	}
+	switch errorType {
+	case "invalid_request", "invalid_request_error":
+		errorType = "invalid_request_error"
+	case "service_unavailable", "service_unavailable_error", "server_error":
+		errorType = "service_unavailable_error"
+	}
+	if statusCode >= 500 && errorType == "api_error" {
+		errorType = "service_unavailable_error"
+	}
+	requestID, _ := taskCtx.Request.Context().Value(ctxkey.RequestID).(string)
+	clientRequestID, _ := taskCtx.Request.Context().Value(ctxkey.ClientRequestID).(string)
+	if strings.TrimSpace(requestID) == "" {
+		requestID = taskID
+	}
+	apiKey := getOpsAPIKey(taskCtx)
+	var userID, apiKeyID, groupID *int64
+	if apiKey != nil {
+		apiKeyID = &apiKey.ID
+		if apiKey.UserID > 0 {
+			v := apiKey.UserID
+			userID = &v
+		}
+		if apiKey.GroupID != nil {
+			groupID = apiKey.GroupID
+		}
+		if apiKey.Group != nil && apiKey.Group.Platform != "" {
+			platform = apiKey.Group.Platform
+		}
+	}
+	model := taskCtx.GetString(opsModelKey)
+	if model == "" {
+		model = taskCtx.GetString("model")
+	}
+	requestPath := ""
+	if taskCtx.Request != nil && taskCtx.Request.URL != nil {
+		requestPath = taskCtx.Request.URL.Path
+	}
+	if requestPath == "" {
+		requestPath = "/images"
+	}
+	message += " [task_id=" + taskID + "]"
+	if summary := asyncImageRequestSummary(taskCtx); summary != "" {
+		message += " params=" + summary
+	}
+	phase, source, owner := "internal", "gateway", "platform"
+	if errorType == "invalid_request_error" || statusCode == http.StatusBadRequest {
+		phase, source, owner = "request", "client_request", "client"
+	} else if statusCode == http.StatusUnauthorized {
+		phase, source, owner = "auth", "gateway", "platform"
+	} else if statusCode == http.StatusTooManyRequests || statusCode >= 500 {
+		phase, source, owner = "upstream", "upstream_http", "provider"
+	}
+	entry := &service.OpsInsertErrorLogInput{
+		RequestID: requestID, ClientRequestID: clientRequestID,
+		UserID: userID, APIKeyID: apiKeyID, GroupID: groupID,
+		Platform: resolveOpsPlatform(taskCtx.Request.Context(), apiKey, platform), Model: model,
+		RequestPath: requestPath, InboundEndpoint: requestPath, Stream: false,
+		ErrorPhase: phase, ErrorType: errorType, ErrorSource: source, ErrorOwner: owner,
+		Severity: "error", StatusCode: statusCode, ErrorMessage: message,
+		ErrorBody: string(taskErr), UserAgent: taskCtx.GetHeader("User-Agent"), CreatedAt: time.Now(),
+	}
+	if v, ok := taskCtx.Get(opsRequestTypeKey); ok {
+		switch value := v.(type) {
+		case int16:
+			entry.RequestType = &value
+		case int:
+			converted := int16(value)
+			entry.RequestType = &converted
+		}
+	}
+	if v, ok := taskCtx.Get(opsAccountIDKey); ok {
+		if value, ok := v.(int64); ok && value > 0 {
+			entry.AccountID = &value
+		}
+	}
+	if err := h.ops.RecordError(context.Background(), entry); err != nil {
+		logger.L().Warn("image_task.ops_error_store_failed", zap.String("task_id", taskID), zap.Error(err))
+	}
+}
+
+// asyncImageRequestSummary keeps only fields useful for diagnosing validation
+// and upstream capability errors. Prompts, image data and credentials are not persisted.
+func asyncImageRequestSummary(c *gin.Context) string {
+	if c == nil || c.Request == nil || c.Request.GetBody == nil {
+		return ""
+	}
+	body, err := c.Request.GetBody()
+	if err != nil {
+		return ""
+	}
+	defer body.Close()
+	data, readErr := io.ReadAll(io.LimitReader(body, 512<<10))
+	if readErr != nil {
+		return ""
+	}
+	return summarizeImageRequestBytes(c.GetHeader("Content-Type"), data)
+}
+
+func summarizeImageRequestBytes(contentType string, data []byte) string {
+	keep := map[string]any{}
+	if strings.HasPrefix(strings.ToLower(contentType), "multipart/") {
+		_, params, err := mime.ParseMediaType(contentType)
+		boundary := params["boundary"]
+		if err != nil || boundary == "" {
+			return ""
+		}
+		reader := multipart.NewReader(bytes.NewReader(data), boundary)
+		for {
+			part, nextErr := reader.NextPart()
+			if nextErr == io.EOF {
+				break
+			}
+			if nextErr != nil {
+				return ""
+			}
+			name := part.FormName()
+			if part.FileName() != "" || !isAsyncImageSummaryField(name) {
+				continue
+			}
+			value, readErr := io.ReadAll(io.LimitReader(part, 512))
+			if readErr == nil {
+				keep[name] = strings.TrimSpace(string(value))
+			}
+		}
+	} else {
+		var raw map[string]any
+		if json.Unmarshal(data, &raw) != nil {
+			return ""
+		}
+		for _, key := range []string{"model", "size", "quality", "n", "response_format", "background", "moderation"} {
+			if value, ok := raw[key]; ok {
+				keep[key] = value
+			}
+		}
+	}
+	if len(keep) == 0 {
+		return ""
+	}
+	encoded, _ := json.Marshal(keep)
+	return string(encoded)
+}
+
+func captureImageRequestSummary(c *gin.Context) {
+	if c == nil || c.Request == nil || c.Request.Body == nil || c.Request.URL == nil {
+		return
+	}
+	path := strings.ToLower(c.Request.URL.Path)
+	if !strings.Contains(path, "/images/") {
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(c.Request.Body, 512<<10))
+	// Restore the bytes consumed for inspection so the gateway sees the original body.
+	c.Request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(data), c.Request.Body))
+	if err != nil {
+		return
+	}
+	if summary := summarizeImageRequestBytes(c.GetHeader("Content-Type"), data); summary != "" {
+		c.Set(opsImageRequestSummaryKey, summary)
+	}
+}
+
+func isAsyncImageSummaryField(name string) bool {
+	switch strings.TrimSpace(name) {
+	case "model", "size", "quality", "n", "response_format", "background", "moderation":
+		return true
+	default:
+		return false
 	}
 }
 

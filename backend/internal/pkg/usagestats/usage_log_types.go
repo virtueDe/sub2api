@@ -293,6 +293,8 @@ type UsageLogFilters struct {
 	NativeCompactionV2    *bool
 	BillingType           *int8
 	BillingMode           string
+	// ImageOnly limits the list to requests that produced or billed images.
+	ImageOnly             bool
 	UpstreamModelMismatch *bool
 	StartTime             *time.Time
 	EndTime               *time.Time
