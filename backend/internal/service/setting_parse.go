@@ -205,10 +205,12 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyDailyTokenRankingLimit:   "10",
 
 		// Model plaza feature (default disabled; opt-in, public unless require_auth)
-		SettingKeyModelPlazaEnabled:       "false",
-		SettingKeyModelPlazaRequireAuth:   "false",
-		SettingKeyModelPlazaDescription:   "",
-		SettingKeyPluginManagementEnabled: "false",
+		SettingKeyModelPlazaEnabled:                     "false",
+		SettingKeyModelPlazaRequireAuth:                 "false",
+		SettingKeyModelPlazaDescription:                 "",
+		SettingKeyPluginManagementEnabled:               "false",
+		SettingKeyOpenAIImagesAspectRatioPromptEnabled:  "false",
+		SettingKeyOpenAIImagesAspectRatioPromptGroupIDs: "[]",
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled:              "false",
@@ -830,6 +832,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ModelPlazaRequireAuth = settings[SettingKeyModelPlazaRequireAuth] == "true"
 	result.ModelPlazaDescription = settings[SettingKeyModelPlazaDescription]
 	result.PluginManagementEnabled = settings[SettingKeyPluginManagementEnabled] == "true"
+	result.OpenAIImagesAspectRatioPromptEnabled = settings[SettingKeyOpenAIImagesAspectRatioPromptEnabled] == "true"
+	result.OpenAIImagesAspectRatioPromptGroupIDs = parseOpenAIImagesAspectRatioPromptGroupIDs(settings[SettingKeyOpenAIImagesAspectRatioPromptGroupIDs])
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

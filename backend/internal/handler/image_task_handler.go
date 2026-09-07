@@ -424,7 +424,7 @@ func summarizeImageRequestBytes(contentType string, data []byte) string {
 		if json.Unmarshal(data, &raw) != nil {
 			return ""
 		}
-		for _, key := range []string{"model", "size", "quality", "n", "response_format", "background", "moderation"} {
+		for _, key := range []string{"model", "size", "quality", "n", "response_format", "background", "moderation", "aspect_ratio", "aspectRatio"} {
 			if value, ok := raw[key]; ok {
 				keep[key] = value
 			}
@@ -458,7 +458,7 @@ func captureImageRequestSummary(c *gin.Context) {
 
 func isAsyncImageSummaryField(name string) bool {
 	switch strings.TrimSpace(name) {
-	case "model", "size", "quality", "n", "response_format", "background", "moderation":
+	case "model", "size", "quality", "n", "response_format", "background", "moderation", "aspect_ratio", "aspectRatio":
 		return true
 	default:
 		return false

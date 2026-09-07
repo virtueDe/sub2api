@@ -479,6 +479,10 @@ export default {
       gatewayForwarding: {
         title: '请求转发行为',
         description: '控制请求转发到上游 OAuth 账号时的行为',
+        imageAspectRatioPrompt: '图片比例提示词兼容',
+        imageAspectRatioPromptHint: '对选中的可生图分组，在 OpenAI 图片请求提示词末尾追加由 aspect_ratio 或 size 推导出的精确比例要求。默认关闭。',
+        imageAspectRatioPromptGroups: '目标生图分组',
+        imageAspectRatioPromptNoGroups: '暂无已启用图片生成能力的活动分组',
         grokDefaultTextModel: '默认 Grok 文本模型',
         grokDefaultTextModelHint: '用于空模型值；仅在右侧开关开启时也用于其他客户端模型命名空间。允许填写自定义 Grok 模型 ID。',
         grokCrossClientMap: '映射其他客户端模型到 Grok',

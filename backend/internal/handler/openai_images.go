@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -61,6 +62,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	originalRequestPayloadHash := service.HashUsageRequestPayload(body)
 
 	if isMultipartImagesContentType(c.GetHeader("Content-Type")) {
 		setOpsRequestContext(c, "", false)
@@ -102,6 +104,19 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, requestModel, parsed.ModerationBody()); decision != nil && !decision.AllowNextStage {
 		h.openAISecurityAuditError(c, decision)
 		return
+	}
+	targetGroupID := int64(0)
+	if apiKey.GroupID != nil {
+		targetGroupID = *apiKey.GroupID
+	}
+	if adjustedBody, err := h.gatewayService.PrepareOpenAIImagesAspectRatioPrompt(c.Request.Context(), c, targetGroupID, body, parsed); err != nil {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	} else {
+		body = adjustedBody
+		if ratio, exists := c.Get("openai_images_aspect_ratio"); exists {
+			reqLog = reqLog.With(zap.String("aspect_ratio_hint", fmt.Sprint(ratio)))
+		}
 	}
 	imageReleaseFunc, acquired := h.acquireImageGenerationSlot(c, streamStarted)
 	if !acquired {
@@ -379,7 +394,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 		userAgent := c.GetHeader("User-Agent")
 		clientIP := ip.GetClientIP(c)
-		requestPayloadHash := service.HashUsageRequestPayload(body)
+		requestPayloadHash := originalRequestPayloadHash
 		if parsed.Multipart {
 			requestPayloadHash = service.HashUsageRequestPayload([]byte(parsed.StickySessionSeed()))
 		}

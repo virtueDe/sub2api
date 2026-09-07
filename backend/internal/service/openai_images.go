@@ -60,35 +60,37 @@ type OpenAIImagesUpload struct {
 }
 
 type OpenAIImagesRequest struct {
-	Endpoint           string
-	ContentType        string
-	Multipart          bool
-	Model              string
-	ExplicitModel      bool
-	Prompt             string
-	Stream             bool
-	N                  int
-	Size               string
-	ExplicitSize       bool
-	SizeTier           string
-	ResponseFormat     string
-	Quality            string
-	Background         string
-	OutputFormat       string
-	Moderation         string
-	InputFidelity      string
-	Style              string
-	OutputCompression  *int
-	PartialImages      *int
-	HasMask            bool
-	HasNativeOptions   bool
-	RequiredCapability OpenAIImagesCapability
-	InputImageURLs     []string
-	MaskImageURL       string
-	Uploads            []OpenAIImagesUpload
-	MaskUpload         *OpenAIImagesUpload
-	Body               []byte
-	bodyHash           string
+	Endpoint            string
+	ContentType         string
+	Multipart           bool
+	Model               string
+	ExplicitModel       bool
+	Prompt              string
+	Stream              bool
+	N                   int
+	Size                string
+	ExplicitSize        bool
+	AspectRatio         string
+	ExplicitAspectRatio bool
+	SizeTier            string
+	ResponseFormat      string
+	Quality             string
+	Background          string
+	OutputFormat        string
+	Moderation          string
+	InputFidelity       string
+	Style               string
+	OutputCompression   *int
+	PartialImages       *int
+	HasMask             bool
+	HasNativeOptions    bool
+	RequiredCapability  OpenAIImagesCapability
+	InputImageURLs      []string
+	MaskImageURL        string
+	Uploads             []OpenAIImagesUpload
+	MaskUpload          *OpenAIImagesUpload
+	Body                []byte
+	bodyHash            string
 }
 
 func (r *OpenAIImagesRequest) ModerationBody() []byte {
@@ -167,6 +169,7 @@ func (r *OpenAIImagesRequest) StickySessionSeed() string {
 		strings.TrimSpace(r.Endpoint),
 		strings.TrimSpace(r.Model),
 		strings.TrimSpace(r.Size),
+		strings.TrimSpace(r.AspectRatio),
 		strings.TrimSpace(r.Prompt),
 	}
 	seed := strings.Join(parts, "|")
@@ -216,6 +219,9 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	}
 
 	applyOpenAIImagesDefaults(req)
+	if req.ExplicitAspectRatio && OpenAIImagesAspectRatio(req.AspectRatio, "") == "" {
+		return nil, fmt.Errorf("aspect_ratio must use positive decimal dimensions separated by a colon")
+	}
 	if err := validateOpenAIImagesModel(req.Model); err != nil {
 		return nil, err
 	}
@@ -251,6 +257,13 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 	if sizeResult := gjson.GetBytes(body, "size"); sizeResult.Exists() {
 		req.Size = strings.TrimSpace(sizeResult.String())
 		req.ExplicitSize = req.Size != ""
+	}
+	if ratioResult := gjson.GetBytes(body, "aspect_ratio"); ratioResult.Exists() {
+		req.AspectRatio = strings.TrimSpace(ratioResult.String())
+		req.ExplicitAspectRatio = req.AspectRatio != ""
+	} else if ratioResult := gjson.GetBytes(body, "aspectRatio"); ratioResult.Exists() {
+		req.AspectRatio = strings.TrimSpace(ratioResult.String())
+		req.ExplicitAspectRatio = req.AspectRatio != ""
 	}
 	req.ResponseFormat = strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, "response_format").String()))
 	req.Quality = strings.TrimSpace(gjson.GetBytes(body, "quality").String())
@@ -378,6 +391,9 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		case "size":
 			req.Size = value
 			req.ExplicitSize = value != ""
+		case "aspect_ratio", "aspectRatio":
+			req.AspectRatio = value
+			req.ExplicitAspectRatio = value != ""
 		case "response_format":
 			req.ResponseFormat = strings.ToLower(value)
 		case "stream":
@@ -499,7 +515,7 @@ func classifyOpenAIImagesCapability(req *OpenAIImagesRequest) OpenAIImagesCapabi
 	if req == nil {
 		return OpenAIImagesCapabilityNative
 	}
-	if req.ExplicitModel || req.ExplicitSize {
+	if req.ExplicitModel || req.ExplicitSize || req.ExplicitAspectRatio {
 		return OpenAIImagesCapabilityNative
 	}
 	model := strings.ToLower(strings.TrimSpace(req.Model))

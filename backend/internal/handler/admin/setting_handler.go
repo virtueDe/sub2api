@@ -344,6 +344,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		BackendModeEnabled:                                     settings.BackendModeEnabled,
 		OpenAITTFTMode:                                         settings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
+		OpenAIImagesAspectRatioPromptEnabled:                   settings.OpenAIImagesAspectRatioPromptEnabled,
+		OpenAIImagesAspectRatioPromptGroupIDs:                  settings.OpenAIImagesAspectRatioPromptGroupIDs,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 settings.EnableClaudeOAuthSystemPromptInjection,

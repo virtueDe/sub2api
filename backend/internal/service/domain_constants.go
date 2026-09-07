@@ -530,6 +530,10 @@ const (
 	// not stop or otherwise change already loaded plugin runtimes.
 	SettingKeyPluginManagementEnabled = "plugin_management_enabled"
 
+	// OpenAI 图片比例提示词兼容开关及目标分组列表。
+	SettingKeyOpenAIImagesAspectRatioPromptEnabled  = "openai_images_aspect_ratio_prompt_enabled"
+	SettingKeyOpenAIImagesAspectRatioPromptGroupIDs = "openai_images_aspect_ratio_prompt_group_ids"
+
 	// SettingKeyUpstreamBillingProbeSettings stores the global enable switch and interval
 	// for probing remote Sub2API API-key billing metadata.
 	SettingKeyUpstreamBillingProbeSettings = "upstream_billing_probe_settings"

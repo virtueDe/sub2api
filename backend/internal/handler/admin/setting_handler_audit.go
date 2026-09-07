@@ -2,6 +2,7 @@ package admin
 
 import (
 	"log/slog"
+	"reflect"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -385,6 +386,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.EnableIdentityPatch != after.EnableIdentityPatch {
 		changed = append(changed, "enable_identity_patch")
+	}
+	if before.OpenAIImagesAspectRatioPromptEnabled != after.OpenAIImagesAspectRatioPromptEnabled {
+		changed = append(changed, "openai_images_aspect_ratio_prompt_enabled")
+	}
+	if !reflect.DeepEqual(before.OpenAIImagesAspectRatioPromptGroupIDs, after.OpenAIImagesAspectRatioPromptGroupIDs) {
+		changed = append(changed, "openai_images_aspect_ratio_prompt_group_ids")
 	}
 	if before.IdentityPatchPrompt != after.IdentityPatchPrompt {
 		changed = append(changed, "identity_patch_prompt")

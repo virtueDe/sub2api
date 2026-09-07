@@ -486,6 +486,10 @@ export default {
       gatewayForwarding: {
         title: 'Request Forwarding',
         description: 'Control how requests are forwarded to upstream OAuth accounts',
+        imageAspectRatioPrompt: 'Image aspect-ratio prompt compatibility',
+        imageAspectRatioPromptHint: 'For selected active image-capable groups, append an exact ratio requirement derived from aspect_ratio or size to OpenAI image prompts. Disabled by default.',
+        imageAspectRatioPromptGroups: 'Target image groups',
+        imageAspectRatioPromptNoGroups: 'No active groups with image generation enabled',
         grokDefaultTextModel: 'Default Grok text model',
         grokDefaultTextModelHint: 'Used for empty model values and, only when the switch is enabled, requests from other client model namespaces. Custom Grok model IDs are accepted.',
         grokCrossClientMap: 'Map other clients to Grok',

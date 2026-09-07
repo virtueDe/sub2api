@@ -440,6 +440,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyModelPlazaRequireAuth] = strconv.FormatBool(settings.ModelPlazaRequireAuth)
 	updates[SettingKeyModelPlazaDescription] = settings.ModelPlazaDescription
 	updates[SettingKeyPluginManagementEnabled] = strconv.FormatBool(settings.PluginManagementEnabled)
+	updates[SettingKeyOpenAIImagesAspectRatioPromptEnabled] = strconv.FormatBool(settings.OpenAIImagesAspectRatioPromptEnabled)
+	groupIDsJSON, err := json.Marshal(settings.OpenAIImagesAspectRatioPromptGroupIDs)
+	if err != nil {
+		return nil, fmt.Errorf("marshal image aspect ratio prompt group ids: %w", err)
+	}
+	updates[SettingKeyOpenAIImagesAspectRatioPromptGroupIDs] = string(groupIDsJSON)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
@@ -706,17 +712,19 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	})
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
-		openAITTFTMode:                   normalizeOpenAITTFTMode(settings.OpenAITTFTMode),
-		fingerprintUnification:           settings.EnableFingerprintUnification,
-		metadataPassthrough:              settings.EnableMetadataPassthrough,
-		cchSigning:                       settings.EnableCCHSigning,
-		claudeOAuthSystemPromptInjection: settings.EnableClaudeOAuthSystemPromptInjection,
-		claudeOAuthSystemPrompt:          settings.ClaudeOAuthSystemPrompt,
-		claudeOAuthSystemPromptBlocks:    settings.ClaudeOAuthSystemPromptBlocks,
-		anthropicCacheTTL1hInjection:     settings.EnableAnthropicCacheTTL1hInjection,
-		rewriteMessageCacheControl:       settings.RewriteMessageCacheControl,
-		clientDatelineNormalization:      settings.EnableClientDatelineNormalization,
-		expiresAt:                        time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
+		openAITTFTMode:                        normalizeOpenAITTFTMode(settings.OpenAITTFTMode),
+		fingerprintUnification:                settings.EnableFingerprintUnification,
+		metadataPassthrough:                   settings.EnableMetadataPassthrough,
+		cchSigning:                            settings.EnableCCHSigning,
+		claudeOAuthSystemPromptInjection:      settings.EnableClaudeOAuthSystemPromptInjection,
+		claudeOAuthSystemPrompt:               settings.ClaudeOAuthSystemPrompt,
+		claudeOAuthSystemPromptBlocks:         settings.ClaudeOAuthSystemPromptBlocks,
+		anthropicCacheTTL1hInjection:          settings.EnableAnthropicCacheTTL1hInjection,
+		rewriteMessageCacheControl:            settings.RewriteMessageCacheControl,
+		clientDatelineNormalization:           settings.EnableClientDatelineNormalization,
+		openAIImagesAspectRatioPromptEnabled:  settings.OpenAIImagesAspectRatioPromptEnabled,
+		openAIImagesAspectRatioPromptGroupIDs: append([]int64(nil), settings.OpenAIImagesAspectRatioPromptGroupIDs...),
+		expiresAt:                             time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")
 	antigravityUserAgentVersion := antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)

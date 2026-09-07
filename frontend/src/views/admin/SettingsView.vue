@@ -5203,6 +5203,43 @@
               </p>
             </div>
             <div class="space-y-5 p-6">
+              <div class="rounded-lg border border-blue-100 bg-blue-50/60 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+                <div class="flex items-start justify-between gap-4">
+                  <div>
+                    <label class="text-sm font-medium text-gray-900 dark:text-white">
+                      {{ t("admin.settings.gatewayForwarding.imageAspectRatioPrompt") }}
+                    </label>
+                    <p class="mt-1 text-xs text-gray-600 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayForwarding.imageAspectRatioPromptHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="form.openai_images_aspect_ratio_prompt_enabled" data-testid="openai-images-aspect-ratio-prompt-toggle" />
+                </div>
+                <div v-if="form.openai_images_aspect_ratio_prompt_enabled" class="mt-4 border-t border-blue-100 pt-4 dark:border-blue-900/40">
+                  <div class="mb-2 text-xs font-medium text-gray-700 dark:text-gray-300">
+                    {{ t("admin.settings.gatewayForwarding.imageAspectRatioPromptGroups") }}
+                  </div>
+                  <div v-if="imageAspectRatioGroups.length" class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <label
+                      v-for="group in imageAspectRatioGroups"
+                      :key="group.id"
+                      class="flex min-w-0 items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 text-sm dark:border-dark-700 dark:bg-dark-900"
+                    >
+                      <input
+                        v-model="form.openai_images_aspect_ratio_prompt_group_ids"
+                        type="checkbox"
+                        :value="group.id"
+                        class="h-4 w-4 rounded border-gray-300 text-blue-600"
+                      />
+                      <span class="truncate text-gray-700 dark:text-gray-200">{{ group.name }} (#{{ group.id }})</span>
+                    </label>
+                  </div>
+                  <p v-else class="text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.gatewayForwarding.imageAspectRatioPromptNoGroups") }}
+                  </p>
+                </div>
+              </div>
+
               <div class="grid gap-5 border-b border-gray-100 pb-5 dark:border-dark-700 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
                 <div>
                   <label
@@ -9056,6 +9093,7 @@ const adminApiKeyMasked = ref("");
 const adminApiKeyOperating = ref(false);
 const newAdminApiKey = ref("");
 const subscriptionGroups = ref<AdminGroup[]>([]);
+const imageAspectRatioGroups = ref<AdminGroup[]>([]);
 
 // Upstream billing probe state
 const upstreamBillingProbeLoading = ref(true);
@@ -9861,6 +9899,8 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_previous_response: "",
   openai_advanced_scheduler_weight_session_sticky: "",
   // Gateway forwarding behavior
+  openai_images_aspect_ratio_prompt_enabled: false,
+  openai_images_aspect_ratio_prompt_group_ids: [] as number[],
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
   enable_metadata_passthrough: false,
@@ -10932,6 +10972,12 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    if (imageAspectRatioGroups.value.length > 0) {
+      const availableIDs = new Set(imageAspectRatioGroups.value.map((group) => group.id));
+      form.openai_images_aspect_ratio_prompt_group_ids = form.openai_images_aspect_ratio_prompt_group_ids.filter(
+        (id) => availableIDs.has(id),
+      );
+    }
     syncCaptchaProviderSelection();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
@@ -11096,12 +11142,20 @@ async function loadSettings() {
 async function loadSubscriptionGroups() {
   try {
     const groups = await adminAPI.groups.getAll();
+    imageAspectRatioGroups.value = groups.filter(
+      (group) => group.status === "active" && group.allow_image_generation,
+    );
+    const availableIDs = new Set(imageAspectRatioGroups.value.map((group) => group.id));
+    form.openai_images_aspect_ratio_prompt_group_ids = form.openai_images_aspect_ratio_prompt_group_ids.filter(
+      (id) => availableIDs.has(id),
+    );
     subscriptionGroups.value = groups.filter(
       (group) =>
         group.subscription_type === "subscription" && group.status === "active",
     );
   } catch (_error: unknown) {
     subscriptionGroups.value = [];
+    imageAspectRatioGroups.value = [];
   }
 }
 
@@ -11510,6 +11564,10 @@ async function saveSettings() {
       openai_ttft_mode:
         form.openai_ttft_mode === "visible" ? "visible" : "semantic",
       enable_fingerprint_unification: form.enable_fingerprint_unification,
+      openai_images_aspect_ratio_prompt_enabled:
+        form.openai_images_aspect_ratio_prompt_enabled,
+      openai_images_aspect_ratio_prompt_group_ids:
+        form.openai_images_aspect_ratio_prompt_group_ids,
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       enable_cch_signing: form.enable_cch_signing,
       enable_claude_oauth_system_prompt_injection:
