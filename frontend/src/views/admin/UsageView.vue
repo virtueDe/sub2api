@@ -122,7 +122,7 @@
           </template>
         </UsageFilters>
 
-        <div v-show="activeTab === 'usage'" class="overflow-hidden rounded-b-2xl">
+        <div v-show="activeTab === 'usage' || activeTab === 'images'" class="overflow-hidden rounded-b-2xl">
           <UsageTable
             flat
             :data="usageLogs"
@@ -383,6 +383,7 @@ const buildUsageListParams = (
     exact_total: exactTotal,
     ...filters.value,
     stream: legacyStream === null ? undefined : legacyStream,
+    ...(activeTab.value === 'images' ? { image_only: true, billing_mode: undefined } : {}),
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
   }
@@ -783,10 +784,11 @@ const loadSavedColumns = () => {
 }
 
 // Detail tabs
-type DetailTab = 'usage' | 'errors' | 'ranking'
+type DetailTab = 'usage' | 'images' | 'errors' | 'ranking'
 const activeTab = ref<DetailTab>('usage')
 const detailTabs = computed(() => [
   { key: 'usage' as const, label: t('usage.tabs.usage'), icon: 'document' as const },
+  { key: 'images' as const, label: t('usage.tabs.images'), icon: 'upload' as const },
   { key: 'errors' as const, label: t('usage.tabs.errors'), icon: 'exclamationTriangle' as const },
   { key: 'ranking' as const, label: t('usage.tabs.ranking'), icon: 'chart' as const },
 ])
@@ -796,6 +798,10 @@ const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
 
 const switchTab = (tab: DetailTab) => {
   activeTab.value = tab
+  if (tab === 'images') {
+    pagination.page = 1
+    loadLogs()
+  }
   if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
   if (tab === 'ranking') rankingMounted.value = true
 }

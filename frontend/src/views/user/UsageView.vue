@@ -167,19 +167,16 @@
         </div>
       </div>
 
-      <div class="flex gap-2 border-b border-gray-200 dark:border-dark-700">
+      <div v-if="errorViewEnabled" class="flex gap-2 border-b border-gray-200 dark:border-dark-700">
         <button class="tab" :class="{ 'tab-active': activeTab === 'usage' }" @click="activeTab = 'usage'">
           {{ t('usage.tabs.usage') }}
         </button>
-        <button class="tab" :class="{ 'tab-active': activeTab === 'images' }" @click="switchToImages">
-          {{ t('usage.tabs.images') }}
-        </button>
-        <button v-if="errorViewEnabled" class="tab" :class="{ 'tab-active': activeTab === 'errors' }" @click="switchToErrors">
+        <button class="tab" :class="{ 'tab-active': activeTab === 'errors' }" @click="switchToErrors">
           {{ t('usage.tabs.errors') }}
         </button>
       </div>
 
-      <template v-if="activeTab !== 'errors'">
+      <template v-if="activeTab === 'usage'">
         <UsageTable
           :data="usageLogs"
           :loading="loading"
@@ -357,7 +354,7 @@ const modelDistributionMetric = ref<DistributionMetric>('tokens')
 const groupDistributionMetric = ref<DistributionMetric>('tokens')
 const endpointDistributionMetric = ref<DistributionMetric>('tokens')
 const endpointDistributionSource = ref<EndpointSource>('inbound')
-const activeTab = ref<'usage' | 'images' | 'errors'>('usage')
+const activeTab = ref<'usage' | 'errors'>('usage')
 const errorViewEnabled = computed(() => appStore.cachedPublicSettings?.allow_user_view_error_requests ?? false)
 
 const filters = ref<UsageQueryParams>({
@@ -439,7 +436,6 @@ const buildUsageListParams = (page: number, pageSize: number): UsageQueryParams 
   page,
   page_size: pageSize,
   ...normalizedFilters.value,
-  ...(activeTab.value === 'images' ? { image_only: true, billing_mode: undefined } : {}),
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order,
 })
@@ -885,12 +881,6 @@ const switchToErrors = () => {
   if (!errorViewEnabled.value) return
   activeTab.value = 'errors'
   if (errorRows.value.length === 0) void loadErrors()
-}
-
-const switchToImages = () => {
-  activeTab.value = 'images'
-  pagination.page = 1
-  void loadLogs()
 }
 
 onMounted(() => {

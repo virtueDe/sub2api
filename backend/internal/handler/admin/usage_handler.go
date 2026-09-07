@@ -156,6 +156,15 @@ func (h *UsageHandler) List(c *gin.Context) {
 	model := c.Query("model")
 	requestID := strings.TrimSpace(c.Query("request_id"))
 	billingMode := strings.TrimSpace(c.Query("billing_mode"))
+	imageOnly := false
+	if raw := strings.TrimSpace(c.Query("image_only")); raw != "" {
+		parsed, err := strconv.ParseBool(raw)
+		if err != nil {
+			response.BadRequest(c, "Invalid image_only value, use true or false")
+			return
+		}
+		imageOnly = parsed
+	}
 
 	var requestType *int16
 	var stream *bool
@@ -245,6 +254,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		NativeCompactionV2:    nativeCompactionV2,
 		BillingType:           billingType,
 		BillingMode:           billingMode,
+		ImageOnly:             imageOnly,
 		UpstreamModelMismatch: upstreamModelMismatch,
 		StartTime:             startTime,
 		EndTime:               endTime,
