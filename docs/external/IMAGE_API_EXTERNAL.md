@@ -9,7 +9,7 @@ description: 通过 HTTPS 调用文生图和图像编辑接口
 
 版本：1.0
 
-Duomi 生图 API 通过 HTTPS 提供文生图和图像编辑能力，接口兼容 OpenAI 图片 API。
+Duomi 生图 API 通过 HTTPS 提供文生图和图像编辑能力，请使用本文档列出的公网接口。
 
 ## 公网地址
 
@@ -31,32 +31,24 @@ Authorization: Bearer <API_KEY>
 
 ## 接口列表
 
-推荐使用以下 OpenAI 兼容路径：
+公网稳定路径如下：
 
 | 操作 | 方法 | 路径 | Content-Type |
 | --- | --- | --- | --- |
-| 文生图 | `POST` | `/v1/images/generations` | `application/json` |
-| 图像编辑 | `POST` | `/v1/images/edits` | `multipart/form-data` 或 JSON 图片 URL |
-| 提交文生图任务 | `POST` | `/v1/images/generations/async` | `application/json` |
-| 提交图像编辑任务 | `POST` | `/v1/images/edits/async` | `multipart/form-data` 或 JSON 图片 URL |
-| 查询异步任务 | `GET` | `/v1/images/tasks/{task_id}` | - |
+| 文生图 | `POST` | `/v1/generate` | `application/json` |
+| 图像编辑 | `POST` | `/v1/edit` | `multipart/form-data` 或 JSON 图片 URL |
+| 提交文生图任务 | `POST` | `/v1/generate/async` | `application/json` |
+| 提交图像编辑任务 | `POST` | `/v1/edit/async` | `multipart/form-data` 或 JSON 图片 URL |
+| 查询异步任务 | `GET` | `/v1/jobs/{task_id}` | - |
 
-同时支持以下简化路径，行为与上表对应接口一致：
-
-```text
-/v1/generate             -> /v1/images/generations
-/v1/edit                 -> /v1/images/edits
-/v1/generate/async       -> /v1/images/generations/async
-/v1/edit/async           -> /v1/images/edits/async
-/v1/jobs/{task_id}       -> /v1/images/tasks/{task_id}
-```
+公网客户端请直接使用上表中的完整路径和请求示例。
 
 ## 文生图
 
 ### 请求格式
 
 ```http
-POST /v1/images/generations
+POST /v1/generate
 Content-Type: application/json
 Authorization: Bearer <API_KEY>
 ```
@@ -92,7 +84,7 @@ Authorization: Bearer <API_KEY>
 ### curl 示例
 
 ```bash
-curl -X POST "https://imgapi.duomi.cloud/v1/images/generations" \
+curl -X POST "https://imgapi.duomi.cloud/v1/generate" \
   -H "Authorization: Bearer ${API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -129,7 +121,7 @@ curl -X POST "https://imgapi.duomi.cloud/v1/images/generations" \
 使用重复的 `image[]` 字段传入一张或多张源图片。不要手动设置 multipart boundary，应由 curl 或 SDK 自动生成。
 
 ```bash
-curl -X POST "https://imgapi.duomi.cloud/v1/images/edits" \
+curl -X POST "https://imgapi.duomi.cloud/v1/edit" \
   -H "Authorization: Bearer ${API_KEY}" \
   -F "model=gpt-image-2" \
   -F "prompt=将背景替换为日落海滩，保留主体和构图" \
@@ -151,7 +143,7 @@ multipart 表单支持以下字段：`model`、`prompt`、`size`、`n`、`qualit
 源图片已经托管在网络上时，可以使用 `images[].image_url`：
 
 ```http
-POST /v1/images/edits
+POST /v1/edit
 Content-Type: application/json
 Authorization: Bearer <API_KEY>
 ```
@@ -188,7 +180,7 @@ Authorization: Bearer <API_KEY>
 ### 提交任务
 
 ```bash
-curl -i -X POST "https://imgapi.duomi.cloud/v1/images/generations/async" \
+curl -i -X POST "https://imgapi.duomi.cloud/v1/generate/async" \
   -H "Authorization: Bearer ${API_KEY}" \
   -H "Content-Type: application/json" \
   -d '{
@@ -220,7 +212,7 @@ curl -i -X POST "https://imgapi.duomi.cloud/v1/images/generations/async" \
 必须使用提交任务时的同一个 API Key：
 
 ```bash
-curl "https://imgapi.duomi.cloud/v1/images/tasks/imgtask_0123456789abcdef" \
+curl "https://imgapi.duomi.cloud/v1/jobs/imgtask_0123456789abcdef" \
   -H "Authorization: Bearer ${API_KEY}"
 ```
 
@@ -306,7 +298,7 @@ curl "https://imgapi.duomi.cloud/v1/images/tasks/imgtask_0123456789abcdef" \
 Node.js 20 及以上版本可以直接使用内置 `fetch`：
 
 ```js
-const response = await fetch('https://imgapi.duomi.cloud/v1/images/generations', {
+const response = await fetch('https://imgapi.duomi.cloud/v1/generate', {
   method: 'POST',
   headers: {
     Authorization: `Bearer ${process.env.DUOMI_IMAGE_API_KEY}`,

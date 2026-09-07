@@ -29,11 +29,8 @@ COPY frontend/package.json frontend/pnpm-lock.yaml ./
 RUN pnpm install --frozen-lockfile
 
 # Copy frontend source and build.
-# LegalDocumentView.vue (admin-compliance gate) build-time imports
-# ../../../../docs/legal/*.md?raw, so docs/legal/ must sit beside frontend/
-# in the image (WORKDIR /app/frontend -> resolves to /app/docs/legal/*.md).
-# Copy public Markdown documents so the anonymous documentation route can
-# render the same source files that are reviewed in the repository.
+# LegalDocumentView.vue and the public documentation build plugin read the
+# reviewed Markdown files from /app/docs at build time.
 COPY frontend/ ./
 COPY docs/ /app/docs/
 RUN pnpm run build

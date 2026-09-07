@@ -98,6 +98,11 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		if cleanPath == "" {
 			cleanPath = "index.html"
 		}
+		if isPublicDocsPath(path) && !s.fileExists(cleanPath) {
+			c.Status(http.StatusNotFound)
+			c.Abort()
+			return
+		}
 
 		// For index.html or SPA routes, serve with injected settings
 		if cleanPath == "index.html" || !s.fileExists(cleanPath) {
@@ -112,6 +117,7 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 
 		// Serve static files normally (hashed assets get long-lived cache headers)
 		applyStaticAssetCacheHeaders(c.Writer.Header(), cleanPath)
+		applyPublicDocumentContentType(c.Writer.Header(), cleanPath)
 		s.fileServer.ServeHTTP(c.Writer, c.Request)
 		c.Abort()
 	}
@@ -320,6 +326,15 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 		if cleanPath == "" {
 			cleanPath = "index.html"
 		}
+		if isPublicDocsPath(path) {
+			file, err := distFS.Open(cleanPath)
+			if err != nil {
+				c.Status(http.StatusNotFound)
+				c.Abort()
+				return
+			}
+			_ = file.Close()
+		}
 
 		if file, err := distFS.Open(cleanPath); err == nil {
 			_ = file.Close()
@@ -328,6 +343,7 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 				return
 			}
 			applyStaticAssetCacheHeaders(c.Writer.Header(), cleanPath)
+			applyPublicDocumentContentType(c.Writer.Header(), cleanPath)
 			fileServer.ServeHTTP(c.Writer, c.Request)
 			c.Abort()
 			return
@@ -368,6 +384,27 @@ func shouldBypassEmbeddedFrontend(path string) bool {
 		trimmed == "/alpha/search" ||
 		strings.HasPrefix(trimmed, "/images/") ||
 		strings.HasPrefix(trimmed, "/videos/")
+}
+
+func isPublicDocsPath(path string) bool {
+	trimmed := strings.TrimSpace(path)
+	return trimmed == "/docs" || strings.HasPrefix(trimmed, "/docs/") ||
+		trimmed == "/llms.txt" || trimmed == "/llms-full.txt" ||
+		trimmed == "/sitemap.xml" || trimmed == "/robots.txt" || trimmed == "/openapi.json"
+}
+
+func applyPublicDocumentContentType(header http.Header, cleanPath string) {
+	if header == nil {
+		return
+	}
+	switch {
+	case strings.HasSuffix(strings.ToLower(cleanPath), ".md"):
+		header.Set("Content-Type", "text/markdown; charset=utf-8")
+	case strings.HasSuffix(strings.ToLower(cleanPath), ".xml"):
+		header.Set("Content-Type", "application/xml; charset=utf-8")
+	case strings.HasSuffix(strings.ToLower(cleanPath), ".txt"):
+		header.Set("Content-Type", "text/plain; charset=utf-8")
+	}
 }
 
 func serveIndexHTML(c *gin.Context, fsys fs.FS) {

@@ -72,7 +72,7 @@ marked.setOptions({
   gfm: true,
 })
 
-const markdownModules = import.meta.glob('../../../../docs/*.md', {
+const markdownModules = import.meta.glob('../../../../docs/external/*.md', {
   query: '?raw',
   import: 'default',
   eager: true,

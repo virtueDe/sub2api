@@ -700,6 +700,45 @@ func TestEmbeddedFrontendBypassesImageAPIRoutes(t *testing.T) {
 	}
 }
 
+func TestPublicDocsPath(t *testing.T) {
+	t.Parallel()
+
+	for _, path := range []string{"/docs", "/docs/", "/docs/image-api/", "/llms.txt", "/llms-full.txt", "/sitemap.xml", "/robots.txt", "/openapi.json"} {
+		path := path
+		t.Run(path, func(t *testing.T) {
+			t.Parallel()
+			assert.True(t, isPublicDocsPath(path))
+		})
+	}
+
+	for _, path := range []string{"/dashboard", "/api/v1/pages", "/docs-not-found"} {
+		path := path
+		t.Run("not_public_"+path, func(t *testing.T) {
+			t.Parallel()
+			assert.False(t, isPublicDocsPath(path))
+		})
+	}
+}
+
+func TestApplyPublicDocumentContentType(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		path string
+		want string
+	}{
+		{path: "docs/image-api.md", want: "text/markdown; charset=utf-8"},
+		{path: "sitemap.xml", want: "application/xml; charset=utf-8"},
+		{path: "llms.txt", want: "text/plain; charset=utf-8"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.path, func(t *testing.T) {
+			header := make(http.Header)
+			applyPublicDocumentContentType(header, tc.path)
+			assert.Equal(t, tc.want, header.Get("Content-Type"))
+		})
+	}
+}
+
 func TestNewFrontendServer(t *testing.T) {
 	t.Run("creates_server_successfully", func(t *testing.T) {
 		provider := &mockSettingsProvider{
