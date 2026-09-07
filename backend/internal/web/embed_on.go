@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -98,10 +99,13 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 		if cleanPath == "" {
 			cleanPath = "index.html"
 		}
-		if isPublicDocsPath(path) && !s.fileExists(cleanPath) {
-			c.Status(http.StatusNotFound)
-			c.Abort()
-			return
+		if isPublicDocsPath(path) {
+			cleanPath = publicDocumentCleanPath(path)
+			if cleanPath == "" || !s.fileExists(cleanPath) {
+				c.Status(http.StatusNotFound)
+				c.Abort()
+				return
+			}
 		}
 
 		// For index.html or SPA routes, serve with injected settings
@@ -327,6 +331,7 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 			cleanPath = "index.html"
 		}
 		if isPublicDocsPath(path) {
+			cleanPath = publicDocumentCleanPath(path)
 			file, err := distFS.Open(cleanPath)
 			if err != nil {
 				c.Status(http.StatusNotFound)
@@ -391,6 +396,28 @@ func isPublicDocsPath(path string) bool {
 	return trimmed == "/docs" || strings.HasPrefix(trimmed, "/docs/") ||
 		trimmed == "/llms.txt" || trimmed == "/llms-full.txt" ||
 		trimmed == "/sitemap.xml" || trimmed == "/robots.txt" || trimmed == "/openapi.json"
+}
+
+// publicDocumentCleanPath maps directory-style public document URLs to the
+// embedded index file used by io/fs. The original request URL is preserved so
+// http.FileServer can still apply its standard trailing-slash redirect.
+func publicDocumentCleanPath(requestPath string) string {
+	trimmed := strings.TrimSpace(requestPath)
+	cleanPath := strings.TrimPrefix(trimmed, "/")
+	if cleanPath == "docs" || cleanPath == "docs/" {
+		return "docs/index.html"
+	}
+	if !strings.HasPrefix(cleanPath, "docs/") {
+		return cleanPath
+	}
+	relative := strings.TrimPrefix(cleanPath, "docs/")
+	if strings.HasSuffix(relative, "/") {
+		return "docs/" + relative + "index.html"
+	}
+	if pathpkg.Ext(relative) == "" {
+		return "docs/" + relative + "/index.html"
+	}
+	return cleanPath
 }
 
 func applyPublicDocumentContentType(header http.Header, cleanPath string) {

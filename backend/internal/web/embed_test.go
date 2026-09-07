@@ -720,6 +720,63 @@ func TestPublicDocsPath(t *testing.T) {
 	}
 }
 
+func TestPublicDocumentCleanPath(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		requestPath string
+		want        string
+	}{
+		{requestPath: "/docs", want: "docs/index.html"},
+		{requestPath: "/docs/", want: "docs/index.html"},
+		{requestPath: "/docs/image-api", want: "docs/image-api/index.html"},
+		{requestPath: "/docs/image-api/", want: "docs/image-api/index.html"},
+		{requestPath: "/docs/image-api.md", want: "docs/image-api.md"},
+		{requestPath: "/llms.txt", want: "llms.txt"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.requestPath, func(t *testing.T) {
+			assert.Equal(t, tc.want, publicDocumentCleanPath(tc.requestPath))
+		})
+	}
+}
+
+func TestPublicDocsDirectoryRoutes(t *testing.T) {
+	server, err := NewFrontendServer(&mockSettingsProvider{})
+	require.NoError(t, err)
+
+	router := gin.New()
+	router.Use(server.Middleware())
+
+	tests := []struct {
+		name        string
+		path        string
+		status      int
+		contentType string
+		body        string
+	}{
+		{name: "docs_index", path: "/docs/", status: http.StatusOK, contentType: "text/html", body: "Duomi"},
+		{name: "image_api_index", path: "/docs/image-api/", status: http.StatusOK, contentType: "text/html", body: "Duomi 生图 API"},
+		{name: "image_api_markdown", path: "/docs/image-api.md", status: http.StatusOK, contentType: "text/markdown", body: "Duomi 生图 API"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.status, w.Code)
+			assert.Contains(t, w.Header().Get("Content-Type"), tc.contentType)
+			assert.Contains(t, w.Body.String(), tc.body)
+		})
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/docs/image-api", nil)
+	router.ServeHTTP(w, req)
+	assert.Equal(t, http.StatusMovedPermanently, w.Code)
+	assert.True(t, strings.HasSuffix(w.Header().Get("Location"), "image-api/"))
+}
+
 func TestApplyPublicDocumentContentType(t *testing.T) {
 	t.Parallel()
 	cases := []struct {
