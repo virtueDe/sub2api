@@ -385,7 +385,11 @@ func asyncImageRequestSummary(c *gin.Context) string {
 	if err != nil {
 		return ""
 	}
-	defer body.Close()
+	defer func() {
+		if closeErr := body.Close(); closeErr != nil {
+			logger.L().Warn("image_task.request_summary_close_failed", zap.Error(closeErr))
+		}
+	}()
 	data, readErr := io.ReadAll(io.LimitReader(body, 512<<10))
 	if readErr != nil {
 		return ""

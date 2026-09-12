@@ -287,12 +287,12 @@ type UsageLogFilters struct {
 	RequestID string
 	Model     string
 	// ModelFilterSource controls how Model is matched. Empty preserves raw usage_logs.model semantics.
-	ModelFilterSource     string
-	RequestType           *int16
-	Stream                *bool
-	NativeCompactionV2    *bool
-	BillingType           *int8
-	BillingMode           string
+	ModelFilterSource  string
+	RequestType        *int16
+	Stream             *bool
+	NativeCompactionV2 *bool
+	BillingType        *int8
+	BillingMode        string
 	// ImageOnly limits the list to requests that produced or billed images.
 	ImageOnly             bool
 	UpstreamModelMismatch *bool
