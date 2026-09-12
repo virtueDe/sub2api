@@ -177,7 +177,7 @@ func (s *OpsService) initRuntimeSettings(ctx context.Context) {
 	if s == nil {
 		return
 	}
-	defaults := defaultOpsAdvancedSettingsForConfig(s.cfg)
+	defaults := defaultOpsAdvancedSettings()
 	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: true, advanced: *defaults})
 	_ = s.RefreshRuntimeSettings(ctx)
 }
@@ -198,7 +198,6 @@ func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
 	values, err := s.settingRepo.GetMultiple(ctx, []string{
 		SettingKeyOpsMonitoringEnabled,
 		SettingKeyOpsAdvancedSettings,
-		SettingKeyOpsRuntimeLogConfig,
 	})
 	if err != nil {
 		return err
@@ -208,27 +207,15 @@ func (s *OpsService) RefreshRuntimeSettings(ctx context.Context) error {
 	if raw, ok := values[SettingKeyOpsMonitoringEnabled]; ok {
 		monitoringEnabled = parseOpsMonitoringEnabled(raw)
 	}
-	advanced := defaultOpsAdvancedSettingsForConfig(s.cfg)
+	advanced := defaultOpsAdvancedSettings()
 	if raw, ok := values[SettingKeyOpsAdvancedSettings]; ok {
 		if err := json.Unmarshal([]byte(raw), advanced); err != nil {
-			advanced = defaultOpsAdvancedSettingsForConfig(s.cfg)
+			advanced = defaultOpsAdvancedSettings()
 		}
 	}
 	normalizeOpsAdvancedSettings(advanced)
 
 	s.runtimeSettings.Store(&opsRuntimeSettingsSnapshot{monitoringEnabled: monitoringEnabled, advanced: *advanced})
-	if s.systemLogSink != nil {
-		persistAccessLogs := false
-		if raw, ok := values[SettingKeyOpsRuntimeLogConfig]; ok {
-			var runtimeCfg struct {
-				PersistAccessLogs bool `json:"persist_access_logs"`
-			}
-			if json.Unmarshal([]byte(raw), &runtimeCfg) == nil {
-				persistAccessLogs = runtimeCfg.PersistAccessLogs
-			}
-		}
-		s.systemLogSink.SetPersistAccessLogs(persistAccessLogs)
-	}
 	return nil
 }
 
@@ -373,7 +360,7 @@ func (s *OpsService) SetMonitoringEnabled(enabled bool) {
 	}
 	s.runtimeSettingsMu.Lock()
 	current := s.runtimeSettings.Load()
-	next := &opsRuntimeSettingsSnapshot{monitoringEnabled: enabled, advanced: *defaultOpsAdvancedSettingsForConfig(s.cfg)}
+	next := &opsRuntimeSettingsSnapshot{monitoringEnabled: enabled, advanced: *defaultOpsAdvancedSettings()}
 	if current != nil {
 		next.advanced = current.advanced
 	}

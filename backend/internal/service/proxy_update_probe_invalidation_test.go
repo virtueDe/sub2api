@@ -57,12 +57,11 @@ func TestBothProxyUpdateServicesUseRepositoryUpdateBoundary(t *testing.T) {
 			},
 		}
 		svc := &adminServiceImpl{proxyRepo: repo}
-		warnDays := 7
 
 		_, err := svc.UpdateProxy(context.Background(), 9, &UpdateProxyInput{
 			Host:           "new.example",
 			FallbackMode:   FallbackModeNone,
-			ExpiryWarnDays: &warnDays,
+			ExpiryWarnDays: 7,
 		})
 
 		require.NoError(t, err)

@@ -14,7 +14,6 @@ export type Provider =
   | 'kimi'
   | 'zhipu'
   | 'deepseek'
-  | 'minimax'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
 export type APIMode = 'chat_completions' | 'responses'

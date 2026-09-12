@@ -38,19 +38,17 @@ export type SchedulingThresholdPlatformType =
   | "grok"
   | "kimi"
   | "zhipu"
-  | "minimax"
 
 export type AccountSchedulingThresholdsMap = Record<SchedulingThresholdPlatformType, number>
 
 // 与后端 AllowedSchedulingThresholdPlatforms 保持一致（deepseek 为余额型，
-// 走余额检测而非用量阈值；minimax Coding/Token Plan 有 5h/weekly 窗口）。
+// 走余额检测而非用量阈值）。
 export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] = [
   "openai",
   "anthropic",
   "grok",
   "kimi",
   "zhipu",
-  "minimax",
 ]
 
 export function normalizeAccountSchedulingThresholdsMap(
@@ -724,7 +722,6 @@ export interface SystemSettings {
   channel_monitor_default_interval_seconds: number;
   channel_monitor_hide_throughput?: boolean;
   channel_monitor_show_quota?: boolean;
-  channel_monitor_hide_user_ranking?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
@@ -1032,7 +1029,6 @@ export interface UpdateSettingsRequest {
   channel_monitor_default_interval_seconds?: number;
   channel_monitor_hide_throughput?: boolean;
   channel_monitor_show_quota?: boolean;
-  channel_monitor_hide_user_ranking?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
