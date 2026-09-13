@@ -26,6 +26,7 @@ import (
 type AsyncImageHandler struct {
 	tasks   *service.ImageTaskService
 	openAI  *OpenAIGatewayHandler
+	gemini  *GatewayHandler
 	ops     *service.OpsService
 	execute func(platform string, c *gin.Context)
 }
@@ -38,6 +39,14 @@ func NewAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGateway
 	h := &AsyncImageHandler{tasks: tasks, openAI: openAI, ops: opsService}
 	h.execute = h.executeWithGateway
 	return h
+}
+
+// SetGeminiHandler wires the existing native Gemini gateway into asynchronous
+// image execution without changing the constructor used by existing tests.
+func (h *AsyncImageHandler) SetGeminiHandler(gemini *GatewayHandler) {
+	if h != nil {
+		h.gemini = gemini
+	}
 }
 
 // enabled reports whether the async image task feature is available. Object
@@ -70,7 +79,10 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	if apiKey.Group != nil {
 		platform = apiKey.Group.Platform
 	}
-	if platform != service.PlatformOpenAI && platform != service.PlatformGrok {
+	if resolved, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok && strings.TrimSpace(resolved) != "" {
+		platform = resolved
+	}
+	if platform != service.PlatformOpenAI && platform != service.PlatformGrok && platform != service.PlatformGemini {
 		imageTaskJSONError(c, http.StatusNotFound, "not_found_error", "Images API is not supported for this platform")
 		return
 	}
@@ -147,6 +159,14 @@ func (h *AsyncImageHandler) checkSecurityAuditBeforeSubmit(c *gin.Context, apiKe
 	if platform == service.PlatformGrok {
 		parsed := service.ParseGrokMediaRequest(c.GetHeader("Content-Type"), body)
 		model, moderationBody = parsed.Model, parsed.ModerationBody()
+	} else if platform == service.PlatformGemini {
+		if h.openAI.gatewayService != nil {
+			if parsed, err := h.openAI.gatewayService.ParseGeminiImagesRequest(c, body); err == nil {
+				model, moderationBody = parsed.Model, parsed.ModerationBody()
+			} else {
+				moderationBody = body
+			}
+		}
 	} else if h.openAI.gatewayService != nil {
 		parsed, err := h.openAI.gatewayService.ParseOpenAIImagesRequest(c, body)
 		if err != nil {
@@ -206,6 +226,16 @@ func (h *AsyncImageHandler) validateRequest(c *gin.Context, platform string, bod
 		}
 		return nil
 	}
+	if platform == service.PlatformGemini {
+		if h.openAI.gatewayService == nil {
+			return errors.New("image gateway is unavailable")
+		}
+		parsed, err := h.openAI.gatewayService.ParseGeminiImagesRequest(c, body)
+		if err != nil || strings.TrimSpace(parsed.Prompt) == "" {
+			return errors.New("prompt is required")
+		}
+		return nil
+	}
 	parsed, err := h.openAI.gatewayService.ParseOpenAIImagesRequest(c, body)
 	if err != nil {
 		return err
@@ -223,6 +253,14 @@ func (h *AsyncImageHandler) executeWithGateway(platform string, c *gin.Context) 
 	}
 	if platform == service.PlatformGrok {
 		h.openAI.GrokImages(c)
+		return
+	}
+	if platform == service.PlatformGemini {
+		if h.gemini == nil {
+			imageTaskJSONError(c, http.StatusServiceUnavailable, "api_error", "Gemini image gateway is unavailable")
+			return
+		}
+		h.gemini.GeminiImages(c)
 		return
 	}
 	h.openAI.Images(c)

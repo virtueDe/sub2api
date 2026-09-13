@@ -191,6 +191,18 @@ func (r *OpenAIImagesRequest) StickySessionSeed() string {
 }
 
 func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []byte) (*OpenAIImagesRequest, error) {
+	return s.parseOpenAIImagesRequest(c, body, false)
+}
+
+// ParseGeminiImagesRequest parses the public OpenAI-compatible image shape for
+// Gemini. Fields that belong only to OpenAI image generation are ignored,
+// including malformed values, while shared fields such as model, prompt, n,
+// size and aspect_ratio retain normal validation.
+func (s *OpenAIGatewayService) ParseGeminiImagesRequest(c *gin.Context, body []byte) (*OpenAIImagesRequest, error) {
+	return s.parseOpenAIImagesRequest(c, body, true)
+}
+
+func (s *OpenAIGatewayService) parseOpenAIImagesRequest(c *gin.Context, body []byte, lenientGemini bool) (*OpenAIImagesRequest, error) {
 	if c == nil || c.Request == nil {
 		return nil, fmt.Errorf("missing request context")
 	}
@@ -214,7 +226,7 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err == nil && strings.EqualFold(mediaType, "multipart/form-data") {
 		req.Multipart = true
-		if parseErr := parseOpenAIImagesMultipartRequest(body, contentType, req); parseErr != nil {
+		if parseErr := parseOpenAIImagesMultipartRequestMode(body, contentType, req, lenientGemini); parseErr != nil {
 			return nil, parseErr
 		}
 	} else {
@@ -224,7 +236,7 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 		if !gjson.ValidBytes(body) {
 			return nil, fmt.Errorf("failed to parse request body")
 		}
-		if parseErr := parseOpenAIImagesJSONRequest(body, req); parseErr != nil {
+		if parseErr := parseOpenAIImagesJSONRequestMode(body, req, lenientGemini); parseErr != nil {
 			return nil, parseErr
 		}
 	}
@@ -234,7 +246,9 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 		return nil, fmt.Errorf("aspect_ratio must use positive decimal dimensions separated by a colon")
 	}
 	if err := validateOpenAIImagesModel(req.Model); err != nil {
-		return nil, err
+		if !lenientGemini || !IsGeminiImageGenerationModel(req.Model) {
+			return nil, err
+		}
 	}
 	req.SizeTier = normalizeOpenAIImageSizeTier(req.Size)
 	req.RequiredCapability = classifyOpenAIImagesCapability(req)
@@ -242,6 +256,10 @@ func (s *OpenAIGatewayService) ParseOpenAIImagesRequest(c *gin.Context, body []b
 }
 
 func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
+	return parseOpenAIImagesJSONRequestMode(body, req, false)
+}
+
+func parseOpenAIImagesJSONRequestMode(body []byte, req *OpenAIImagesRequest, lenientGemini bool) error {
 	if modelResult := gjson.GetBytes(body, "model"); modelResult.Exists() {
 		req.Model = strings.TrimSpace(modelResult.String())
 		req.ExplicitModel = req.Model != ""
@@ -250,6 +268,9 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 
 	if streamResult := gjson.GetBytes(body, "stream"); streamResult.Exists() {
 		if streamResult.Type != gjson.True && streamResult.Type != gjson.False {
+			if lenientGemini {
+				return parseOpenAIImagesJSONRequestModeWithoutStream(body, req, lenientGemini)
+			}
 			return fmt.Errorf("invalid stream field type")
 		}
 		req.Stream = streamResult.Bool()
@@ -286,17 +307,26 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 	req.HasMask = gjson.GetBytes(body, "mask").Exists()
 	if outputCompression := gjson.GetBytes(body, "output_compression"); outputCompression.Exists() {
 		if outputCompression.Type != gjson.Number {
-			return fmt.Errorf("invalid output_compression field type")
+			if lenientGemini {
+				outputCompression = gjson.Result{}
+			} else {
+				return fmt.Errorf("invalid output_compression field type")
+			}
 		}
-		v := int(outputCompression.Int())
-		req.OutputCompression = &v
+		if outputCompression.Exists() {
+			v := int(outputCompression.Int())
+			req.OutputCompression = &v
+		}
 	}
 	if partialImages := gjson.GetBytes(body, "partial_images"); partialImages.Exists() {
 		if partialImages.Type != gjson.Number {
-			return fmt.Errorf("invalid partial_images field type")
+			if !lenientGemini {
+				return fmt.Errorf("invalid partial_images field type")
+			}
+		} else {
+			v := int(partialImages.Int())
+			req.PartialImages = &v
 		}
-		v := int(partialImages.Int())
-		req.PartialImages = &v
 	}
 	if req.IsEdits() {
 		images := gjson.GetBytes(body, "images")
@@ -331,7 +361,30 @@ func parseOpenAIImagesJSONRequest(body []byte, req *OpenAIImagesRequest) error {
 	return nil
 }
 
+// parseOpenAIImagesJSONRequestModeWithoutStream handles the one unsupported
+// field whose malformed value would otherwise stop the regular parser. It
+// leaves all supported fields to the normal parser and removes stream only.
+func parseOpenAIImagesJSONRequestModeWithoutStream(body []byte, req *OpenAIImagesRequest, lenientGemini bool) error {
+	if !lenientGemini {
+		return fmt.Errorf("invalid stream field type")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return fmt.Errorf("failed to parse request body")
+	}
+	delete(payload, "stream")
+	sanitized, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to parse request body")
+	}
+	return parseOpenAIImagesJSONRequestMode(sanitized, req, true)
+}
+
 func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *OpenAIImagesRequest) error {
+	return parseOpenAIImagesMultipartRequestMode(body, contentType, req, false)
+}
+
+func parseOpenAIImagesMultipartRequestMode(body []byte, contentType string, req *OpenAIImagesRequest, lenientGemini bool) error {
 	_, params, err := mime.ParseMediaType(contentType)
 	if err != nil {
 		return fmt.Errorf("invalid multipart content-type: %w", err)
@@ -410,6 +463,9 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		case "stream":
 			parsed, err := strconv.ParseBool(value)
 			if err != nil {
+				if lenientGemini {
+					continue
+				}
 				return fmt.Errorf("invalid stream field value")
 			}
 			req.Stream = parsed
@@ -440,6 +496,9 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		case "output_compression":
 			n, err := strconv.Atoi(value)
 			if err != nil {
+				if lenientGemini {
+					continue
+				}
 				return fmt.Errorf("invalid output_compression field value")
 			}
 			req.OutputCompression = &n
@@ -447,6 +506,9 @@ func parseOpenAIImagesMultipartRequest(body []byte, contentType string, req *Ope
 		case "partial_images":
 			n, err := strconv.Atoi(value)
 			if err != nil {
+				if lenientGemini {
+					continue
+				}
 				return fmt.Errorf("invalid partial_images field value")
 			}
 			req.PartialImages = &n

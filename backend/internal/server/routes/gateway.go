@@ -84,6 +84,8 @@ func RegisterGatewayRoutes(
 			h.OpenAIGateway.Images(c)
 		case service.PlatformGrok:
 			h.OpenAIGateway.GrokImages(c)
+		case service.PlatformGemini:
+			h.Gateway.GeminiImages(c)
 		default:
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 			c.JSON(http.StatusNotFound, gin.H{
@@ -511,8 +513,8 @@ func RegisterGatewayRoutes(
 		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
 	}
 
-	// 图片业务 API：对外提供稳定的业务路径，同时复用现有 OpenAI 图片网关
-	// 的鉴权、分组校验、调度、计费和异步任务实现。
+	// 图片业务 API：对外提供稳定的业务路径，同时复用现有各平台网关的
+	// 鉴权、分组校验、调度、计费和异步任务实现。
 	imageAPI := r.Group("/image-api/v1")
 	imageAPI.Use(bodyLimit)
 	imageAPI.Use(clientRequestID)
@@ -523,6 +525,9 @@ func RegisterGatewayRoutes(
 	imageAPI.Use(compositeTarget)
 	imageAPI.Use(requireGroupAnthropic)
 	{
+		imageAPI.GET("/models", func(c *gin.Context) {
+			h.Gateway.ImageModels(c)
+		})
 		imageAPI.POST("/generate", imagesHandler)
 		imageAPI.POST("/edit", imagesHandler)
 		imageAPI.POST("/generate/async", h.AsyncImage.Submit)

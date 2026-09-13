@@ -1227,3 +1227,11 @@ func isImageGenerationModel(model string) bool {
 		modelLower == "gemini-2.5-flash-image-preview" ||
 		strings.HasPrefix(modelLower, "gemini-2.5-flash-image-")
 }
+
+// IsGeminiImageGenerationModel reports whether model is one of the Gemini
+// image-generation model families. It is exported for protocol adapters that
+// need to validate an external image API request before entering the native
+// Gemini execution chain.
+func IsGeminiImageGenerationModel(model string) bool {
+	return isImageGenerationModel(model)
+}

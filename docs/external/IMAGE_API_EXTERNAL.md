@@ -73,13 +73,13 @@ Authorization: Bearer <API_KEY>
 | `size` | string | 否 | 图片尺寸，例如 `1024x1024`、`1536x1024`。可用尺寸取决于模型。 |
 | `quality` | string | 否 | 模型支持的质量选项。 |
 | `n` | integer | 否 | 生成图片数量，必须为正整数，默认 `1`。 |
-| `response_format` | string | 否 | `url` 或 `b64_json`，是否支持取决于模型。 |
+| `response_format` | string | 否 | `url` 或 `b64_json`。Gemini 同步请求当前返回 `b64_json`；异步任务完成后统一返回 R2 URL。 |
 | `background` | string | 否 | 模型支持的背景选项。 |
 | `output_format` | string | 否 | 模型支持的输出格式选项。 |
 | `style` | string | 否 | 模型支持的风格选项。 |
 | `moderation` | string | 否 | 模型支持的内容审核选项。 |
 
-模型不支持的参数可能会被服务拒绝。
+对于 Gemini 和 Grok，跨平台请求中当前模型不支持的可选参数会被忽略，不会因此拒绝整次请求；必填字段、请求体格式和图片内容仍会校验。
 
 ### curl 示例
 
@@ -111,6 +111,35 @@ curl -X POST "https://imgapi.duomi.cloud/v1/generate" \
 ```
 
 根据 `response_format` 和所选模型，`data` 中的图片可能通过 `url` 或 `b64_json` 返回。调用方应兼容这两种格式。
+
+### Gemini 生图
+
+当 API Key 所属分组为 Gemini 时，同一入口会把请求转换为 Gemini 原生 `generateContent` 请求，并复用现有 Gemini 账号调度和失败切换。实际可用模型以 `GET /v1/models` 返回为准。
+
+```bash
+curl -X POST "https://imgapi.duomi.cloud/v1/generate" \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-flash-image",
+    "prompt": "一只在雪地森林中的红狐",
+    "size": "1024x1024",
+    "quality": "high"
+  }'
+```
+
+`size` 会按比例转换为 Gemini 的 `imageConfig.aspectRatio`；`quality`、`background` 等 Gemini 不支持的可选字段会被忽略。
+
+### 模型列表
+
+使用当前 API Key 查询该分组可用的生图模型：
+
+```bash
+curl "https://imgapi.duomi.cloud/v1/models" \
+  -H "Authorization: Bearer ${API_KEY}"
+```
+
+返回结果只包含当前 Key 可访问、且具备图片生成能力的模型，并遵守分组模型白名单。
 
 ## 图像编辑
 

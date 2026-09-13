@@ -150,6 +150,19 @@ func ProvideBatchImageHandler(
 	return h
 }
 
+// ProvideAsyncImageHandler connects the asynchronous task runner to both the
+// existing OpenAI-compatible handlers and the native Gemini gateway.
+func ProvideAsyncImageHandler(
+	tasks *service.ImageTaskService,
+	openAI *OpenAIGatewayHandler,
+	ops *service.OpsService,
+	gemini *GatewayHandler,
+) *AsyncImageHandler {
+	h := NewAsyncImageHandler(tasks, openAI, ops)
+	h.SetGeminiHandler(gemini)
+	return h
+}
+
 // ProvideSystemHandler creates admin.SystemHandler with UpdateService
 func ProvideSystemHandler(updateService *service.UpdateService, lockService *service.SystemOperationLockService) *admin.SystemHandler {
 	return admin.NewSystemHandler(updateService, lockService)
@@ -280,7 +293,7 @@ var ProviderSet = wire.NewSet(
 	NewPaymentWebhookHandler,
 	NewAvailableChannelHandler,
 	NewModelPlazaHandler,
-	NewAsyncImageHandler,
+	ProvideAsyncImageHandler,
 	ProvideBatchImageHandler,
 
 	// Admin handlers
