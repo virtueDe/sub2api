@@ -19,6 +19,18 @@ https://imgapi.duomi.cloud
 
 本文档中的接口路径均以该地址为基础地址。
 
+## 支持的渠道
+
+接口根据 API Key 所属分组和请求模型选择生图渠道。当前支持：
+
+| 渠道 | 示例模型 | 说明 |
+| --- | --- | --- |
+| OpenAI | `gpt-image-2`、`gpt-image-*` | OpenAI 图片生成链路 |
+| Gemini | `gemini-2.5-flash-image`、`gemini-3.1-flash-image`、`gemini-3-pro-image` | 转换为 Gemini 原生 `generateContent` |
+| Grok | `grok-imagine`、`grok-imagine-*` | Grok 图片生成/编辑链路 |
+
+Composite 分组可以根据模型路由到上述渠道。实际可用模型以模型列表接口返回为准；模型白名单开启时，列表和请求准入都会受白名单限制。
+
 ## 身份认证
 
 每个接口请求都必须携带 API Key：
@@ -68,7 +80,7 @@ Authorization: Bearer <API_KEY>
 
 | 参数 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
-| `model` | string | 否 | 图片模型，默认 `gpt-image-2`。模型必须是当前 API Key 可用的模型。 |
+| `model` | string | 否 | 图片模型，必须是当前 API Key 可用的模型。未传时，OpenAI 使用 `gpt-image-2`，Gemini 使用 `gemini-2.5-flash-image`；Grok 请求必须显式传入模型。 |
 | `prompt` | string | 是 | 描述需要生成的图片内容。 |
 | `size` | string | 否 | 图片尺寸，例如 `1024x1024`、`1536x1024`。可用尺寸取决于模型。 |
 | `quality` | string | 否 | 模型支持的质量选项。 |
@@ -130,6 +142,26 @@ curl -X POST "https://imgapi.duomi.cloud/v1/generate" \
 
 `size` 会按比例转换为 Gemini 的 `imageConfig.aspectRatio`；`quality`、`background` 等 Gemini 不支持的可选字段会被忽略。
 
+Gemini 图像编辑建议使用 multipart 的 `image[]` 文件，或传入 `data:image/...;base64,...` 图片；普通公网 HTTP 图片 URL 不会直接转发给 Gemini。
+
+### Grok 生图
+
+当 API Key 所属分组为 Grok 时，可以使用 `grok-imagine` 系列模型。请求仍使用同一个 `/v1/generate` 或 `/v1/edit` 接口，模型由 `model` 字段选择。
+
+```bash
+curl -X POST "https://imgapi.duomi.cloud/v1/generate" \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "grok-imagine",
+    "prompt": "一座漂浮在云海上的未来城市",
+    "size": "1024x1024",
+    "n": 1
+  }'
+```
+
+Grok 请求中不属于当前模型的可选字段会被忽略；`prompt`、模型和请求体格式仍会校验。
+
 ### 模型列表
 
 使用当前 API Key 查询该分组可用的生图模型：
@@ -140,6 +172,26 @@ curl "https://imgapi.duomi.cloud/v1/models" \
 ```
 
 返回结果只包含当前 Key 可访问、且具备图片生成能力的模型，并遵守分组模型白名单。
+
+响应使用 OpenAI-compatible 的列表结构：
+
+```json
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "gemini-2.5-flash-image",
+      "object": "model",
+      "created": 1704067200,
+      "owned_by": "openai",
+      "type": "model",
+      "display_name": "gemini-2.5-flash-image"
+    }
+  ]
+}
+```
+
+`owned_by` 是兼容字段，不代表请求一定转发到 OpenAI；请以 `id` 和当前 Key 的分组配置判断实际渠道。
 
 ## 图像编辑
 
@@ -235,6 +287,26 @@ curl -i -X POST "https://imgapi.duomi.cloud/v1/generate/async" \
 响应头包含 `Location` 和 `Retry-After`。请以 `Retry-After` 作为最小轮询间隔。异步图像编辑使用与同步编辑相同的 multipart 或 JSON 请求格式。
 
 异步任务不支持 `stream: true`。
+
+### Gemini 异步生图
+
+Gemini 同样支持异步接口。提交时使用 Gemini 图片模型，后台会复用 Gemini 原生生图链路；任务完成后，系统会把 Gemini 的 Base64 图片上传到对象存储，轮询结果统一返回 `data[].url`。
+
+```bash
+curl -i -X POST "https://imgapi.duomi.cloud/v1/generate/async" \
+  -H "Authorization: Bearer ${API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gemini-2.5-flash-image",
+    "prompt": "一只在雪地森林中的红狐",
+    "size": "1536x1024",
+    "n": 1,
+    "quality": "high",
+    "response_format": "url"
+  }'
+```
+
+其中 `quality` 和 `response_format` 对 Gemini 不生效，但不会因为不支持而拒绝请求；`size` 会按比例转换为 Gemini 的 `aspectRatio`。异步任务仍不接受 `stream: true`。
 
 ### 查询任务
 
