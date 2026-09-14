@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"os"
 	"time"
 
@@ -29,6 +30,41 @@ func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthCli
 // ProvideRedisImageURLProxyCache 提供 Redis 图片 URL 代理缓存
 func ProvideRedisImageURLProxyCache(redisClient *redis.Client) ImageURLProxyCache {
 	return NewRedisImageURLProxyCache(redisClient)
+}
+
+// ProvideImageStorage 提供动态 ImageStorage 代理
+// 该代理在运行时从 ImageStorageSettingService 获取实际的存储实例
+func ProvideImageStorage(settingService *ImageStorageSettingService) ImageStorage {
+	return &dynamicImageStorage{settingService: settingService}
+}
+
+// dynamicImageStorage 是 ImageStorage 的动态代理实现
+// 它在每次调用时从 ImageStorageSettingService 获取当前配置的存储实例
+type dynamicImageStorage struct {
+	settingService *ImageStorageSettingService
+}
+
+// Save 实现 ImageStorage 接口
+func (d *dynamicImageStorage) Save(ctx context.Context, key, contentType string, data []byte) (string, error) {
+	if d.settingService == nil {
+		return "", fmt.Errorf("image storage setting service is nil")
+	}
+
+	// 从 settingService 获取当前的 uploader
+	uploader, enabled := d.settingService.Resolver()()
+	if !enabled || uploader == nil {
+		return "", fmt.Errorf("image storage is not enabled or not configured")
+	}
+
+	// 使用 uploader 的内部 storage 来保存
+	// 注意：这里直接访问 uploader.storage 字段
+	// 如果该字段不可导出，需要在 ImageResultUploader 中添加 GetStorage() 方法
+	storage := uploader.GetStorage()
+	if storage == nil {
+		return "", fmt.Errorf("image storage is nil in uploader")
+	}
+
+	return storage.Save(ctx, key, contentType, data)
 }
 
 // BuildInfo contains build information
@@ -852,6 +888,7 @@ var ProviderSet = wire.NewSet(
 	NewGatewayService,
 	NewOpenAIGatewayService,
 	ProvideRedisImageURLProxyCache,
+	ProvideImageStorage,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
 	ProvideBatchImageModelPricingResolver,
