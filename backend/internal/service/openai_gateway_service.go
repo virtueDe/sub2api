@@ -519,7 +519,7 @@ func NewOpenAIGatewayService(
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
 	imageStorage ImageStorage,
-	redisCache RedisCache,
+	imageURLProxyCache ImageURLProxyCache,
 ) *OpenAIGatewayService {
 	// enforceCodexIdentityHeaders 是 HTTP / 透传 / WS / 探针 等出站路径共用的纯函数收口点，
 	// 拿不到配置，故在此发布进程级开关快照。配置取反义，零值即「强制统一出口开启」。
@@ -529,8 +529,8 @@ func NewOpenAIGatewayService(
 
 	// 初始化图片 URL 代理服务
 	var imageURLProxy *ImageURLProxy
-	if cfg != nil && cfg.Gateway.ImageURLProxy.Enabled {
-		imageURLProxy = NewImageURLProxy(&cfg.Gateway.ImageURLProxy, imageStorage, redisCache)
+	if cfg != nil && imageStorage != nil {
+		imageURLProxy = NewImageURLProxy(&cfg.Gateway.ImageURLProxy, imageStorage, imageURLProxyCache)
 	}
 
 	svc := &OpenAIGatewayService{

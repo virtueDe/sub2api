@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
 
 type GrokMediaEndpoint string
@@ -644,7 +646,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	requestInfo := ParseGrokMediaRequest(contentType, body)
 
 	// 【新增】代理图片 URL
-	if s.imageURLProxy != nil && s.imageURLProxy.IsEnabled() {
+	if s.imageURLProxy != nil && s.settingService.IsImageURLProxyEnabled(ctx) {
 		if len(requestInfo.InputImageURLs) > 0 {
 			proxiedURLs, err := s.imageURLProxy.ProxyURLs(ctx, requestInfo.InputImageURLs)
 			if err != nil {
@@ -668,7 +670,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 			}
 		}
 		// 重建请求体（使用代理后的 URL）
-		body, contentType, err = rebuildGrokMediaRequestBody(requestInfo, contentType, body)
+		body, contentType, err = rebuildGrokMediaRequestBody(&requestInfo, contentType, body)
 		if err != nil {
 			return nil, fmt.Errorf("rebuild grok media request body: %w", err)
 		}

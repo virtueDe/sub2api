@@ -26,6 +26,11 @@ func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthCli
 	return svc
 }
 
+// ProvideRedisImageURLProxyCache 提供 Redis 图片 URL 代理缓存
+func ProvideRedisImageURLProxyCache(redisClient *redis.Client) ImageURLProxyCache {
+	return NewRedisImageURLProxyCache(redisClient)
+}
+
 // BuildInfo contains build information
 type BuildInfo struct {
 	Version   string
@@ -846,6 +851,7 @@ var ProviderSet = wire.NewSet(
 	NewAdminService,
 	NewGatewayService,
 	NewOpenAIGatewayService,
+	ProvideRedisImageURLProxyCache,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
 	ProvideBatchImageModelPricingResolver,

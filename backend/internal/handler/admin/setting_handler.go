@@ -346,6 +346,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		OpenAIImagesAspectRatioPromptEnabled:                   settings.OpenAIImagesAspectRatioPromptEnabled,
 		OpenAIImagesAspectRatioPromptGroupIDs:                  settings.OpenAIImagesAspectRatioPromptGroupIDs,
+		ImageURLProxyEnabled:                                   settings.ImageURLProxyEnabled,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 settings.EnableClaudeOAuthSystemPromptInjection,

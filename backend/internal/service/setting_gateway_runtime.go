@@ -65,6 +65,7 @@ type cachedGatewayForwardingSettings struct {
 	clientDatelineNormalization           bool
 	openAIImagesAspectRatioPromptEnabled  bool
 	openAIImagesAspectRatioPromptGroupIDs []int64
+	imageURLProxyEnabled                  bool
 	expiresAt                             int64 // unix nano
 }
 
@@ -745,6 +746,7 @@ type gatewayForwardingSettingsResult struct {
 	claudeOAuthSystemPrompt, claudeOAuthSystemPromptBlocks                                string
 	openAIImagesAspectRatioPromptEnabled                                                  bool
 	openAIImagesAspectRatioPromptGroupIDs                                                 []int64
+	imageURLProxyEnabled                                                                  bool
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
@@ -842,6 +844,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		}
 		aspectRatioPromptEnabled := values[SettingKeyOpenAIImagesAspectRatioPromptEnabled] == "true"
 		aspectRatioPromptGroupIDs := parseOpenAIImagesAspectRatioPromptGroupIDs(values[SettingKeyOpenAIImagesAspectRatioPromptGroupIDs])
+		imageURLProxyEnabled := values[SettingKeyImageURLProxyEnabled] == "true"
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			openAITTFTMode:                        ttftMode,
 			fingerprintUnification:                fp,
@@ -855,6 +858,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			clientDatelineNormalization:           clientDatelineNormalization,
 			openAIImagesAspectRatioPromptEnabled:  aspectRatioPromptEnabled,
 			openAIImagesAspectRatioPromptGroupIDs: aspectRatioPromptGroupIDs,
+			imageURLProxyEnabled:                  imageURLProxyEnabled,
 			expiresAt:                             time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gatewayForwardingSettingsResult{
@@ -870,6 +874,7 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			clientDatelineNormalization:           clientDatelineNormalization,
 			openAIImagesAspectRatioPromptEnabled:  aspectRatioPromptEnabled,
 			openAIImagesAspectRatioPromptGroupIDs: aspectRatioPromptGroupIDs,
+			imageURLProxyEnabled:                  imageURLProxyEnabled,
 		}, nil
 	})
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {
@@ -895,6 +900,11 @@ func (s *SettingService) IsOpenAIImagesAspectRatioPromptEnabled(ctx context.Cont
 		}
 	}
 	return false
+}
+
+// IsImageURLProxyEnabled 返回图片 URL 代理功能是否启用
+func (s *SettingService) IsImageURLProxyEnabled(ctx context.Context) bool {
+	return s.getGatewayForwardingSettingsCached(ctx).imageURLProxyEnabled
 }
 
 // GetOpenAITTFTMode 返回 Responses first_token_ms 的统计口径。

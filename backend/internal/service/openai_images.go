@@ -26,6 +26,7 @@ import (
 	"github.com/imroc/req/v3"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
 
 const (
@@ -690,12 +691,12 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	)
 
 	// 【新增】代理图片 URL
-	if s.imageURLProxy != nil && s.imageURLProxy.IsEnabled() {
+	if s.imageURLProxy != nil && s.settingService.IsImageURLProxyEnabled(ctx) {
 		if len(parsed.InputImageURLs) > 0 {
-			proxiedURLs, err := s.imageURLProxy.ProxyURLs(ctx, parsed.InputImageURLs)
-			if err != nil {
+			proxiedURLs, proxyErr := s.imageURLProxy.ProxyURLs(ctx, parsed.InputImageURLs)
+			if proxyErr != nil {
 				logger.L().Warn("image_url_proxy.input_urls_failed",
-					zap.Error(err),
+					zap.Error(proxyErr),
 					zap.Int("url_count", len(parsed.InputImageURLs)),
 				)
 			} else {
@@ -703,10 +704,10 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			}
 		}
 		if parsed.MaskImageURL != "" {
-			proxiedURL, err := s.imageURLProxy.ProxyURL(ctx, parsed.MaskImageURL)
-			if err != nil {
+			proxiedURL, proxyErr := s.imageURLProxy.ProxyURL(ctx, parsed.MaskImageURL)
+			if proxyErr != nil {
 				logger.L().Warn("image_url_proxy.mask_url_failed",
-					zap.Error(err),
+					zap.Error(proxyErr),
 					zap.String("url", parsed.MaskImageURL),
 				)
 			} else {
@@ -714,9 +715,10 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			}
 		}
 		// 重建请求体（使用代理后的 URL）
-		body, err = rebuildOpenAIImagesRequestBody(parsed)
-		if err != nil {
-			return nil, fmt.Errorf("rebuild openai images request body: %w", err)
+		var rebuildErr error
+		body, rebuildErr = rebuildOpenAIImagesRequestBody(parsed)
+		if rebuildErr != nil {
+			return nil, fmt.Errorf("rebuild openai images request body: %w", rebuildErr)
 		}
 	}
 

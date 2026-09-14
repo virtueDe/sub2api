@@ -128,18 +128,6 @@ func rebuildGrokMediaMultipartBody(info *GrokMediaRequestInfo, contentType strin
 	return buffer.Bytes(), newContentType, nil
 }
 
-// cloneMultipartHeader 克隆 multipart part 的 header
-func cloneMultipartHeader(header map[string][]string) map[string][]string {
-	if header == nil {
-		return nil
-	}
-	clone := make(map[string][]string, len(header))
-	for k, v := range header {
-		clone[k] = append([]string(nil), v...)
-	}
-	return clone
-}
-
 // rebuildOpenAIImagesRequestBody 重建 OpenAI Images 请求体（应用代理后的 URL）
 func rebuildOpenAIImagesRequestBody(parsed *OpenAIImagesRequest) ([]byte, error) {
 	if parsed == nil {
@@ -175,9 +163,6 @@ func rebuildOpenAIImagesRequestBody(parsed *OpenAIImagesRequest) ([]byte, error)
 	}
 	if parsed.ResponseFormat != "" {
 		body["response_format"] = parsed.ResponseFormat
-	}
-	if parsed.User != "" {
-		body["user"] = parsed.User
 	}
 
 	// 图片 URL 字段
@@ -217,9 +202,6 @@ func rebuildOpenAIImagesMultipartRequestBody(parsed *OpenAIImagesRequest) ([]byt
 	}
 	if parsed.ResponseFormat != "" {
 		_ = writer.WriteField("response_format", parsed.ResponseFormat)
-	}
-	if parsed.User != "" {
-		_ = writer.WriteField("user", parsed.User)
 	}
 
 	// 写入图片 URL

@@ -1148,14 +1148,6 @@ type GatewayCNProvidersConfig struct {
 // ImageURLProxyConfig 图片 URL 代理配置
 // 用于解决 OpenAI/Grok 访问中国区域对象存储（TOS/OSS/COS）超时问题
 type ImageURLProxyConfig struct {
-	// Enabled: 功能总开关（默认关闭）
-	Enabled bool `mapstructure:"enabled"`
-	// DownloadTimeoutSeconds: 下载图片超时时间（秒）
-	DownloadTimeoutSeconds int `mapstructure:"download_timeout_seconds"`
-	// UploadTimeoutSeconds: 上传图片到 CF R2 超时时间（秒）
-	UploadTimeoutSeconds int `mapstructure:"upload_timeout_seconds"`
-	// TotalTimeoutSeconds: 总超时时间（秒）
-	TotalTimeoutSeconds int `mapstructure:"total_timeout_seconds"`
 	// MaxDownloadBytes: 单图最大下载字节数
 	MaxDownloadBytes int64 `mapstructure:"max_download_bytes"`
 	// CacheTTLHours: Redis 缓存 URL 映射的有效期（小时）

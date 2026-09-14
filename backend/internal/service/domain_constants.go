@@ -544,6 +544,9 @@ const (
 	SettingKeyOpenAIImagesAspectRatioPromptEnabled  = "openai_images_aspect_ratio_prompt_enabled"
 	SettingKeyOpenAIImagesAspectRatioPromptGroupIDs = "openai_images_aspect_ratio_prompt_group_ids"
 
+	// Image URL Proxy (图片 URL 代理到 CF R2)
+	SettingKeyImageURLProxyEnabled = "image_url_proxy_enabled" // 是否启用图片 URL 代理功能
+
 	// SettingKeyUpstreamBillingProbeSettings stores the global enable switch and interval
 	// for probing remote Sub2API API-key billing metadata.
 	SettingKeyUpstreamBillingProbeSettings = "upstream_billing_probe_settings"

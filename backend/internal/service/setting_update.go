@@ -447,6 +447,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, fmt.Errorf("marshal image aspect ratio prompt group ids: %w", err)
 	}
 	updates[SettingKeyOpenAIImagesAspectRatioPromptGroupIDs] = string(groupIDsJSON)
+	updates[SettingKeyImageURLProxyEnabled] = strconv.FormatBool(settings.ImageURLProxyEnabled)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
@@ -725,6 +726,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		clientDatelineNormalization:           settings.EnableClientDatelineNormalization,
 		openAIImagesAspectRatioPromptEnabled:  settings.OpenAIImagesAspectRatioPromptEnabled,
 		openAIImagesAspectRatioPromptGroupIDs: append([]int64(nil), settings.OpenAIImagesAspectRatioPromptGroupIDs...),
+		imageURLProxyEnabled:                  settings.ImageURLProxyEnabled,
 		expiresAt:                             time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")

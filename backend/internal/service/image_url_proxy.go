@@ -16,11 +16,17 @@ import (
 	"go.uber.org/zap"
 )
 
+// ImageURLProxyCache 图片 URL 代理缓存接口
+type ImageURLProxyCache interface {
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key string, value string, ttl time.Duration) error
+}
+
 // ImageURLProxy 图片 URL 代理服务
 type ImageURLProxy struct {
 	cfg          *config.ImageURLProxyConfig
 	imageStorage ImageStorage
-	redisCache   RedisCache
+	cache        ImageURLProxyCache
 	httpClient   *http.Client
 }
 
@@ -28,42 +34,28 @@ type ImageURLProxy struct {
 func NewImageURLProxy(
 	cfg *config.ImageURLProxyConfig,
 	imageStorage ImageStorage,
-	redisCache RedisCache,
+	cache ImageURLProxyCache,
 ) *ImageURLProxy {
 	if cfg == nil {
 		return nil
 	}
 
-	downloadTimeout := time.Duration(cfg.DownloadTimeoutSeconds) * time.Second
-	uploadTimeout := time.Duration(cfg.UploadTimeoutSeconds) * time.Second
-	if downloadTimeout <= 0 {
-		downloadTimeout = 60 * time.Second
-	}
-	if uploadTimeout <= 0 {
-		uploadTimeout = 30 * time.Second
-	}
+	// 固定超时时间为 120 秒
+	downloadTimeout := 120 * time.Second
 
 	return &ImageURLProxy{
 		cfg:          cfg,
 		imageStorage: imageStorage,
-		redisCache:   redisCache,
+		cache:        cache,
 		httpClient: &http.Client{
 			Timeout: downloadTimeout,
 		},
 	}
 }
 
-// IsEnabled 检查功能是否启用
-func (p *ImageURLProxy) IsEnabled() bool {
-	if p == nil || p.cfg == nil {
-		return false
-	}
-	return p.cfg.Enabled
-}
-
 // ProxyURL 代理单个图片 URL
 func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, error) {
-	if !p.IsEnabled() {
+	if p == nil {
 		return imageURL, nil
 	}
 
@@ -88,8 +80,8 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 
 	// 检查缓存
 	cacheKey := p.buildCacheKey(imageURL)
-	if p.redisCache != nil {
-		cachedURL, err := p.redisCache.Get(ctx, cacheKey)
+	if p.cache != nil {
+		cachedURL, err := p.cache.Get(ctx, cacheKey)
 		if err == nil && cachedURL != "" {
 			logger.L().Debug("image_url_proxy.cache_hit",
 				zap.String("cache_key", cacheKey),
@@ -147,12 +139,12 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 	)
 
 	// 写入缓存
-	if p.redisCache != nil {
+	if p.cache != nil {
 		cacheTTL := time.Duration(p.cfg.CacheTTLHours) * time.Hour
 		if cacheTTL <= 0 {
 			cacheTTL = 168 * time.Hour // 默认 7 天
 		}
-		if err := p.redisCache.Set(ctx, cacheKey, cfURL, cacheTTL); err != nil {
+		if err := p.cache.Set(ctx, cacheKey, cfURL, cacheTTL); err != nil {
 			logger.L().Warn("image_url_proxy.cache_write_failed",
 				zap.String("cache_key", cacheKey),
 				zap.Error(err),
@@ -305,11 +297,11 @@ func (p *ImageURLProxy) uploadToR2(ctx context.Context, imageData []byte, conten
 	filename := hex.EncodeToString(hash[:]) + guessFileExtension(contentType)
 	storageKey := p.cfg.StorageKeyPrefix + filename
 
-	// 上传到 R2
-	uploadCtx, cancel := context.WithTimeout(ctx, time.Duration(p.cfg.UploadTimeoutSeconds)*time.Second)
+	// 上传到 R2（固定 120 秒超时）
+	uploadCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	cfURL, err := p.imageStorage.Upload(uploadCtx, storageKey, imageData, contentType)
+	cfURL, err := p.imageStorage.Save(uploadCtx, storageKey, contentType, imageData)
 	if err != nil {
 		return "", fmt.Errorf("upload to r2: %w", err)
 	}

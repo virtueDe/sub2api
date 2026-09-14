@@ -213,6 +213,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyPluginManagementEnabled:               "false",
 		SettingKeyOpenAIImagesAspectRatioPromptEnabled:  "false",
 		SettingKeyOpenAIImagesAspectRatioPromptGroupIDs: "[]",
+		SettingKeyImageURLProxyEnabled:                  "false",
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled:              "false",
@@ -837,6 +838,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.PluginManagementEnabled = settings[SettingKeyPluginManagementEnabled] == "true"
 	result.OpenAIImagesAspectRatioPromptEnabled = settings[SettingKeyOpenAIImagesAspectRatioPromptEnabled] == "true"
 	result.OpenAIImagesAspectRatioPromptGroupIDs = parseOpenAIImagesAspectRatioPromptGroupIDs(settings[SettingKeyOpenAIImagesAspectRatioPromptGroupIDs])
+	result.ImageURLProxyEnabled = settings[SettingKeyImageURLProxyEnabled] == "true"
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"
