@@ -485,6 +485,36 @@ gateway:
   # Non-streaming Images JSON keepalive interval (seconds), 0=disable; commits HTTP 200 after the first heartbeat
   # 图片非流式 JSON keepalive 间隔（秒），0=禁用；首个心跳后 HTTP 状态会固化为 200
   image_nonstream_keepalive_interval: 0
+  # Image URL proxy configuration (solves OpenAI/Grok timeout accessing China region storage)
+  # 图片 URL 代理配置（解决 OpenAI/Grok 访问中国区存储超时问题）
+  image_url_proxy:
+    # Enable image URL proxy feature (default: false)
+    # 启用图片 URL 代理功能（默认：关闭）
+    enabled: false
+    # Download timeout in seconds (default: 60)
+    # 下载图片超时时间（秒，默认 60）
+    download_timeout_seconds: 60
+    # Upload timeout in seconds (default: 30)
+    # 上传到 CF R2 超时时间（秒，默认 30）
+    upload_timeout_seconds: 30
+    # Total timeout in seconds (default: 100)
+    # 总超时时间（秒，默认 100）
+    total_timeout_seconds: 100
+    # Max download bytes per image (default: 20971520 = 20MB)
+    # 单图最大下载字节数（默认 20971520 = 20MB）
+    max_download_bytes: 20971520
+    # Cache TTL in hours (default: 168 = 7 days)
+    # Redis 缓存 URL 映射的有效期（小时，默认 168 = 7天）
+    cache_ttl_hours: 168
+    # Storage key prefix in CF R2 (default: "proxy/")
+    # CF R2 存储 key 前缀（默认 "proxy/"）
+    storage_key_prefix: "proxy/"
+    # Whitelist-only mode: only proxy whitelisted domains (default: false)
+    # 白名单模式：仅代理白名单域名（默认 false）
+    whitelist_only: false
+    # Domain whitelist (supports wildcard like *.volces.com)
+    # 域名白名单（支持通配符，如 *.volces.com）
+    domain_whitelist: []
   # Image generation independent concurrency limiter (process-local, default disabled)
   # 图片生成独立并发限制（进程级，默认关闭；多实例总上限约为实例数×该值）
   image_concurrency:
