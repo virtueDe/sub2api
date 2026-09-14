@@ -1053,6 +1053,8 @@ type GatewayConfig struct {
 	ImageStreamKeepaliveInterval int `mapstructure:"image_stream_keepalive_interval"`
 	// ImageNonstreamKeepaliveInterval: 图片非流式 JSON keepalive 间隔（秒），0表示禁用
 	ImageNonstreamKeepaliveInterval int `mapstructure:"image_nonstream_keepalive_interval"`
+	// ImageURLProxy: 图片 URL 代理配置（用于解决 OpenAI 访问中国区存储超时问题）
+	ImageURLProxy ImageURLProxyConfig `mapstructure:"image_url_proxy"`
 	// MaxLineSize: 上游 SSE 单行最大字节数（0使用默认值）
 	MaxLineSize int `mapstructure:"max_line_size"`
 
@@ -1141,6 +1143,29 @@ type GatewayCNProvidersConfig struct {
 	BalanceCheckEnabled         bool    `mapstructure:"balance_check_enabled"`
 	BalanceThreshold            float64 `mapstructure:"balance_threshold"`
 	BalanceCheckIntervalMinutes int     `mapstructure:"balance_check_interval_minutes"`
+}
+
+// ImageURLProxyConfig 图片 URL 代理配置
+// 用于解决 OpenAI/Grok 访问中国区域对象存储（TOS/OSS/COS）超时问题
+type ImageURLProxyConfig struct {
+	// Enabled: 功能总开关（默认关闭）
+	Enabled bool `mapstructure:"enabled"`
+	// DownloadTimeoutSeconds: 下载图片超时时间（秒）
+	DownloadTimeoutSeconds int `mapstructure:"download_timeout_seconds"`
+	// UploadTimeoutSeconds: 上传图片到 CF R2 超时时间（秒）
+	UploadTimeoutSeconds int `mapstructure:"upload_timeout_seconds"`
+	// TotalTimeoutSeconds: 总超时时间（秒）
+	TotalTimeoutSeconds int `mapstructure:"total_timeout_seconds"`
+	// MaxDownloadBytes: 单图最大下载字节数
+	MaxDownloadBytes int64 `mapstructure:"max_download_bytes"`
+	// CacheTTLHours: Redis 缓存 URL 映射的有效期（小时）
+	CacheTTLHours int `mapstructure:"cache_ttl_hours"`
+	// StorageKeyPrefix: CF R2 存储 key 前缀
+	StorageKeyPrefix string `mapstructure:"storage_key_prefix"`
+	// WhitelistOnly: 是否仅代理白名单域名
+	WhitelistOnly bool `mapstructure:"whitelist_only"`
+	// DomainWhitelist: 域名白名单（支持通配符，如 *.volces.com）
+	DomainWhitelist []string `mapstructure:"domain_whitelist"`
 }
 
 type GatewayLiveConfig struct {

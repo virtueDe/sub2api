@@ -642,6 +642,38 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		return nil, err
 	}
 	requestInfo := ParseGrokMediaRequest(contentType, body)
+
+	// 【新增】代理图片 URL
+	if s.imageURLProxy != nil && s.imageURLProxy.IsEnabled() {
+		if len(requestInfo.InputImageURLs) > 0 {
+			proxiedURLs, err := s.imageURLProxy.ProxyURLs(ctx, requestInfo.InputImageURLs)
+			if err != nil {
+				logger.L().Warn("image_url_proxy.grok_input_urls_failed",
+					zap.Error(err),
+					zap.Int("url_count", len(requestInfo.InputImageURLs)),
+				)
+			} else {
+				requestInfo.InputImageURLs = proxiedURLs
+			}
+		}
+		if requestInfo.MaskImageURL != "" {
+			proxiedURL, err := s.imageURLProxy.ProxyURL(ctx, requestInfo.MaskImageURL)
+			if err != nil {
+				logger.L().Warn("image_url_proxy.grok_mask_url_failed",
+					zap.Error(err),
+					zap.String("url", requestInfo.MaskImageURL),
+				)
+			} else {
+				requestInfo.MaskImageURL = proxiedURL
+			}
+		}
+		// 重建请求体（使用代理后的 URL）
+		body, contentType, err = rebuildGrokMediaRequestBody(requestInfo, contentType, body)
+		if err != nil {
+			return nil, fmt.Errorf("rebuild grok media request body: %w", err)
+		}
+	}
+
 	upstreamModel := requestInfo.Model
 	if endpoint.RequiresRequestBody() && gjson.ValidBytes(body) {
 		if mappedModel := strings.TrimSpace(account.GetMappedModel(requestInfo.Model)); mappedModel != "" {

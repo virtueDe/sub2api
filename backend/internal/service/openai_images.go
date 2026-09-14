@@ -688,6 +688,38 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		parsed.Endpoint,
 		account.Type,
 	)
+
+	// 【新增】代理图片 URL
+	if s.imageURLProxy != nil && s.imageURLProxy.IsEnabled() {
+		if len(parsed.InputImageURLs) > 0 {
+			proxiedURLs, err := s.imageURLProxy.ProxyURLs(ctx, parsed.InputImageURLs)
+			if err != nil {
+				logger.L().Warn("image_url_proxy.input_urls_failed",
+					zap.Error(err),
+					zap.Int("url_count", len(parsed.InputImageURLs)),
+				)
+			} else {
+				parsed.InputImageURLs = proxiedURLs
+			}
+		}
+		if parsed.MaskImageURL != "" {
+			proxiedURL, err := s.imageURLProxy.ProxyURL(ctx, parsed.MaskImageURL)
+			if err != nil {
+				logger.L().Warn("image_url_proxy.mask_url_failed",
+					zap.Error(err),
+					zap.String("url", parsed.MaskImageURL),
+				)
+			} else {
+				parsed.MaskImageURL = proxiedURL
+			}
+		}
+		// 重建请求体（使用代理后的 URL）
+		body, err = rebuildOpenAIImagesRequestBody(parsed)
+		if err != nil {
+			return nil, fmt.Errorf("rebuild openai images request body: %w", err)
+		}
+	}
+
 	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel)
 	if err != nil {
 		return nil, err
