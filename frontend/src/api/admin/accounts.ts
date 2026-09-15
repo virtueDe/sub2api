@@ -68,6 +68,19 @@ export async function list(
   return data
 }
 
+export interface ImageGenerationAccountOption {
+  id: number
+  name: string
+  platform: string
+  type: string
+  status: string
+}
+
+export async function listImageGenerationAccounts(): Promise<ImageGenerationAccountOption[]> {
+  const { data } = await apiClient.get<ImageGenerationAccountOption[]>('/admin/accounts/image-generation-capable')
+  return data
+}
+
 export interface AccountListWithEtagResult {
   notModified: boolean
   etag: string | null
@@ -1068,6 +1081,7 @@ export async function refreshOllamaCloudUsage(id: number): Promise<OllamaCloudUs
 
 export const accountsAPI = {
   list,
+  listImageGenerationAccounts,
   listWithEtag,
   getUpstreamBillingRatesWithEtag,
   getById,

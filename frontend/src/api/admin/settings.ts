@@ -648,6 +648,12 @@ export interface SystemSettings {
   codex_cli_only_engine_fingerprint_signals: string;
   web_search_emulation_enabled?: boolean;
 
+  // Image URL Proxy (Cloudflare R2)
+  image_url_proxy_enabled: boolean;
+  image_url_proxy_account_ids: number[];
+  image_url_strip_query_enabled: boolean;
+  image_url_strip_query_account_ids: number[];
+
   // Payment configuration
   payment_enabled: boolean;
   risk_control_enabled: boolean;
@@ -968,6 +974,11 @@ export interface UpdateSettingsRequest {
   codex_cli_only_whitelist?: string;
   codex_cli_only_allow_app_server_clients?: boolean;
   codex_cli_only_engine_fingerprint_signals?: string;
+  // Image URL Proxy (Cloudflare R2)
+  image_url_proxy_enabled?: boolean;
+  image_url_proxy_account_ids?: number[];
+  image_url_strip_query_enabled?: boolean;
+  image_url_strip_query_account_ids?: number[];
   // Payment configuration
   payment_enabled?: boolean;
   risk_control_enabled?: boolean;

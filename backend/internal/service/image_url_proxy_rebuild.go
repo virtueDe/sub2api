@@ -7,11 +7,62 @@ import (
 	"io"
 	"mime"
 	"mime/multipart"
+	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
+
+func stripImageURLQuery(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return raw
+	}
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func stripImageURLQueries(urls []string) []string {
+	result := make([]string, len(urls))
+	for i, raw := range urls {
+		result[i] = stripImageURLQuery(raw)
+	}
+	return result
+}
+
+// redactImageURLForLog keeps the URL shape while hiding signed query values.
+func redactImageURLForLog(raw string) string {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "<invalid_url>"
+	}
+	if parsed.RawQuery == "" {
+		return parsed.String()
+	}
+
+	keys := make([]string, 0, len(parsed.Query()))
+	for key := range parsed.Query() {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	query := make(url.Values, len(keys))
+	for _, key := range keys {
+		query.Set(key, "<redacted>")
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+func redactImageURLsForLog(urls []string) []string {
+	result := make([]string, len(urls))
+	for i, raw := range urls {
+		result[i] = redactImageURLForLog(raw)
+	}
+	return result
+}
 
 // rebuildGrokMediaRequestBody 重建 Grok 媒体请求体（应用代理后的 URL）
 func rebuildGrokMediaRequestBody(info *GrokMediaRequestInfo, contentType string, originalBody []byte) ([]byte, string, error) {
@@ -129,9 +180,21 @@ func rebuildGrokMediaMultipartBody(info *GrokMediaRequestInfo, contentType strin
 }
 
 // rebuildOpenAIImagesRequestBody 重建 OpenAI Images 请求体（应用代理后的 URL）
-func rebuildOpenAIImagesRequestBody(parsed *OpenAIImagesRequest) ([]byte, error) {
+func shouldProxyOpenAIImageURLs(parsed *OpenAIImagesRequest) bool {
+	if parsed == nil || (len(parsed.InputImageURLs) == 0 && strings.TrimSpace(parsed.MaskImageURL) == "") {
+		return false
+	}
+	// Rebuilding a multipart request with file parts would drop the in-memory
+	// uploads. Keep the original body for native file uploads.
+	if parsed.Multipart && (len(parsed.Uploads) > 0 || parsed.MaskUpload != nil) {
+		return false
+	}
+	return true
+}
+
+func rebuildOpenAIImagesRequestBody(parsed *OpenAIImagesRequest, originalBodies ...[]byte) ([]byte, string, error) {
 	if parsed == nil {
-		return nil, fmt.Errorf("parsed request is nil")
+		return nil, "", fmt.Errorf("parsed request is nil")
 	}
 
 	// 如果是 multipart 请求，需要特殊处理
@@ -139,10 +202,46 @@ func rebuildOpenAIImagesRequestBody(parsed *OpenAIImagesRequest) ([]byte, error)
 		return rebuildOpenAIImagesMultipartRequestBody(parsed)
 	}
 
-	// JSON 格式请求
-	body := make(map[string]interface{})
+	// JSON 格式请求。优先在原始 JSON 上做局部修改，避免代理重建时
+	// 丢失未知字段，尤其是 OpenAI edits 所需的 images[].image_url 结构。
+	source := parsed.Body
+	if len(originalBodies) > 0 {
+		source = originalBodies[0]
+	}
+	if len(source) > 0 && json.Valid(source) {
+		var payload map[string]any
+		if err := json.Unmarshal(source, &payload); err == nil {
+			if len(parsed.InputImageURLs) > 0 {
+				images := make([]any, 0, len(parsed.InputImageURLs))
+				if existing, ok := payload["images"].([]any); ok {
+					images = existing
+				}
+				for i, imageURL := range parsed.InputImageURLs {
+					if i < len(images) {
+						if item, ok := images[i].(map[string]any); ok {
+							item["image_url"] = imageURL
+							continue
+						}
+					}
+					images = append(images, map[string]any{"image_url": imageURL})
+				}
+				payload["images"] = images
+			}
+			if parsed.MaskImageURL != "" {
+				mask, _ := payload["mask"].(map[string]any)
+				if mask == nil {
+					mask = make(map[string]any)
+				}
+				mask["image_url"] = parsed.MaskImageURL
+				payload["mask"] = mask
+			}
+			rebuilt, err := json.Marshal(payload)
+			return rebuilt, "application/json", err
+		}
+	}
 
-	// 基础字段
+	// 没有可复用的原始 JSON 时保留一个最小兼容请求体。
+	body := make(map[string]any)
 	if parsed.Model != "" {
 		body["model"] = parsed.Model
 	}
@@ -164,20 +263,23 @@ func rebuildOpenAIImagesRequestBody(parsed *OpenAIImagesRequest) ([]byte, error)
 	if parsed.ResponseFormat != "" {
 		body["response_format"] = parsed.ResponseFormat
 	}
-
-	// 图片 URL 字段
 	if len(parsed.InputImageURLs) > 0 {
-		body["image"] = parsed.InputImageURLs[0]
+		images := make([]map[string]string, 0, len(parsed.InputImageURLs))
+		for _, imageURL := range parsed.InputImageURLs {
+			images = append(images, map[string]string{"image_url": imageURL})
+		}
+		body["images"] = images
 	}
 	if parsed.MaskImageURL != "" {
-		body["mask"] = parsed.MaskImageURL
+		body["mask"] = map[string]string{"image_url": parsed.MaskImageURL}
 	}
 
-	return json.Marshal(body)
+	rebuilt, err := json.Marshal(body)
+	return rebuilt, "application/json", err
 }
 
 // rebuildOpenAIImagesMultipartRequestBody 重建 multipart 格式的 OpenAI Images 请求体
-func rebuildOpenAIImagesMultipartRequestBody(parsed *OpenAIImagesRequest) ([]byte, error) {
+func rebuildOpenAIImagesMultipartRequestBody(parsed *OpenAIImagesRequest) ([]byte, string, error) {
 	var buffer bytes.Buffer
 	writer := multipart.NewWriter(&buffer)
 
@@ -213,8 +315,8 @@ func rebuildOpenAIImagesMultipartRequestBody(parsed *OpenAIImagesRequest) ([]byt
 	}
 
 	if err := writer.Close(); err != nil {
-		return nil, fmt.Errorf("finalize multipart body: %w", err)
+		return nil, "", fmt.Errorf("finalize multipart body: %w", err)
 	}
 
-	return buffer.Bytes(), nil
+	return buffer.Bytes(), writer.FormDataContentType(), nil
 }

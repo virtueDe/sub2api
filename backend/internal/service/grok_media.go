@@ -644,32 +644,84 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		return nil, err
 	}
 	requestInfo := ParseGrokMediaRequest(contentType, body)
+	proxyEnabledForAccount := s.settingService.IsImageURLProxyEnabledForAccount(ctx, account.ID)
+	stripQueryEnabledForAccount := s.settingService.IsImageURLStripQueryEnabledForAccount(ctx, account.ID)
+	if stripQueryEnabledForAccount && !proxyEnabledForAccount {
+		beforeURLs := redactImageURLsForLog(requestInfo.InputImageURLs)
+		beforeMaskURL := redactImageURLForLog(requestInfo.MaskImageURL)
+		requestInfo.InputImageURLs = stripImageURLQueries(requestInfo.InputImageURLs)
+		if requestInfo.MaskImageURL != "" {
+			requestInfo.MaskImageURL = stripImageURLQuery(requestInfo.MaskImageURL)
+		}
+		logger.L().Info("image_url_strip_query.rewrite",
+			zap.Int64("account_id", account.ID),
+			zap.String("stage", "before_account_branch"),
+			zap.Strings("before_urls", beforeURLs),
+			zap.Strings("after_urls", redactImageURLsForLog(requestInfo.InputImageURLs)),
+			zap.String("before_mask_url", beforeMaskURL),
+			zap.String("after_mask_url", redactImageURLForLog(requestInfo.MaskImageURL)),
+		)
+	}
 
 	// 【新增】代理图片 URL
-	if s.imageURLProxy != nil && s.settingService.IsImageURLProxyEnabled(ctx) {
+	proxyEnabled := s.imageURLProxy != nil && s.settingService.IsImageURLProxyEnabledForAccount(ctx, account.ID)
+	stripQueryEnabled := s.settingService.IsImageURLStripQueryEnabledForAccount(ctx, account.ID)
+	if proxyEnabled || stripQueryEnabled {
 		if len(requestInfo.InputImageURLs) > 0 {
-			proxiedURLs, err := s.imageURLProxy.ProxyURLs(ctx, requestInfo.InputImageURLs)
-			if err != nil {
-				logger.L().Warn("image_url_proxy.grok_input_urls_failed",
-					zap.Error(err),
-					zap.Int("url_count", len(requestInfo.InputImageURLs)),
-				)
-			} else {
-				requestInfo.InputImageURLs = proxiedURLs
+			if proxyEnabled {
+				beforeURLs := redactImageURLsForLog(requestInfo.InputImageURLs)
+				proxiedURLs, err := s.imageURLProxy.ProxyURLs(ctx, requestInfo.InputImageURLs)
+				if err != nil {
+					logger.L().Warn("image_url_proxy.grok_input_urls_failed", zap.Error(err), zap.Int("url_count", len(requestInfo.InputImageURLs)))
+				} else {
+					requestInfo.InputImageURLs = proxiedURLs
+					logger.L().Info("image_url_proxy.rewrite",
+						zap.Int64("account_id", account.ID),
+						zap.String("stage", "before_upstream"),
+						zap.Strings("before_urls", beforeURLs),
+						zap.Strings("after_urls", redactImageURLsForLog(requestInfo.InputImageURLs)),
+					)
+				}
 			}
 		}
 		if requestInfo.MaskImageURL != "" {
-			proxiedURL, err := s.imageURLProxy.ProxyURL(ctx, requestInfo.MaskImageURL)
-			if err != nil {
-				logger.L().Warn("image_url_proxy.grok_mask_url_failed",
-					zap.Error(err),
-					zap.String("url", requestInfo.MaskImageURL),
-				)
-			} else {
-				requestInfo.MaskImageURL = proxiedURL
+			if proxyEnabled {
+				beforeMaskURL := redactImageURLForLog(requestInfo.MaskImageURL)
+				proxiedURL, err := s.imageURLProxy.ProxyURL(ctx, requestInfo.MaskImageURL)
+				if err != nil {
+					logger.L().Warn("image_url_proxy.grok_mask_url_failed", zap.Error(err), zap.String("url", redactImageURLForLog(requestInfo.MaskImageURL)))
+				} else {
+					requestInfo.MaskImageURL = proxiedURL
+					logger.L().Info("image_url_proxy.rewrite",
+						zap.Int64("account_id", account.ID),
+						zap.String("stage", "before_upstream"),
+						zap.String("before_url", beforeMaskURL),
+						zap.String("after_url", redactImageURLForLog(requestInfo.MaskImageURL)),
+					)
+				}
 			}
 		}
 		// 重建请求体（使用代理后的 URL）
+		body, contentType, err = rebuildGrokMediaRequestBody(&requestInfo, contentType, body)
+		if err != nil {
+			return nil, fmt.Errorf("rebuild grok media request body: %w", err)
+		}
+	}
+	if stripQueryEnabled && proxyEnabled {
+		beforeURLs := redactImageURLsForLog(requestInfo.InputImageURLs)
+		beforeMaskURL := redactImageURLForLog(requestInfo.MaskImageURL)
+		requestInfo.InputImageURLs = stripImageURLQueries(requestInfo.InputImageURLs)
+		if requestInfo.MaskImageURL != "" {
+			requestInfo.MaskImageURL = stripImageURLQuery(requestInfo.MaskImageURL)
+		}
+		logger.L().Info("image_url_strip_query.rewrite",
+			zap.Int64("account_id", account.ID),
+			zap.String("stage", "after_proxy"),
+			zap.Strings("before_urls", beforeURLs),
+			zap.Strings("after_urls", redactImageURLsForLog(requestInfo.InputImageURLs)),
+			zap.String("before_mask_url", beforeMaskURL),
+			zap.String("after_mask_url", redactImageURLForLog(requestInfo.MaskImageURL)),
+		)
 		body, contentType, err = rebuildGrokMediaRequestBody(&requestInfo, contentType, body)
 		if err != nil {
 			return nil, fmt.Errorf("rebuild grok media request body: %w", err)

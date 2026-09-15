@@ -68,6 +68,58 @@ type AccountHandler struct {
 	cfg                     *config.Config
 }
 
+// ImageGenerationAccountOption is the non-sensitive account summary used by
+// image-processing settings selectors.
+type ImageGenerationAccountOption struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	Platform string `json:"platform"`
+	Type     string `json:"type"`
+	Status   string `json:"status"`
+}
+
+// ListImageGenerationAccounts returns accounts bound to at least one active
+// group that allows image generation.
+func (h *AccountHandler) ListImageGenerationAccounts(c *gin.Context) {
+	groups, err := h.adminService.GetAllGroups(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	groupIDs := make([]int64, 0, len(groups))
+	for _, group := range groups {
+		if group.Status == service.StatusActive && group.AllowImageGeneration {
+			groupIDs = append(groupIDs, group.ID)
+		}
+	}
+	if len(groupIDs) == 0 {
+		response.Success(c, []ImageGenerationAccountOption{})
+		return
+	}
+	accounts, err := h.adminService.ListAccountsForSchedulerScoreFilter(c.Request.Context(), "", "", "", "", 0, "")
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	options := make([]ImageGenerationAccountOption, 0, len(accounts))
+	for index := range accounts {
+		account := &accounts[index]
+		eligible := false
+		for _, group := range account.Groups {
+			if group != nil && group.Status == service.StatusActive && group.AllowImageGeneration {
+				eligible = true
+				break
+			}
+		}
+		if !eligible {
+			continue
+		}
+		options = append(options, ImageGenerationAccountOption{ID: account.ID, Name: account.Name, Platform: account.Platform, Type: account.Type, Status: account.Status})
+	}
+	sort.Slice(options, func(i, j int) bool { return options[i].ID < options[j].ID })
+	response.Success(c, options)
+}
+
 // SetUpstreamBillingProbeService attaches the optional remote billing probe service.
 func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamBillingProbeService) {
 	h.upstreamBillingProbe = probe

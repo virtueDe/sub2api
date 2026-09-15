@@ -4739,6 +4739,56 @@
             </div>
           </div>
 
+          <!-- Image URL Proxy Settings -->
+          <div class="card">
+            <div
+              class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
+            >
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                图片 URL 代理
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                将 OpenAI 返回的图片 URL 代理到 Cloudflare R2，解决中国区访问超时问题
+              </p>
+            </div>
+            <div class="p-6">
+              <div class="flex items-center justify-between">
+                <div class="pr-4">
+                  <label
+                    class="block text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    启用图片 URL 代理到 CF R2
+                  </label>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    开启后，OpenAI 生成的图片 URL 将自动代理到 Cloudflare R2 存储，提升中国区访问速度
+                  </p>
+                </div>
+                <Toggle v-model="form.image_url_proxy_enabled" />
+              </div>
+              <ImageAccountSelector
+                v-if="form.image_url_proxy_enabled"
+                v-model="form.image_url_proxy_account_ids"
+                label="处理账号"
+                hint="留空表示对所有支持生图分组的账号生效；选择后仅对选中的账号生效。"
+              />
+              <div class="mt-6 border-t border-gray-100 pt-5 dark:border-dark-700">
+                <div class="flex items-center justify-between">
+                  <div class="pr-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">去除图生图 URL 参数</label>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">转发用户图片 URL 前移除查询参数和片段，避免上游无法抓取带签名参数的地址。</p>
+                  </div>
+                  <Toggle v-model="form.image_url_strip_query_enabled" />
+                </div>
+                <ImageAccountSelector
+                  v-if="form.image_url_strip_query_enabled"
+                  v-model="form.image_url_strip_query_account_ids"
+                  label="处理账号"
+                  hint="留空表示对所有支持生图分组的账号生效；选择后仅对选中的账号生效。"
+                />
+              </div>
+            </div>
+          </div>
+
           <!-- Upstream Billing Probe Settings -->
           <div class="card" data-testid="upstream-billing-probe-settings">
             <div
@@ -8952,6 +9002,7 @@ import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
+import ImageAccountSelector from "@/views/admin/settings/ImageAccountSelector.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import {
   useStepUp,
@@ -9938,6 +9989,11 @@ const form = reactive<SettingsForm>({
   codex_cli_only_whitelist: "",
   codex_cli_only_allow_app_server_clients: false,
   codex_cli_only_engine_fingerprint_signals: "",
+  // Image URL Proxy
+  image_url_proxy_enabled: false,
+  image_url_proxy_account_ids: [] as number[],
+  image_url_strip_query_enabled: false,
+  image_url_strip_query_account_ids: [] as number[],
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled: false,
   balance_low_notify_threshold: 0,
@@ -11620,6 +11676,11 @@ async function saveSettings() {
       codex_cli_only_whitelist: serializeCodexRowsToJSON(
         codexWhitelistRows.value,
       ),
+      // Image URL Proxy
+      image_url_proxy_enabled: form.image_url_proxy_enabled,
+      image_url_proxy_account_ids: [...form.image_url_proxy_account_ids],
+      image_url_strip_query_enabled: form.image_url_strip_query_enabled,
+      image_url_strip_query_account_ids: [...form.image_url_strip_query_account_ids],
       // Payment configuration
       payment_enabled: form.payment_enabled,
       risk_control_enabled: form.risk_control_enabled,

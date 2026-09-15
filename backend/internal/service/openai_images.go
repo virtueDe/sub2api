@@ -650,6 +650,24 @@ func (s *OpenAIGatewayService) ForwardImages(
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
+	proxyEnabledForAccount := s.settingService.IsImageURLProxyEnabledForAccount(ctx, account.ID)
+	stripQueryEnabledForAccount := s.settingService.IsImageURLStripQueryEnabledForAccount(ctx, account.ID)
+	if stripQueryEnabledForAccount && !proxyEnabledForAccount {
+		beforeURLs := redactImageURLsForLog(parsed.InputImageURLs)
+		beforeMaskURL := redactImageURLForLog(parsed.MaskImageURL)
+		parsed.InputImageURLs = stripImageURLQueries(parsed.InputImageURLs)
+		if parsed.MaskImageURL != "" {
+			parsed.MaskImageURL = stripImageURLQuery(parsed.MaskImageURL)
+		}
+		logger.L().Info("image_url_strip_query.rewrite",
+			zap.Int64("account_id", account.ID),
+			zap.String("stage", "before_account_branch"),
+			zap.Strings("before_urls", beforeURLs),
+			zap.Strings("after_urls", redactImageURLsForLog(parsed.InputImageURLs)),
+			zap.String("before_mask_url", beforeMaskURL),
+			zap.String("after_mask_url", redactImageURLForLog(parsed.MaskImageURL)),
+		)
+	}
 	switch account.Type {
 	case AccountTypeAPIKey:
 		return s.forwardOpenAIImagesAPIKey(ctx, c, account, body, parsed, channelMappedModel)
@@ -691,35 +709,69 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	)
 
 	// 【新增】代理图片 URL
-	if s.imageURLProxy != nil && s.settingService.IsImageURLProxyEnabled(ctx) {
+	proxyEnabled := s.imageURLProxy != nil && s.settingService.IsImageURLProxyEnabledForAccount(ctx, account.ID)
+	stripQueryEnabled := s.settingService.IsImageURLStripQueryEnabledForAccount(ctx, account.ID)
+	if (proxyEnabled || stripQueryEnabled) && shouldProxyOpenAIImageURLs(parsed) {
 		if len(parsed.InputImageURLs) > 0 {
-			proxiedURLs, proxyErr := s.imageURLProxy.ProxyURLs(ctx, parsed.InputImageURLs)
-			if proxyErr != nil {
-				logger.L().Warn("image_url_proxy.input_urls_failed",
-					zap.Error(proxyErr),
-					zap.Int("url_count", len(parsed.InputImageURLs)),
-				)
-			} else {
-				parsed.InputImageURLs = proxiedURLs
+			if proxyEnabled {
+				beforeURLs := redactImageURLsForLog(parsed.InputImageURLs)
+				proxiedURLs, proxyErr := s.imageURLProxy.ProxyURLs(ctx, parsed.InputImageURLs)
+				if proxyErr != nil {
+					logger.L().Warn("image_url_proxy.input_urls_failed", zap.Error(proxyErr), zap.Int("url_count", len(parsed.InputImageURLs)))
+				} else {
+					parsed.InputImageURLs = proxiedURLs
+					logger.L().Info("image_url_proxy.rewrite",
+						zap.Int64("account_id", account.ID),
+						zap.String("stage", "before_upstream"),
+						zap.Strings("before_urls", beforeURLs),
+						zap.Strings("after_urls", redactImageURLsForLog(parsed.InputImageURLs)),
+					)
+				}
 			}
 		}
 		if parsed.MaskImageURL != "" {
-			proxiedURL, proxyErr := s.imageURLProxy.ProxyURL(ctx, parsed.MaskImageURL)
-			if proxyErr != nil {
-				logger.L().Warn("image_url_proxy.mask_url_failed",
-					zap.Error(proxyErr),
-					zap.String("url", parsed.MaskImageURL),
-				)
-			} else {
-				parsed.MaskImageURL = proxiedURL
+			if proxyEnabled {
+				beforeMaskURL := redactImageURLForLog(parsed.MaskImageURL)
+				proxiedURL, proxyErr := s.imageURLProxy.ProxyURL(ctx, parsed.MaskImageURL)
+				if proxyErr != nil {
+					logger.L().Warn("image_url_proxy.mask_url_failed", zap.Error(proxyErr), zap.String("url", redactImageURLForLog(parsed.MaskImageURL)))
+				} else {
+					parsed.MaskImageURL = proxiedURL
+					logger.L().Info("image_url_proxy.rewrite",
+						zap.Int64("account_id", account.ID),
+						zap.String("stage", "before_upstream"),
+						zap.String("before_url", beforeMaskURL),
+						zap.String("after_url", redactImageURLForLog(parsed.MaskImageURL)),
+					)
+				}
 			}
 		}
 		// 重建请求体（使用代理后的 URL）
 		var rebuildErr error
-		body, rebuildErr = rebuildOpenAIImagesRequestBody(parsed)
+		var rebuiltContentType string
+		body, rebuiltContentType, rebuildErr = rebuildOpenAIImagesRequestBody(parsed, body)
 		if rebuildErr != nil {
 			return nil, fmt.Errorf("rebuild openai images request body: %w", rebuildErr)
 		}
+		if strings.TrimSpace(rebuiltContentType) != "" {
+			parsed.ContentType = rebuiltContentType
+		}
+	}
+	if stripQueryEnabled {
+		beforeURLs := redactImageURLsForLog(parsed.InputImageURLs)
+		beforeMaskURL := redactImageURLForLog(parsed.MaskImageURL)
+		parsed.InputImageURLs = stripImageURLQueries(parsed.InputImageURLs)
+		if parsed.MaskImageURL != "" {
+			parsed.MaskImageURL = stripImageURLQuery(parsed.MaskImageURL)
+		}
+		logger.L().Info("image_url_strip_query.rewrite",
+			zap.Int64("account_id", account.ID),
+			zap.String("stage", "after_proxy"),
+			zap.Strings("before_urls", beforeURLs),
+			zap.Strings("after_urls", redactImageURLsForLog(parsed.InputImageURLs)),
+			zap.String("before_mask_url", beforeMaskURL),
+			zap.String("after_mask_url", redactImageURLForLog(parsed.MaskImageURL)),
+		)
 	}
 
 	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel)

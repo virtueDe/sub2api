@@ -100,6 +100,63 @@ func TestOpenAIGatewayServiceParseOpenAIImagesRequest_MultipartEdit(t *testing.T
 	require.Equal(t, OpenAIImagesCapabilityNative, parsed.RequiredCapability)
 }
 
+func TestShouldProxyOpenAIImageURLsSkipsMultipartFileUploads(t *testing.T) {
+	parsed := &OpenAIImagesRequest{
+		Multipart:      true,
+		InputImageURLs: []string{"https://example.com/source.png"},
+		Uploads:        []OpenAIImagesUpload{{FieldName: "image", FileName: "source.png"}},
+	}
+
+	require.False(t, shouldProxyOpenAIImageURLs(parsed))
+}
+
+func TestRebuildOpenAIImagesRequestBodyMultipartReturnsMatchingContentType(t *testing.T) {
+	parsed := &OpenAIImagesRequest{
+		Multipart:      true,
+		Endpoint:       openAIImagesGenerationsEndpoint,
+		Model:          "gpt-image-2",
+		Prompt:         "replace background",
+		InputImageURLs: []string{"https://example.com/source.png"},
+	}
+
+	body, contentType, err := rebuildOpenAIImagesRequestBody(parsed)
+	require.NoError(t, err)
+	require.NotEmpty(t, body)
+	require.NotEmpty(t, contentType)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = request
+
+	parsedAgain, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(context, body)
+	require.NoError(t, err)
+	require.Equal(t, "gpt-image-2", parsedAgain.Model)
+	require.Equal(t, "replace background", parsedAgain.Prompt)
+}
+
+func TestRebuildOpenAIImagesRequestBodyJSONPreservesImagesArray(t *testing.T) {
+	original := []byte(`{"model":"gpt-image-2","prompt":"replace background","size":"1536x1024","images":[{"image_url":"https://source.example/image.png","detail":"high"}],"metadata":{"request":"keep"}}`)
+	parsed := &OpenAIImagesRequest{
+		Body:           original,
+		Model:          "gpt-image-2",
+		Prompt:         "replace background",
+		Size:           "1536x1024",
+		InputImageURLs: []string{"https://proxy.example/image.png"},
+		MaskImageURL:   "https://proxy.example/mask.png",
+	}
+
+	body, contentType, err := rebuildOpenAIImagesRequestBody(parsed, original)
+	require.NoError(t, err)
+	require.Equal(t, "application/json", contentType)
+	require.Equal(t, "https://proxy.example/image.png", gjson.GetBytes(body, "images.0.image_url").String())
+	require.Equal(t, "high", gjson.GetBytes(body, "images.0.detail").String())
+	require.Equal(t, "https://proxy.example/mask.png", gjson.GetBytes(body, "mask.image_url").String())
+	require.Equal(t, "keep", gjson.GetBytes(body, "metadata.request").String())
+	require.False(t, gjson.GetBytes(body, "image").Exists())
+}
+
 func TestOpenAIImagesRequestModerationBody_JSONEditIncludesInputImageURLs(t *testing.T) {
 	parsed := &OpenAIImagesRequest{
 		Endpoint:       openAIImagesEditsEndpoint,

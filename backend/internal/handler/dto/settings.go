@@ -352,7 +352,10 @@ type SystemSettings struct {
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
 
 	// 图片 URL 代理到 CF R2
-	ImageURLProxyEnabled bool `json:"image_url_proxy_enabled"`
+	ImageURLProxyEnabled         bool    `json:"image_url_proxy_enabled"`
+	ImageURLProxyAccountIDs      []int64 `json:"image_url_proxy_account_ids"`
+	ImageURLStripQueryEnabled    bool    `json:"image_url_strip_query_enabled"`
+	ImageURLStripQueryAccountIDs []int64 `json:"image_url_strip_query_account_ids"`
 }
 
 type DefaultSubscriptionSetting struct {

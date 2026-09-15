@@ -18,6 +18,31 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
+func parseSettingInt64List(raw string) []int64 {
+	var values []int64
+	if err := json.Unmarshal([]byte(raw), &values); err != nil {
+		return []int64{}
+	}
+	return normalizeSettingInt64List(values)
+}
+
+func normalizeSettingInt64List(values []int64) []int64 {
+	seen := make(map[int64]struct{}, len(values))
+	result := make([]int64, 0, len(values))
+	for _, value := range values {
+		if value <= 0 {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i] < result[j] })
+	return result
+}
+
 // InitializeDefaultSettings 初始化默认设置
 func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	// 检查是否已有设置
@@ -214,6 +239,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIImagesAspectRatioPromptEnabled:  "false",
 		SettingKeyOpenAIImagesAspectRatioPromptGroupIDs: "[]",
 		SettingKeyImageURLProxyEnabled:                  "false",
+		SettingKeyImageURLProxyAccountIDs:               "[]",
+		SettingKeyImageURLStripQueryEnabled:             "false",
+		SettingKeyImageURLStripQueryAccountIDs:          "[]",
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled:              "false",
@@ -839,6 +867,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIImagesAspectRatioPromptEnabled = settings[SettingKeyOpenAIImagesAspectRatioPromptEnabled] == "true"
 	result.OpenAIImagesAspectRatioPromptGroupIDs = parseOpenAIImagesAspectRatioPromptGroupIDs(settings[SettingKeyOpenAIImagesAspectRatioPromptGroupIDs])
 	result.ImageURLProxyEnabled = settings[SettingKeyImageURLProxyEnabled] == "true"
+	result.ImageURLProxyAccountIDs = parseSettingInt64List(settings[SettingKeyImageURLProxyAccountIDs])
+	result.ImageURLStripQueryEnabled = settings[SettingKeyImageURLStripQueryEnabled] == "true"
+	result.ImageURLStripQueryAccountIDs = parseSettingInt64List(settings[SettingKeyImageURLStripQueryAccountIDs])
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

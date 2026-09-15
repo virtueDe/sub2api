@@ -67,14 +67,14 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 	needsProxy, reason := p.shouldProxy(imageURL)
 	if !needsProxy {
 		logger.L().Debug("image_url_proxy.skip",
-			zap.String("url", imageURL),
+			zap.String("url", redactImageURLForLog(imageURL)),
 			zap.String("reason", reason),
 		)
 		return imageURL, nil
 	}
 
 	logger.L().Debug("image_url_proxy.start",
-		zap.String("url", imageURL),
+		zap.String("url", redactImageURLForLog(imageURL)),
 		zap.String("reason", reason),
 	)
 
@@ -85,7 +85,7 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 		if err == nil && cachedURL != "" {
 			logger.L().Debug("image_url_proxy.cache_hit",
 				zap.String("cache_key", cacheKey),
-				zap.String("cached_url", cachedURL),
+				zap.String("cached_url", redactImageURLForLog(cachedURL)),
 			)
 			return cachedURL, nil
 		}
@@ -100,7 +100,7 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 	downloadDuration := time.Since(downloadStart)
 	if err != nil {
 		logger.L().Warn("image_url_proxy.download_failed",
-			zap.String("url", imageURL),
+			zap.String("url", redactImageURLForLog(imageURL)),
 			zap.Error(err),
 			zap.Duration("duration", downloadDuration),
 		)
@@ -109,7 +109,7 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 	}
 
 	logger.L().Debug("image_url_proxy.download_success",
-		zap.String("url", imageURL),
+		zap.String("url", redactImageURLForLog(imageURL)),
 		zap.Int("bytes", len(imageData)),
 		zap.String("content_type", contentType),
 		zap.Duration("duration", downloadDuration),
@@ -121,7 +121,7 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 	uploadDuration := time.Since(uploadStart)
 	if err != nil {
 		logger.L().Warn("image_url_proxy.upload_failed",
-			zap.String("url", imageURL),
+			zap.String("url", redactImageURLForLog(imageURL)),
 			zap.Error(err),
 			zap.Duration("duration", uploadDuration),
 		)
@@ -130,8 +130,8 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 	}
 
 	logger.L().Info("image_url_proxy.success",
-		zap.String("original_url", imageURL),
-		zap.String("cf_url", cfURL),
+		zap.String("original_url", redactImageURLForLog(imageURL)),
+		zap.String("cf_url", redactImageURLForLog(cfURL)),
 		zap.Int("bytes", len(imageData)),
 		zap.Duration("download_duration", downloadDuration),
 		zap.Duration("upload_duration", uploadDuration),
@@ -193,9 +193,9 @@ func (p *ImageURLProxy) shouldProxy(imageURL string) (bool, string) {
 
 	// 检查是否是中国区域对象存储域名
 	chinaRegionDomains := []string{
-		".volces.com",      // 火山引擎 TOS
-		".aliyuncs.com",    // 阿里云 OSS
-		".myqcloud.com",    // 腾讯云 COS
+		".volces.com",        // 火山引擎 TOS
+		".aliyuncs.com",      // 阿里云 OSS
+		".myqcloud.com",      // 腾讯云 COS
 		".myhuaweicloud.com", // 华为云 OBS
 	}
 
@@ -208,10 +208,10 @@ func (p *ImageURLProxy) shouldProxy(imageURL string) (bool, string) {
 	// 检查是否带签名参数
 	query := parsedURL.Query()
 	signatureParams := []string{
-		"X-Tos-Signature",   // TOS
-		"X-Amz-Signature",   // AWS S3
-		"OSSAccessKeyId",    // 阿里云 OSS
-		"q-signature",       // 腾讯云 COS
+		"X-Tos-Signature", // TOS
+		"X-Amz-Signature", // AWS S3
+		"OSSAccessKeyId",  // 阿里云 OSS
+		"q-signature",     // 腾讯云 COS
 	}
 
 	for _, param := range signatureParams {
@@ -317,8 +317,8 @@ func (p *ImageURLProxy) fallbackToCleanURL(imageURL string, reason string) strin
 	}
 
 	logger.L().Warn("image_url_proxy.fallback_to_clean_url",
-		zap.String("original_url", imageURL),
-		zap.String("clean_url", cleanURL),
+		zap.String("original_url", redactImageURLForLog(imageURL)),
+		zap.String("clean_url", redactImageURLForLog(cleanURL)),
 		zap.String("reason", reason),
 	)
 

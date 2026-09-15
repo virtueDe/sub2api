@@ -393,6 +393,18 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !reflect.DeepEqual(before.OpenAIImagesAspectRatioPromptGroupIDs, after.OpenAIImagesAspectRatioPromptGroupIDs) {
 		changed = append(changed, "openai_images_aspect_ratio_prompt_group_ids")
 	}
+	if before.ImageURLProxyEnabled != after.ImageURLProxyEnabled {
+		changed = append(changed, "image_url_proxy_enabled")
+	}
+	if !reflect.DeepEqual(before.ImageURLProxyAccountIDs, after.ImageURLProxyAccountIDs) {
+		changed = append(changed, "image_url_proxy_account_ids")
+	}
+	if before.ImageURLStripQueryEnabled != after.ImageURLStripQueryEnabled {
+		changed = append(changed, "image_url_strip_query_enabled")
+	}
+	if !reflect.DeepEqual(before.ImageURLStripQueryAccountIDs, after.ImageURLStripQueryAccountIDs) {
+		changed = append(changed, "image_url_strip_query_account_ids")
+	}
 	if before.IdentityPatchPrompt != after.IdentityPatchPrompt {
 		changed = append(changed, "identity_patch_prompt")
 	}

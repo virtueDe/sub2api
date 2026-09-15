@@ -448,6 +448,17 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyOpenAIImagesAspectRatioPromptGroupIDs] = string(groupIDsJSON)
 	updates[SettingKeyImageURLProxyEnabled] = strconv.FormatBool(settings.ImageURLProxyEnabled)
+	imageProxyAccountIDsJSON, err := json.Marshal(normalizeSettingInt64List(settings.ImageURLProxyAccountIDs))
+	if err != nil {
+		return nil, fmt.Errorf("marshal image url proxy account ids: %w", err)
+	}
+	updates[SettingKeyImageURLProxyAccountIDs] = string(imageProxyAccountIDsJSON)
+	updates[SettingKeyImageURLStripQueryEnabled] = strconv.FormatBool(settings.ImageURLStripQueryEnabled)
+	stripQueryAccountIDsJSON, err := json.Marshal(normalizeSettingInt64List(settings.ImageURLStripQueryAccountIDs))
+	if err != nil {
+		return nil, fmt.Errorf("marshal image url strip query account ids: %w", err)
+	}
+	updates[SettingKeyImageURLStripQueryAccountIDs] = string(stripQueryAccountIDsJSON)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
@@ -727,6 +738,9 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		openAIImagesAspectRatioPromptEnabled:  settings.OpenAIImagesAspectRatioPromptEnabled,
 		openAIImagesAspectRatioPromptGroupIDs: append([]int64(nil), settings.OpenAIImagesAspectRatioPromptGroupIDs...),
 		imageURLProxyEnabled:                  settings.ImageURLProxyEnabled,
+		imageURLProxyAccountIDs:               normalizeSettingInt64List(settings.ImageURLProxyAccountIDs),
+		imageURLStripQueryEnabled:             settings.ImageURLStripQueryEnabled,
+		imageURLStripQueryAccountIDs:          normalizeSettingInt64List(settings.ImageURLStripQueryAccountIDs),
 		expiresAt:                             time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")

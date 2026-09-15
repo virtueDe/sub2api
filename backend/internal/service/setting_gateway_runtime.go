@@ -66,6 +66,9 @@ type cachedGatewayForwardingSettings struct {
 	openAIImagesAspectRatioPromptEnabled  bool
 	openAIImagesAspectRatioPromptGroupIDs []int64
 	imageURLProxyEnabled                  bool
+	imageURLProxyAccountIDs               []int64
+	imageURLStripQueryEnabled             bool
+	imageURLStripQueryAccountIDs          []int64
 	expiresAt                             int64 // unix nano
 }
 
@@ -747,6 +750,9 @@ type gatewayForwardingSettingsResult struct {
 	openAIImagesAspectRatioPromptEnabled                                                  bool
 	openAIImagesAspectRatioPromptGroupIDs                                                 []int64
 	imageURLProxyEnabled                                                                  bool
+	imageURLProxyAccountIDs                                                               []int64
+	imageURLStripQueryEnabled                                                             bool
+	imageURLStripQueryAccountIDs                                                          []int64
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
@@ -765,6 +771,10 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				clientDatelineNormalization:           cached.clientDatelineNormalization,
 				openAIImagesAspectRatioPromptEnabled:  cached.openAIImagesAspectRatioPromptEnabled,
 				openAIImagesAspectRatioPromptGroupIDs: append([]int64(nil), cached.openAIImagesAspectRatioPromptGroupIDs...),
+				imageURLProxyEnabled:                  cached.imageURLProxyEnabled,
+				imageURLProxyAccountIDs:               append([]int64(nil), cached.imageURLProxyAccountIDs...),
+				imageURLStripQueryEnabled:             cached.imageURLStripQueryEnabled,
+				imageURLStripQueryAccountIDs:          append([]int64(nil), cached.imageURLStripQueryAccountIDs...),
 			}
 		}
 	}
@@ -784,6 +794,10 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 					clientDatelineNormalization:           cached.clientDatelineNormalization,
 					openAIImagesAspectRatioPromptEnabled:  cached.openAIImagesAspectRatioPromptEnabled,
 					openAIImagesAspectRatioPromptGroupIDs: append([]int64(nil), cached.openAIImagesAspectRatioPromptGroupIDs...),
+					imageURLProxyEnabled:                  cached.imageURLProxyEnabled,
+					imageURLProxyAccountIDs:               append([]int64(nil), cached.imageURLProxyAccountIDs...),
+					imageURLStripQueryEnabled:             cached.imageURLStripQueryEnabled,
+					imageURLStripQueryAccountIDs:          append([]int64(nil), cached.imageURLStripQueryAccountIDs...),
 				}, nil
 			}
 		}
@@ -802,6 +816,10 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyEnableClientDatelineNormalization,
 			SettingKeyOpenAIImagesAspectRatioPromptEnabled,
 			SettingKeyOpenAIImagesAspectRatioPromptGroupIDs,
+			SettingKeyImageURLProxyEnabled,
+			SettingKeyImageURLProxyAccountIDs,
+			SettingKeyImageURLStripQueryEnabled,
+			SettingKeyImageURLStripQueryAccountIDs,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
@@ -816,9 +834,12 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				clientDatelineNormalization:           true,
 				openAIImagesAspectRatioPromptEnabled:  false,
 				openAIImagesAspectRatioPromptGroupIDs: []int64{},
+				imageURLProxyEnabled:                  false,
+				imageURLProxyAccountIDs:               []int64{},
+				imageURLStripQueryAccountIDs:          []int64{},
 				expiresAt:                             time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
-			return gatewayForwardingSettingsResult{openAITTFTMode: OpenAITTFTModeSemantic, fp: true, claudeOAuthSystemPromptInjection: true, rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl(), clientDatelineNormalization: true}, nil
+			return gatewayForwardingSettingsResult{openAITTFTMode: OpenAITTFTModeSemantic, fp: true, claudeOAuthSystemPromptInjection: true, rewriteMessageCacheControl: s.defaultRewriteMessageCacheControl(), clientDatelineNormalization: true, imageURLProxyEnabled: false, imageURLProxyAccountIDs: []int64{}, imageURLStripQueryAccountIDs: []int64{}}, nil
 		}
 		ttftMode := normalizeOpenAITTFTMode(values[SettingKeyOpenAITTFTMode])
 		fp := true
@@ -845,6 +866,9 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		aspectRatioPromptEnabled := values[SettingKeyOpenAIImagesAspectRatioPromptEnabled] == "true"
 		aspectRatioPromptGroupIDs := parseOpenAIImagesAspectRatioPromptGroupIDs(values[SettingKeyOpenAIImagesAspectRatioPromptGroupIDs])
 		imageURLProxyEnabled := values[SettingKeyImageURLProxyEnabled] == "true"
+		imageURLProxyAccountIDs := parseSettingInt64List(values[SettingKeyImageURLProxyAccountIDs])
+		imageURLStripQueryEnabled := values[SettingKeyImageURLStripQueryEnabled] == "true"
+		imageURLStripQueryAccountIDs := parseSettingInt64List(values[SettingKeyImageURLStripQueryAccountIDs])
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			openAITTFTMode:                        ttftMode,
 			fingerprintUnification:                fp,
@@ -859,6 +883,9 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			openAIImagesAspectRatioPromptEnabled:  aspectRatioPromptEnabled,
 			openAIImagesAspectRatioPromptGroupIDs: aspectRatioPromptGroupIDs,
 			imageURLProxyEnabled:                  imageURLProxyEnabled,
+			imageURLProxyAccountIDs:               imageURLProxyAccountIDs,
+			imageURLStripQueryEnabled:             imageURLStripQueryEnabled,
+			imageURLStripQueryAccountIDs:          imageURLStripQueryAccountIDs,
 			expiresAt:                             time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gatewayForwardingSettingsResult{
@@ -875,12 +902,15 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			openAIImagesAspectRatioPromptEnabled:  aspectRatioPromptEnabled,
 			openAIImagesAspectRatioPromptGroupIDs: aspectRatioPromptGroupIDs,
 			imageURLProxyEnabled:                  imageURLProxyEnabled,
+			imageURLProxyAccountIDs:               imageURLProxyAccountIDs,
+			imageURLStripQueryEnabled:             imageURLStripQueryEnabled,
+			imageURLStripQueryAccountIDs:          imageURLStripQueryAccountIDs,
 		}, nil
 	})
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {
 		return r
 	}
-	return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, clientDatelineNormalization: true}
+	return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, clientDatelineNormalization: true, imageURLProxyEnabled: false, imageURLProxyAccountIDs: []int64{}, imageURLStripQueryAccountIDs: []int64{}}
 }
 
 // IsOpenAIImagesAspectRatioPromptEnabled reports whether the ratio hint is
@@ -905,6 +935,28 @@ func (s *SettingService) IsOpenAIImagesAspectRatioPromptEnabled(ctx context.Cont
 // IsImageURLProxyEnabled 返回图片 URL 代理功能是否启用
 func (s *SettingService) IsImageURLProxyEnabled(ctx context.Context) bool {
 	return s.getGatewayForwardingSettingsCached(ctx).imageURLProxyEnabled
+}
+
+func settingAccountSelected(accountID int64, selected []int64) bool {
+	if len(selected) == 0 {
+		return true
+	}
+	for _, id := range selected {
+		if id == accountID {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *SettingService) IsImageURLProxyEnabledForAccount(ctx context.Context, accountID int64) bool {
+	v := s.getGatewayForwardingSettingsCached(ctx)
+	return v.imageURLProxyEnabled && settingAccountSelected(accountID, v.imageURLProxyAccountIDs)
+}
+
+func (s *SettingService) IsImageURLStripQueryEnabledForAccount(ctx context.Context, accountID int64) bool {
+	v := s.getGatewayForwardingSettingsCached(ctx)
+	return v.imageURLStripQueryEnabled && settingAccountSelected(accountID, v.imageURLStripQueryAccountIDs)
 }
 
 // GetOpenAITTFTMode 返回 Responses first_token_ms 的统计口径。

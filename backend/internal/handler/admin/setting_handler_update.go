@@ -368,6 +368,12 @@ type UpdateSettingsRequest struct {
 	CyberSessionBlockEnabled    *bool `json:"cyber_session_block_enabled"`
 	CyberSessionBlockTTLSeconds *int  `json:"cyber_session_block_ttl_seconds"`
 
+	// Image URL Proxy (图片 URL 代理到 CF R2)
+	ImageURLProxyEnabled         *bool    `json:"image_url_proxy_enabled"`
+	ImageURLProxyAccountIDs      *[]int64 `json:"image_url_proxy_account_ids"`
+	ImageURLStripQueryEnabled    *bool    `json:"image_url_strip_query_enabled"`
+	ImageURLStripQueryAccountIDs *[]int64 `json:"image_url_strip_query_account_ids"`
+
 	// OpenAI fast/flex policy (optional, only updated when provided)
 	OpenAIFastPolicySettings *dto.OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
 
@@ -2015,6 +2021,30 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.CyberSessionBlockTTLSeconds
 		}(),
+		ImageURLProxyEnabled: func() bool {
+			if req.ImageURLProxyEnabled != nil {
+				return *req.ImageURLProxyEnabled
+			}
+			return previousSettings.ImageURLProxyEnabled
+		}(),
+		ImageURLProxyAccountIDs: func() []int64 {
+			if req.ImageURLProxyAccountIDs != nil {
+				return normalizeInt64IDList(*req.ImageURLProxyAccountIDs)
+			}
+			return previousSettings.ImageURLProxyAccountIDs
+		}(),
+		ImageURLStripQueryEnabled: func() bool {
+			if req.ImageURLStripQueryEnabled != nil {
+				return *req.ImageURLStripQueryEnabled
+			}
+			return previousSettings.ImageURLStripQueryEnabled
+		}(),
+		ImageURLStripQueryAccountIDs: func() []int64 {
+			if req.ImageURLStripQueryAccountIDs != nil {
+				return normalizeInt64IDList(*req.ImageURLStripQueryAccountIDs)
+			}
+			return previousSettings.ImageURLStripQueryAccountIDs
+		}(),
 	}
 
 	// req.AuthSourceXxxPlatformQuotas 为 nil 表示本次请求未包含该 source 的 quota 配置（保留 previousAuthSourceDefaults 中的值）；
@@ -2320,6 +2350,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		OpenAIImagesAspectRatioPromptEnabled:                   updatedSettings.OpenAIImagesAspectRatioPromptEnabled,
 		OpenAIImagesAspectRatioPromptGroupIDs:                  updatedSettings.OpenAIImagesAspectRatioPromptGroupIDs,
+		ImageURLProxyEnabled:                                   updatedSettings.ImageURLProxyEnabled,
+		ImageURLProxyAccountIDs:                                updatedSettings.ImageURLProxyAccountIDs,
+		ImageURLStripQueryEnabled:                              updatedSettings.ImageURLStripQueryEnabled,
+		ImageURLStripQueryAccountIDs:                           updatedSettings.ImageURLStripQueryAccountIDs,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 updatedSettings.EnableClaudeOAuthSystemPromptInjection,
