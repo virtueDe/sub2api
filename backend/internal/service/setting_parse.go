@@ -231,6 +231,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyDailyTokenRankingEnabled: "false",
 		SettingKeyDailyTokenRankingLimit:   "10",
 
+		// Subscription feature (default enabled; opt-out)
+		SettingKeySubscriptionEnabled: "true",
+
 		// Model plaza feature (default disabled; opt-in, public unless require_auth)
 		SettingKeyModelPlazaEnabled:                     "false",
 		SettingKeyModelPlazaRequireAuth:                 "false",
@@ -858,6 +861,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	// Daily token ranking feature (default: disabled, top 10)
 	result.DailyTokenRankingEnabled = settings[SettingKeyDailyTokenRankingEnabled] == "true"
 	result.DailyTokenRankingLimit = parseDailyTokenRankingLimit(settings[SettingKeyDailyTokenRankingLimit])
+
+	// Subscription feature (default: enabled; only an explicit false disables)
+	result.SubscriptionEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionEnabled])
 
 	// Model plaza feature (default: disabled; strict true)
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/v9" //nolint:depguard // Redis is isolated behind ImageURLProxyCache in this adapter.
 )
 
 // RedisImageURLProxyCache Redis 实现的图片 URL 代理缓存

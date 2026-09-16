@@ -235,6 +235,7 @@ func geminiImageItems(body []byte) ([]map[string]string, error) {
 		return true
 	})
 	if len(data) == 0 {
+		//nolint:staticcheck // Preserve the public Gemini product name in the API error.
 		return nil, fmt.Errorf("Gemini returned no image data")
 	}
 	return data, nil

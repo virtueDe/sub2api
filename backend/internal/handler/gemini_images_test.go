@@ -32,10 +32,38 @@ func TestBuildGeminiImageRequestIgnoresUnsupportedOptions(t *testing.T) {
 	if got["quality"] != nil || got["background"] != nil || got["response_format"] != nil {
 		t.Fatalf("unsupported options leaked into Gemini request: %s", body)
 	}
-	if got := got["generationConfig"].(map[string]any)["imageConfig"].(map[string]any)["aspectRatio"]; got != "3:2" {
-		t.Fatalf("aspect ratio = %v, want 3:2", got)
+	generationConfig, ok := got["generationConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf("generationConfig has unexpected type: %T", got["generationConfig"])
 	}
-	data := got["contents"].([]any)[0].(map[string]any)["parts"].([]any)[1].(map[string]any)["inlineData"].(map[string]any)["data"]
+	imageConfig, ok := generationConfig["imageConfig"].(map[string]any)
+	if !ok {
+		t.Fatalf("imageConfig has unexpected type: %T", generationConfig["imageConfig"])
+	}
+	if aspectRatio := imageConfig["aspectRatio"]; aspectRatio != "3:2" {
+		t.Fatalf("aspect ratio = %v, want 3:2", aspectRatio)
+	}
+	contents, ok := got["contents"].([]any)
+	if !ok || len(contents) == 0 {
+		t.Fatalf("contents has unexpected value: %#v", got["contents"])
+	}
+	content, ok := contents[0].(map[string]any)
+	if !ok {
+		t.Fatalf("first content has unexpected type: %T", contents[0])
+	}
+	parts, ok := content["parts"].([]any)
+	if !ok || len(parts) < 2 {
+		t.Fatalf("parts has unexpected value: %#v", content["parts"])
+	}
+	part, ok := parts[1].(map[string]any)
+	if !ok {
+		t.Fatalf("second part has unexpected type: %T", parts[1])
+	}
+	inlineData, ok := part["inlineData"].(map[string]any)
+	if !ok {
+		t.Fatalf("inlineData has unexpected type: %T", part["inlineData"])
+	}
+	data := inlineData["data"]
 	if data != base64.StdEncoding.EncodeToString([]byte("png")) {
 		t.Fatalf("inline data was not encoded: %v", data)
 	}

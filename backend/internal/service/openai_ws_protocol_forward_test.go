@@ -598,7 +598,7 @@ func TestOpenAIGatewayService_Forward_ReturnErrorWhenOnlyWSv1Enabled(t *testing.
 
 func TestNewOpenAIGatewayService_InitializesOpenAIWSResolver(t *testing.T) {
 	cfg := &config.Config{}
-	svc := NewOpenAIGatewayService(
+	svc := NewOpenAIGatewayServiceWithImageURLProxy(
 		nil,
 		nil,
 		nil,
