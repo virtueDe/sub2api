@@ -934,6 +934,9 @@ func (s *SettingService) IsOpenAIImagesAspectRatioPromptEnabled(ctx context.Cont
 
 // IsImageURLProxyEnabled 返回图片 URL 代理功能是否启用
 func (s *SettingService) IsImageURLProxyEnabled(ctx context.Context) bool {
+	if s == nil {
+		return false
+	}
 	return s.getGatewayForwardingSettingsCached(ctx).imageURLProxyEnabled
 }
 
@@ -950,11 +953,17 @@ func settingAccountSelected(accountID int64, selected []int64) bool {
 }
 
 func (s *SettingService) IsImageURLProxyEnabledForAccount(ctx context.Context, accountID int64) bool {
+	if s == nil {
+		return false
+	}
 	v := s.getGatewayForwardingSettingsCached(ctx)
 	return v.imageURLProxyEnabled && settingAccountSelected(accountID, v.imageURLProxyAccountIDs)
 }
 
 func (s *SettingService) IsImageURLStripQueryEnabledForAccount(ctx context.Context, accountID int64) bool {
+	if s == nil {
+		return false
+	}
 	v := s.getGatewayForwardingSettingsCached(ctx)
 	return v.imageURLStripQueryEnabled && settingAccountSelected(accountID, v.imageURLStripQueryAccountIDs)
 }

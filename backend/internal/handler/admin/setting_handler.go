@@ -445,6 +445,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		AvailableChannelsEnabled: settings.AvailableChannelsEnabled,
 		DailyTokenRankingEnabled: settings.DailyTokenRankingEnabled,
 		DailyTokenRankingLimit:   settings.DailyTokenRankingLimit,
+		SubscriptionEnabled:      settings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,
