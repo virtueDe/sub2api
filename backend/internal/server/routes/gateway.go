@@ -565,7 +565,7 @@ func imageAPIRouteRewrite() gin.HandlerFunc {
 		case strings.HasPrefix(path, "/image-api/v1/jobs/"):
 			c.Request.URL.Path = "/v1/images/tasks/" + strings.TrimPrefix(path, "/image-api/v1/jobs/")
 		case strings.HasPrefix(path, "/image-api/v1/images/"):
-			c.Request.URL.Path = "/v1/" + strings.TrimPrefix(path, "/image-api/v1/images/")
+			c.Request.URL.Path = "/v1/images/" + strings.TrimPrefix(path, "/image-api/v1/images/")
 		}
 		c.Next()
 	}

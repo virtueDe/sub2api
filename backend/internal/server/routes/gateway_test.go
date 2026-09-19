@@ -143,6 +143,32 @@ func TestGatewayRoutesAsyncImagesPathsAreRegistered(t *testing.T) {
 	}
 }
 
+func TestImageAPIRouteRewritePreservesOpenAIImagePaths(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name string
+		path string
+		want string
+	}{
+		{name: "generations", path: "/image-api/v1/images/generations", want: "/v1/images/generations"},
+		{name: "edits", path: "/image-api/v1/images/edits", want: "/v1/images/edits"},
+		{name: "generations async", path: "/image-api/v1/images/generations/async", want: "/v1/images/generations/async"},
+		{name: "edits async", path: "/image-api/v1/images/edits/async", want: "/v1/images/edits/async"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, tt.path, nil)
+
+			imageAPIRouteRewrite()(c)
+
+			require.Equal(t, tt.want, c.Request.URL.Path)
+		})
+	}
+}
+
 func TestGatewayRoutesGrokImagesAndVideosPathsAreRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformGrok)
 
