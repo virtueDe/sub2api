@@ -11769,6 +11769,8 @@ async function saveSettings() {
       image_url_proxy_account_ids: [...form.image_url_proxy_account_ids],
       image_url_strip_query_enabled: form.image_url_strip_query_enabled,
       image_url_strip_query_account_ids: [...form.image_url_strip_query_account_ids],
+      image_edit_format_normalize_enabled: form.image_edit_format_normalize_enabled,
+      image_edit_format_normalize_account_ids: [...form.image_edit_format_normalize_account_ids],
       // Payment configuration
       payment_enabled: form.payment_enabled,
       risk_control_enabled: form.risk_control_enabled,
