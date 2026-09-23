@@ -69,7 +69,21 @@ func (u *ImageResultUploader) GetStorage() ImageStorage {
 // 返回改写后的紧凑结果（data[i].url 指向对象存储，b64_json 被移除）。
 // 任一图片转存失败即返回 error（调用方据此将任务标记为失败，绝不把大 blob 落 Redis）。
 func (u *ImageResultUploader) Rewrite(ctx context.Context, taskID string, result json.RawMessage) (json.RawMessage, error) {
+	return u.rewrite(ctx, taskID, result, false)
+}
+
+// RewriteB64 rewrites an upstream response that must contain b64_json image
+// items. It deliberately rejects URL-only items so this path cannot turn an
+// unexpected upstream URL into a server-side image download.
+func (u *ImageResultUploader) RewriteB64(ctx context.Context, taskID string, result json.RawMessage) (json.RawMessage, error) {
+	return u.rewrite(ctx, taskID, result, true)
+}
+
+func (u *ImageResultUploader) rewrite(ctx context.Context, taskID string, result json.RawMessage, b64Only bool) (json.RawMessage, error) {
 	if u == nil || u.storage == nil {
+		if b64Only {
+			return nil, errors.New("image response storage is not configured")
+		}
 		return result, nil
 	}
 	var top map[string]json.RawMessage
@@ -89,7 +103,7 @@ func (u *ImageResultUploader) Rewrite(ctx context.Context, taskID string, result
 		return result, nil
 	}
 	for i, item := range items {
-		data, contentType, err := u.fetchImageBytes(ctx, item)
+		data, contentType, err := u.fetchImageBytesMode(ctx, item, b64Only)
 		if err != nil {
 			return nil, fmt.Errorf("image %d: %w", i, err)
 		}
@@ -119,10 +133,21 @@ func (u *ImageResultUploader) Rewrite(ctx context.Context, taskID string, result
 }
 
 func (u *ImageResultUploader) fetchImageBytes(ctx context.Context, item map[string]json.RawMessage) ([]byte, string, error) {
+	return u.fetchImageBytesMode(ctx, item, false)
+}
+
+func (u *ImageResultUploader) fetchImageBytesMode(ctx context.Context, item map[string]json.RawMessage, b64Only bool) ([]byte, string, error) {
 	if raw, ok := item["b64_json"]; ok {
 		var b64 string
 		if err := json.Unmarshal(raw, &b64); err == nil {
 			if b64 = strings.TrimSpace(b64); b64 != "" {
+				limit := u.maxDownloadBytes
+				if limit <= 0 {
+					limit = defaultImageMaxDownloadBytes
+				}
+				if int64(base64.StdEncoding.DecodedLen(len(b64))) > limit {
+					return nil, "", fmt.Errorf("decoded b64_json exceeds %d bytes", limit)
+				}
 				data, err := base64.StdEncoding.DecodeString(b64)
 				if err != nil {
 					return nil, "", fmt.Errorf("decode b64_json: %w", err)
@@ -130,6 +155,9 @@ func (u *ImageResultUploader) fetchImageBytes(ctx context.Context, item map[stri
 				return data, detectImageContentType(data), nil
 			}
 		}
+	}
+	if b64Only {
+		return nil, "", errors.New("image item has no b64_json")
 	}
 	if raw, ok := item["url"]; ok {
 		var rawURL string

@@ -441,35 +441,37 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
-	accountRepo           AccountRepository
-	usageLogRepo          UsageLogRepository
-	usageBillingRepo      UsageBillingRepository
-	userRepo              UserRepository
-	userSubRepo           UserSubscriptionRepository
-	cache                 GatewayCache
-	cfg                   *config.Config
-	codexDetector         CodexClientRestrictionDetector
-	schedulerSnapshot     *SchedulerSnapshotService
-	concurrencyService    *ConcurrencyService
-	billingService        *BillingService
-	rateLimitService      *RateLimitService
-	billingCacheService   *BillingCacheService
-	userGroupRateResolver *userGroupRateResolver
-	httpUpstream          HTTPUpstream
-	pluginManager         *PluginManager
-	deferredService       *DeferredService
-	openAITokenProvider   *OpenAITokenProvider
-	grokTokenProvider     *GrokTokenProvider
-	toolCorrector         *CodexToolCorrector
-	openaiWSResolver      OpenAIWSProtocolResolver
-	resolver              *ModelPricingResolver
-	channelService        *ChannelService
-	balanceNotifyService  *BalanceNotifyService
-	settingService        *SettingService
-	userPlatformQuotaRepo UserPlatformQuotaRepository
-	liveAttestation       liveattestation.Provider
-	liveAttestationCipher SecretEncryptor
-	imageURLProxy         *ImageURLProxy
+	accountRepo               AccountRepository
+	usageLogRepo              UsageLogRepository
+	usageBillingRepo          UsageBillingRepository
+	userRepo                  UserRepository
+	userSubRepo               UserSubscriptionRepository
+	cache                     GatewayCache
+	cfg                       *config.Config
+	codexDetector             CodexClientRestrictionDetector
+	schedulerSnapshot         *SchedulerSnapshotService
+	concurrencyService        *ConcurrencyService
+	billingService            *BillingService
+	rateLimitService          *RateLimitService
+	billingCacheService       *BillingCacheService
+	userGroupRateResolver     *userGroupRateResolver
+	httpUpstream              HTTPUpstream
+	pluginManager             *PluginManager
+	deferredService           *DeferredService
+	openAITokenProvider       *OpenAITokenProvider
+	grokTokenProvider         *GrokTokenProvider
+	toolCorrector             *CodexToolCorrector
+	openaiWSResolver          OpenAIWSProtocolResolver
+	resolver                  *ModelPricingResolver
+	channelService            *ChannelService
+	balanceNotifyService      *BalanceNotifyService
+	settingService            *SettingService
+	userPlatformQuotaRepo     UserPlatformQuotaRepository
+	liveAttestation           liveattestation.Provider
+	liveAttestationCipher     SecretEncryptor
+	imageURLProxy             *ImageURLProxy
+	imageResponseUploader     *ImageResultUploader
+	imageResponseStorageReady func() bool
 
 	openaiWSPoolOnce               sync.Once
 	openaiWSStateStoreOnce         sync.Once
@@ -599,8 +601,20 @@ func NewOpenAIGatewayServiceWithImageURLProxy(
 
 	// 初始化图片 URL 代理服务
 	var imageURLProxy *ImageURLProxy
+	var imageResponseUploader *ImageResultUploader
+	var imageResponseStorageReady func() bool
 	if cfg != nil && imageStorage != nil {
 		imageURLProxy = NewImageURLProxy(&cfg.Gateway.ImageURLProxy, imageStorage, imageURLProxyCache)
+		prefix := "images/"
+		maxDownloadBytes := int64(0)
+		if strings.TrimSpace(cfg.ImageStorage.Prefix) != "" {
+			prefix = cfg.ImageStorage.Prefix
+		}
+		maxDownloadBytes = cfg.ImageStorage.MaxDownloadByte
+		imageResponseUploader = NewImageResultUploader(imageStorage, prefix, maxDownloadBytes, nil)
+		if ready, ok := imageStorage.(interface{ Ready() bool }); ok {
+			imageResponseStorageReady = ready.Ready
+		}
 	}
 
 	svc := &OpenAIGatewayService{
@@ -624,23 +638,25 @@ func NewOpenAIGatewayServiceWithImageURLProxy(
 			nil,
 			"service.openai_gateway",
 		),
-		httpUpstream:          httpUpstream,
-		deferredService:       deferredService,
-		openAITokenProvider:   openAITokenProvider,
-		grokTokenProvider:     grokTokenProvider,
-		toolCorrector:         NewCodexToolCorrector(),
-		openaiWSResolver:      NewOpenAIWSProtocolResolver(cfg),
-		resolver:              resolver,
-		channelService:        channelService,
-		balanceNotifyService:  balanceNotifyService,
-		settingService:        settingService,
-		userPlatformQuotaRepo: userPlatformQuotaRepo,
-		liveAttestation:       liveattestation.NewProvider(),
-		liveAttestationCipher: newLiveAttestationCipher(cfg),
-		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
-		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
-		openaiModelTransient:  newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
-		imageURLProxy:         imageURLProxy,
+		httpUpstream:              httpUpstream,
+		deferredService:           deferredService,
+		openAITokenProvider:       openAITokenProvider,
+		grokTokenProvider:         grokTokenProvider,
+		toolCorrector:             NewCodexToolCorrector(),
+		openaiWSResolver:          NewOpenAIWSProtocolResolver(cfg),
+		resolver:                  resolver,
+		channelService:            channelService,
+		balanceNotifyService:      balanceNotifyService,
+		settingService:            settingService,
+		userPlatformQuotaRepo:     userPlatformQuotaRepo,
+		liveAttestation:           liveattestation.NewProvider(),
+		liveAttestationCipher:     newLiveAttestationCipher(cfg),
+		responseHeaderFilter:      compileResponseHeaderFilter(cfg),
+		codexSnapshotThrottle:     newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
+		openaiModelTransient:      newOpenAIAccountModelTransientState(openAIModelTransientDefaultMax),
+		imageURLProxy:             imageURLProxy,
+		imageResponseUploader:     imageResponseUploader,
+		imageResponseStorageReady: imageResponseStorageReady,
 	}
 	if rateLimitService != nil {
 		rateLimitService.SetAccountRuntimeBlocker(svc)

@@ -364,6 +364,8 @@ type SystemSettings struct {
 	// 图改图请求数据格式归一化
 	ImageEditFormatNormalizeEnabled    bool    `json:"image_edit_format_normalize_enabled"`
 	ImageEditFormatNormalizeAccountIDs []int64 `json:"image_edit_format_normalize_account_ids"`
+	ImageURLResponseB64Enabled         bool    `json:"image_url_response_b64_enabled"`
+	ImageURLResponseB64AccountIDs      []int64 `json:"image_url_response_b64_account_ids"`
 }
 
 type DefaultSubscriptionSetting struct {

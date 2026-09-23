@@ -245,6 +245,10 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyImageURLProxyAccountIDs:               "[]",
 		SettingKeyImageURLStripQueryEnabled:             "false",
 		SettingKeyImageURLStripQueryAccountIDs:          "[]",
+		SettingKeyImageEditFormatNormalizeEnabled:       "false",
+		SettingKeyImageEditFormatNormalizeAccountIDs:    "[]",
+		SettingKeyImageURLResponseB64Enabled:            "false",
+		SettingKeyImageURLResponseB64AccountIDs:         "[]",
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled:              "false",
@@ -878,6 +882,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ImageURLStripQueryAccountIDs = parseSettingInt64List(settings[SettingKeyImageURLStripQueryAccountIDs])
 	result.ImageEditFormatNormalizeEnabled = settings[SettingKeyImageEditFormatNormalizeEnabled] == "true"
 	result.ImageEditFormatNormalizeAccountIDs = parseSettingInt64List(settings[SettingKeyImageEditFormatNormalizeAccountIDs])
+	result.ImageURLResponseB64Enabled = settings[SettingKeyImageURLResponseB64Enabled] == "true"
+	result.ImageURLResponseB64AccountIDs = parseSettingInt64List(settings[SettingKeyImageURLResponseB64AccountIDs])
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

@@ -44,6 +44,14 @@ type dynamicImageStorage struct {
 	settingService *ImageStorageSettingService
 }
 
+func (d *dynamicImageStorage) Ready() bool {
+	if d == nil || d.settingService == nil {
+		return false
+	}
+	_, enabled := d.settingService.Resolver()()
+	return enabled
+}
+
 // Save 实现 ImageStorage 接口
 func (d *dynamicImageStorage) Save(ctx context.Context, key, contentType string, data []byte) (string, error) {
 	if d.settingService == nil {

@@ -468,6 +468,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, fmt.Errorf("marshal image edit format normalize account ids: %w", err)
 	}
 	updates[SettingKeyImageEditFormatNormalizeAccountIDs] = string(normalizeAccountIDsJSON)
+	updates[SettingKeyImageURLResponseB64Enabled] = strconv.FormatBool(settings.ImageURLResponseB64Enabled)
+	responseB64AccountIDsJSON, err := json.Marshal(normalizeSettingInt64List(settings.ImageURLResponseB64AccountIDs))
+	if err != nil {
+		return nil, fmt.Errorf("marshal image url response b64 account ids: %w", err)
+	}
+	updates[SettingKeyImageURLResponseB64AccountIDs] = string(responseB64AccountIDsJSON)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
@@ -750,6 +756,10 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		imageURLProxyAccountIDs:               normalizeSettingInt64List(settings.ImageURLProxyAccountIDs),
 		imageURLStripQueryEnabled:             settings.ImageURLStripQueryEnabled,
 		imageURLStripQueryAccountIDs:          normalizeSettingInt64List(settings.ImageURLStripQueryAccountIDs),
+		imageEditFormatNormalizeEnabled:       settings.ImageEditFormatNormalizeEnabled,
+		imageEditFormatNormalizeAccountIDs:    normalizeSettingInt64List(settings.ImageEditFormatNormalizeAccountIDs),
+		imageURLResponseB64Enabled:            settings.ImageURLResponseB64Enabled,
+		imageURLResponseB64AccountIDs:         normalizeSettingInt64List(settings.ImageURLResponseB64AccountIDs),
 		expiresAt:                             time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})
 	s.antigravityUAVersionSF.Forget("antigravity_user_agent_version")

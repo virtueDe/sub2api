@@ -4803,6 +4803,22 @@
                   hint="留空表示对所有支持生图分组的账号生效；选择后仅对选中的账号生效。"
                 />
               </div>
+
+              <div class="mt-6 border-t border-gray-100 pt-5 dark:border-dark-700">
+                <div class="flex items-center justify-between">
+                  <div class="pr-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">URL 图片响应兼容模式</label>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">用户请求 URL 时，上游强制使用 b64_json，网关上传到图片存储后返回 URL。</p>
+                  </div>
+                  <Toggle v-model="form.image_url_response_b64_enabled" />
+                </div>
+                <ImageAccountSelector
+                  v-if="form.image_url_response_b64_enabled"
+                  v-model="form.image_url_response_b64_account_ids"
+                  label="处理账号"
+                  hint="留空表示对所有支持生图分组的账号生效；选择后仅对选中的账号生效。"
+                />
+              </div>
             </div>
           </div>
 
@@ -10062,6 +10078,8 @@ const form = reactive<SettingsForm>({
   image_url_strip_query_account_ids: [] as number[],
   image_edit_format_normalize_enabled: false,
   image_edit_format_normalize_account_ids: [] as number[],
+  image_url_response_b64_enabled: false,
+  image_url_response_b64_account_ids: [] as number[],
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled: false,
   balance_low_notify_threshold: 0,
@@ -11771,6 +11789,8 @@ async function saveSettings() {
       image_url_strip_query_account_ids: [...form.image_url_strip_query_account_ids],
       image_edit_format_normalize_enabled: form.image_edit_format_normalize_enabled,
       image_edit_format_normalize_account_ids: [...form.image_edit_format_normalize_account_ids],
+      image_url_response_b64_enabled: form.image_url_response_b64_enabled,
+      image_url_response_b64_account_ids: [...form.image_url_response_b64_account_ids],
       // Payment configuration
       payment_enabled: form.payment_enabled,
       risk_control_enabled: form.risk_control_enabled,

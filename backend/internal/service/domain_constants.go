@@ -584,6 +584,9 @@ const (
 	// 图改图请求数据格式归一化（image_url 对象 → 字符串）
 	SettingKeyImageEditFormatNormalizeEnabled    = "image_edit_format_normalize_enabled"
 	SettingKeyImageEditFormatNormalizeAccountIDs = "image_edit_format_normalize_account_ids"
+	// 图生图 URL 响应兼容：上游强制 b64_json，网关上传后返回 URL。
+	SettingKeyImageURLResponseB64Enabled    = "image_url_response_b64_enabled"
+	SettingKeyImageURLResponseB64AccountIDs = "image_url_response_b64_account_ids"
 
 	// SettingKeyUpstreamBillingProbeSettings stores the global enable switch and interval
 	// for probing remote Sub2API API-key billing metadata.

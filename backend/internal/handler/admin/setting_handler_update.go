@@ -378,6 +378,8 @@ type UpdateSettingsRequest struct {
 	ImageURLStripQueryAccountIDs       *[]int64 `json:"image_url_strip_query_account_ids"`
 	ImageEditFormatNormalizeEnabled    *bool    `json:"image_edit_format_normalize_enabled"`
 	ImageEditFormatNormalizeAccountIDs *[]int64 `json:"image_edit_format_normalize_account_ids"`
+	ImageURLResponseB64Enabled         *bool    `json:"image_url_response_b64_enabled"`
+	ImageURLResponseB64AccountIDs      *[]int64 `json:"image_url_response_b64_account_ids"`
 
 	// OpenAI fast/flex policy (optional, only updated when provided)
 	OpenAIFastPolicySettings *dto.OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
@@ -2068,6 +2070,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ImageEditFormatNormalizeAccountIDs
 		}(),
+		ImageURLResponseB64Enabled: func() bool {
+			if req.ImageURLResponseB64Enabled != nil {
+				return *req.ImageURLResponseB64Enabled
+			}
+			return previousSettings.ImageURLResponseB64Enabled
+		}(),
+		ImageURLResponseB64AccountIDs: func() []int64 {
+			if req.ImageURLResponseB64AccountIDs != nil {
+				return normalizeInt64IDList(*req.ImageURLResponseB64AccountIDs)
+			}
+			return previousSettings.ImageURLResponseB64AccountIDs
+		}(),
 	}
 
 	// req.AuthSourceXxxPlatformQuotas 为 nil 表示本次请求未包含该 source 的 quota 配置（保留 previousAuthSourceDefaults 中的值）；
@@ -2379,6 +2393,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ImageURLStripQueryAccountIDs:                           updatedSettings.ImageURLStripQueryAccountIDs,
 		ImageEditFormatNormalizeEnabled:                        updatedSettings.ImageEditFormatNormalizeEnabled,
 		ImageEditFormatNormalizeAccountIDs:                     updatedSettings.ImageEditFormatNormalizeAccountIDs,
+		ImageURLResponseB64Enabled:                             updatedSettings.ImageURLResponseB64Enabled,
+		ImageURLResponseB64AccountIDs:                          updatedSettings.ImageURLResponseB64AccountIDs,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 updatedSettings.EnableClaudeOAuthSystemPromptInjection,

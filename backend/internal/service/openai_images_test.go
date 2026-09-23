@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -175,6 +176,23 @@ func TestRewriteOpenAIImagesModelNormalizesJSONImageReferences(t *testing.T) {
 	require.Equal(t, "https://source.example/image.png", gjson.GetBytes(body, "images.0").String())
 	require.Equal(t, "https://source.example/second.png", gjson.GetBytes(body, "images.1").String())
 	require.Equal(t, "keep", gjson.GetBytes(body, "metadata.request").String())
+}
+
+func TestRewriteOpenAIImagesResponseFormatJSON(t *testing.T) {
+	original := []byte(`{"model":"gpt-image-2","response_format":"url","images":[{"image_url":"https://source.example/image.png"}]}`)
+
+	body, contentType, err := rewriteOpenAIImagesResponseFormat(original, "application/json", "b64_json")
+	require.NoError(t, err)
+	require.Equal(t, "application/json", contentType)
+	require.Equal(t, "b64_json", gjson.GetBytes(body, "response_format").String())
+	require.Equal(t, "https://source.example/image.png", gjson.GetBytes(body, "images.0.image_url").String())
+}
+
+func TestShouldUseImageURLResponseB64TreatsOmittedFormatAsURL(t *testing.T) {
+	require.True(t, shouldUseImageURLResponseB64(&OpenAIImagesRequest{}))
+	require.True(t, shouldUseImageURLResponseB64(&OpenAIImagesRequest{ResponseFormat: "url"}))
+	require.False(t, shouldUseImageURLResponseB64(&OpenAIImagesRequest{ResponseFormat: "b64_json"}))
+	require.False(t, shouldUseImageURLResponseB64(nil))
 }
 
 func TestOpenAIImagesRequestModerationBody_JSONEditIncludesInputImageURLs(t *testing.T) {
@@ -1483,6 +1501,68 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyGenerationUsesConfiguredV1BaseU
 	require.Equal(t, "gpt-image-2", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Equal(t, "aGVsbG8=", gjson.Get(rec.Body.String(), "data.0.b64_json").String())
+}
+
+func TestOpenAIGatewayServiceForwardImages_APIKeyDefaultURLResponseUsesB64UpstreamAndStorageURL(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	b64 := base64.StdEncoding.EncodeToString(pngBytes)
+	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = req
+
+	previousCache := gatewayForwardingCache.Load()
+	t.Cleanup(func() {
+		if previousCache != nil {
+			gatewayForwardingCache.Store(previousCache)
+			return
+		}
+		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{})
+	})
+	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
+		imageURLResponseB64Enabled:    true,
+		imageURLResponseB64AccountIDs: []int64{147},
+		expiresAt:                     time.Now().Add(time.Minute).UnixNano(),
+	})
+
+	storage := &fakeImageStorage{}
+	svc := &OpenAIGatewayService{
+		cfg:            &config.Config{},
+		settingService: &SettingService{},
+		httpUpstream: &httpUpstreamRecorder{
+			resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header: http.Header{
+					"Content-Type": []string{"application/json"},
+					"X-Request-Id": []string{"req_img_url"},
+				},
+				Body: io.NopCloser(strings.NewReader(`{"created":1710000007,"data":[{"b64_json":"` + b64 + `"}]}`)),
+			},
+		},
+		imageResponseUploader: NewImageResultUploader(storage, "images/", 0, nil),
+	}
+	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
+	require.NoError(t, err)
+	account := &Account{
+		ID:       147,
+		Name:     "openai-apikey",
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":  "test-api-key",
+			"base_url": "https://image-upstream.example/v1",
+		},
+	}
+
+	_, err = svc.ForwardImages(context.Background(), c, account, body, parsed, "")
+	require.NoError(t, err)
+	upstream := svc.httpUpstream.(*httpUpstreamRecorder)
+	require.Equal(t, "b64_json", gjson.GetBytes(upstream.lastBody, "response_format").String())
+	require.Equal(t, "https://cdn.test/images/image-api_req_img_url-0.png", gjson.Get(rec.Body.String(), "data.0.url").String())
+	require.False(t, gjson.Get(rec.Body.String(), "data.0.b64_json").Exists())
+	require.Len(t, storage.saved, 1)
 }
 
 func TestOpenAIGatewayServiceForwardImages_APIKeyAccessStateUsesTypedFailover(t *testing.T) {

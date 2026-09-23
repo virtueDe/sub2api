@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/imroc/req/v3"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -771,6 +772,35 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		)
 	}
 
+	responseB64Enabled := s.settingService != nil && s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID)
+	if responseB64Enabled && shouldUseImageURLResponseB64(parsed) {
+		clientResponseFormat := parsed.ResponseFormat
+		if clientResponseFormat == "" {
+			// OpenAI-compatible clients commonly omit response_format when they
+			// expect the endpoint's default URL response.
+			parsed.ResponseFormat = "url"
+		}
+		if parsed.Stream {
+			return nil, fmt.Errorf("response_format=url with stream=true is not supported for this account compatibility mode")
+		}
+		if s.imageResponseStorageReady != nil && !s.imageResponseStorageReady() {
+			return nil, fmt.Errorf("image URL response storage is not configured")
+		}
+		forwardedBody, forwardedContentType, rewriteErr := rewriteOpenAIImagesResponseFormat(body, parsed.ContentType, "b64_json")
+		if rewriteErr != nil {
+			return nil, fmt.Errorf("rewrite image response format: %w", rewriteErr)
+		}
+		body = forwardedBody
+		if strings.TrimSpace(forwardedContentType) != "" {
+			parsed.ContentType = forwardedContentType
+		}
+		logger.L().Info("image_url_response_b64.rewrite",
+			zap.Int64("account_id", account.ID),
+			zap.String("client_response_format", clientResponseFormat),
+			zap.String("upstream_response_format", "b64_json"),
+		)
+	}
+
 	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel, formatNormalizeEnabled)
 	if err != nil {
 		return nil, err
@@ -1004,6 +1034,75 @@ func rewriteOpenAIImagesModel(body []byte, contentType string, model string, nor
 	return rewritten, contentType, nil
 }
 
+func rewriteOpenAIImagesResponseFormat(body []byte, contentType string, responseFormat string) ([]byte, string, error) {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil && strings.EqualFold(mediaType, "multipart/form-data") {
+		return rewriteOpenAIImagesMultipartResponseFormat(body, contentType, responseFormat)
+	}
+	rewritten, err := sjson.SetBytes(body, "response_format", responseFormat)
+	if err != nil {
+		return nil, "", fmt.Errorf("rewrite image response format: %w", err)
+	}
+	return rewritten, contentType, nil
+}
+
+func shouldUseImageURLResponseB64(parsed *OpenAIImagesRequest) bool {
+	if parsed == nil {
+		return false
+	}
+	return parsed.ResponseFormat == "" || parsed.ResponseFormat == "url"
+}
+
+func rewriteOpenAIImagesMultipartResponseFormat(body []byte, contentType string, responseFormat string) ([]byte, string, error) {
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return nil, "", fmt.Errorf("parse multipart content-type: %w", err)
+	}
+	boundary := strings.TrimSpace(params["boundary"])
+	if boundary == "" {
+		return nil, "", fmt.Errorf("multipart boundary is required")
+	}
+
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+	formatWritten := false
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, "", fmt.Errorf("read multipart body: %w", err)
+		}
+		formName := strings.TrimSpace(part.FormName())
+		target, err := writer.CreatePart(cloneMultipartHeader(part.Header))
+		if err != nil {
+			_ = part.Close()
+			return nil, "", fmt.Errorf("create multipart part: %w", err)
+		}
+		if formName == "response_format" && part.FileName() == "" {
+			_, err = target.Write([]byte(responseFormat))
+			formatWritten = true
+		} else {
+			_, err = io.Copy(target, part)
+		}
+		_ = part.Close()
+		if err != nil {
+			return nil, "", fmt.Errorf("rewrite multipart response format: %w", err)
+		}
+	}
+	if !formatWritten {
+		if err := writer.WriteField("response_format", responseFormat); err != nil {
+			return nil, "", fmt.Errorf("append multipart response format: %w", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, "", fmt.Errorf("finalize multipart body: %w", err)
+	}
+	return buffer.Bytes(), writer.FormDataContentType(), nil
+}
+
 // normalizeOpenAIImagesFormat converts the public JSON edit shape into the
 // string-based shape expected by some OpenAI-compatible image upstreams.
 // Multipart requests are handled separately and never pass through here.
@@ -1113,6 +1212,22 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
+	}
+	if s.settingService != nil && account != nil && parsed != nil &&
+		parsed.ResponseFormat == "url" &&
+		s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID) {
+		if s.imageResponseUploader == nil {
+			return OpenAIUsage{}, 0, nil, fmt.Errorf("image URL response storage is not configured")
+		}
+		requestKey := strings.TrimSpace(resp.Header.Get("x-request-id"))
+		if requestKey == "" {
+			requestKey = uuid.NewString()
+		}
+		rewritten, rewriteErr := s.imageResponseUploader.RewriteB64(ctx, "image-api_"+requestKey, body)
+		if rewriteErr != nil {
+			return OpenAIUsage{}, 0, nil, fmt.Errorf("rewrite image response to URL: %w", rewriteErr)
+		}
+		body = rewritten
 	}
 	body = s.backfillOpenAIImagesB64JSON(ctx, account, parsed, body)
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)

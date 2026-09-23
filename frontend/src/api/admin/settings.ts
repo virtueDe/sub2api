@@ -657,6 +657,8 @@ export interface SystemSettings {
   image_url_strip_query_account_ids: number[];
   image_edit_format_normalize_enabled: boolean;
   image_edit_format_normalize_account_ids: number[];
+  image_url_response_b64_enabled: boolean;
+  image_url_response_b64_account_ids: number[];
 
   // Payment configuration
   payment_enabled: boolean;
@@ -988,6 +990,8 @@ export interface UpdateSettingsRequest {
   image_url_strip_query_account_ids?: number[];
   image_edit_format_normalize_enabled?: boolean;
   image_edit_format_normalize_account_ids?: number[];
+  image_url_response_b64_enabled?: boolean;
+  image_url_response_b64_account_ids?: number[];
   // Payment configuration
   payment_enabled?: boolean;
   risk_control_enabled?: boolean;

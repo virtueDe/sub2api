@@ -97,6 +97,21 @@ func TestImageResultUploaderRewritesURL(t *testing.T) {
 	require.JSONEq(t, `"https://cdn.test/images/imgtask_xyz-0.png"`, string(parsed.Data[0]["url"]))
 }
 
+func TestImageResultUploaderRewriteB64RejectsURLOnlyItems(t *testing.T) {
+	storage := &fakeImageStorage{}
+	uploader := NewImageResultUploader(storage, "images/", 0, nil)
+
+	_, err := uploader.RewriteB64(context.Background(), "imgtask_b64_only", json.RawMessage(`{"data":[{"url":"https://example.com/image.png"}]}`))
+	require.ErrorContains(t, err, "no b64_json")
+	require.Empty(t, storage.saved)
+}
+
+func TestImageResultUploaderRewriteB64RequiresStorage(t *testing.T) {
+	var uploader *ImageResultUploader
+	_, err := uploader.RewriteB64(context.Background(), "imgtask_b64_storage", json.RawMessage(`{"data":[{"b64_json":"aGVsbG8="}]}`))
+	require.ErrorContains(t, err, "storage is not configured")
+}
+
 func TestImageResultUploaderRewritesImageDataURLWithoutHTTP(t *testing.T) {
 	httpCalls := 0
 	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
