@@ -4787,6 +4787,22 @@
                   hint="留空表示对所有支持生图分组的账号生效；选择后仅对选中的账号生效。"
                 />
               </div>
+
+              <div class="mt-6 border-t border-gray-100 pt-5 dark:border-dark-700">
+                <div class="flex items-center justify-between">
+                  <div class="pr-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">规范化图改图请求格式</label>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">将图改图请求中的 images 数组从对象格式 {"image_url":"..."} 转换为字符串格式，兼容部分上游 API 要求。</p>
+                  </div>
+                  <Toggle v-model="form.image_edit_format_normalize_enabled" />
+                </div>
+                <ImageAccountSelector
+                  v-if="form.image_edit_format_normalize_enabled"
+                  v-model="form.image_edit_format_normalize_account_ids"
+                  label="处理账号"
+                  hint="留空表示对所有支持生图分组的账号生效；选择后仅对选中的账号生效。"
+                />
+              </div>
             </div>
           </div>
 
@@ -10044,6 +10060,8 @@ const form = reactive<SettingsForm>({
   image_url_proxy_account_ids: [] as number[],
   image_url_strip_query_enabled: false,
   image_url_strip_query_account_ids: [] as number[],
+  image_edit_format_normalize_enabled: false,
+  image_edit_format_normalize_account_ids: [] as number[],
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled: false,
   balance_low_notify_threshold: 0,

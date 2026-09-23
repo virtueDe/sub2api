@@ -100,6 +100,22 @@ The server stores the initial task in Redis and responds with `202 Accepted`:
 
 `Location` contains the polling path and `Retry-After: 3` provides the recommended polling interval.
 
+For asynchronous image edits, send the source files as repeated `image[]` multipart
+parts. `curl` generates the multipart boundary automatically; do not set it by hand:
+
+```bash
+curl -i https://api.example.com/v1/images/edits/async \
+  -H 'Authorization: Bearer sk-...' \
+  -F 'model=gpt-image-2' \
+  -F 'prompt=Replace the background with a snowy mountain' \
+  -F 'size=1024x1024' \
+  -F 'image[]=@./input.png'
+```
+
+For multiple source images, repeat the `image[]` field. A mask can be uploaded with
+`-F 'mask=@./mask.png'`. Poll the `poll_url` from the `202 Accepted` response with
+the same API key.
+
 ## Poll a task
 
 Use the same API key that submitted the task:

@@ -350,6 +350,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ImageURLProxyAccountIDs:                                settings.ImageURLProxyAccountIDs,
 		ImageURLStripQueryEnabled:                              settings.ImageURLStripQueryEnabled,
 		ImageURLStripQueryAccountIDs:                           settings.ImageURLStripQueryAccountIDs,
+		ImageEditFormatNormalizeEnabled:                        settings.ImageEditFormatNormalizeEnabled,
+		ImageEditFormatNormalizeAccountIDs:                     settings.ImageEditFormatNormalizeAccountIDs,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 settings.EnableClaudeOAuthSystemPromptInjection,

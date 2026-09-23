@@ -361,6 +361,9 @@ type SystemSettings struct {
 	ImageURLProxyAccountIDs      []int64 `json:"image_url_proxy_account_ids"`
 	ImageURLStripQueryEnabled    bool    `json:"image_url_strip_query_enabled"`
 	ImageURLStripQueryAccountIDs []int64 `json:"image_url_strip_query_account_ids"`
+	// 图改图请求数据格式归一化
+	ImageEditFormatNormalizeEnabled    bool    `json:"image_edit_format_normalize_enabled"`
+	ImageEditFormatNormalizeAccountIDs []int64 `json:"image_edit_format_normalize_account_ids"`
 }
 
 type DefaultSubscriptionSetting struct {

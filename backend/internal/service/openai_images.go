@@ -707,6 +707,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	// 【新增】代理图片 URL
 	proxyEnabled := s.imageURLProxy != nil && s.settingService.IsImageURLProxyEnabledForAccount(ctx, account.ID)
 	stripQueryEnabled := s.settingService.IsImageURLStripQueryEnabledForAccount(ctx, account.ID)
+	formatNormalizeEnabled := s.settingService.IsImageEditFormatNormalizeEnabledForAccount(ctx, account.ID)
 	if (proxyEnabled || stripQueryEnabled) && shouldProxyOpenAIImageURLs(parsed) {
 		if len(parsed.InputImageURLs) > 0 {
 			if proxyEnabled {
@@ -770,7 +771,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		)
 	}
 
-	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel)
+	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel, formatNormalizeEnabled)
 	if err != nil {
 		return nil, err
 	}
@@ -979,7 +980,7 @@ func buildOpenAIImagesURL(base string, endpoint string) string {
 	return buildOpenAIEndpointURL(base, endpoint)
 }
 
-func rewriteOpenAIImagesModel(body []byte, contentType string, model string) ([]byte, string, error) {
+func rewriteOpenAIImagesModel(body []byte, contentType string, model string, normalizeFormat bool) ([]byte, string, error) {
 	model = strings.TrimSpace(model)
 	if model == "" {
 		return body, contentType, nil
@@ -993,7 +994,44 @@ func rewriteOpenAIImagesModel(body []byte, contentType string, model string) ([]
 	if err != nil {
 		return nil, "", fmt.Errorf("rewrite image request model: %w", err)
 	}
+	if normalizeFormat {
+		normalized, err := normalizeOpenAIImagesFormat(rewritten)
+		if err != nil {
+			return nil, "", err
+		}
+		return normalized, contentType, nil
+	}
 	return rewritten, contentType, nil
+}
+
+// normalizeOpenAIImagesFormat converts the public JSON edit shape into the
+// string-based shape expected by some OpenAI-compatible image upstreams.
+// Multipart requests are handled separately and never pass through here.
+func normalizeOpenAIImagesFormat(body []byte) ([]byte, error) {
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, fmt.Errorf("normalize image request format: %w", err)
+	}
+
+	if rawImages, ok := payload["images"].([]any); ok {
+		normalizedImages := make([]any, 0, len(rawImages))
+		for _, item := range rawImages {
+			if imageObject, ok := item.(map[string]any); ok {
+				if imageURL, ok := imageObject["image_url"].(string); ok && strings.TrimSpace(imageURL) != "" {
+					normalizedImages = append(normalizedImages, imageURL)
+					continue
+				}
+			}
+			normalizedImages = append(normalizedImages, item)
+		}
+		payload["images"] = normalizedImages
+	}
+
+	normalized, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("marshal normalized image request: %w", err)
+	}
+	return normalized, nil
 }
 
 func rewriteOpenAIImagesMultipartModel(body []byte, contentType string, model string) ([]byte, string, error) {

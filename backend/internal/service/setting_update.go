@@ -462,6 +462,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, fmt.Errorf("marshal image url strip query account ids: %w", err)
 	}
 	updates[SettingKeyImageURLStripQueryAccountIDs] = string(stripQueryAccountIDsJSON)
+	updates[SettingKeyImageEditFormatNormalizeEnabled] = strconv.FormatBool(settings.ImageEditFormatNormalizeEnabled)
+	normalizeAccountIDsJSON, err := json.Marshal(normalizeSettingInt64List(settings.ImageEditFormatNormalizeAccountIDs))
+	if err != nil {
+		return nil, fmt.Errorf("marshal image edit format normalize account ids: %w", err)
+	}
+	updates[SettingKeyImageEditFormatNormalizeAccountIDs] = string(normalizeAccountIDsJSON)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)

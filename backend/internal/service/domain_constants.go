@@ -581,6 +581,9 @@ const (
 	SettingKeyImageURLProxyAccountIDs      = "image_url_proxy_account_ids"
 	SettingKeyImageURLStripQueryEnabled    = "image_url_strip_query_enabled"
 	SettingKeyImageURLStripQueryAccountIDs = "image_url_strip_query_account_ids"
+	// 图改图请求数据格式归一化（image_url 对象 → 字符串）
+	SettingKeyImageEditFormatNormalizeEnabled    = "image_edit_format_normalize_enabled"
+	SettingKeyImageEditFormatNormalizeAccountIDs = "image_edit_format_normalize_account_ids"
 
 	// SettingKeyUpstreamBillingProbeSettings stores the global enable switch and interval
 	// for probing remote Sub2API API-key billing metadata.

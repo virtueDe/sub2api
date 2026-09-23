@@ -69,6 +69,8 @@ type cachedGatewayForwardingSettings struct {
 	imageURLProxyAccountIDs               []int64
 	imageURLStripQueryEnabled             bool
 	imageURLStripQueryAccountIDs          []int64
+	imageEditFormatNormalizeEnabled       bool
+	imageEditFormatNormalizeAccountIDs    []int64
 	expiresAt                             int64 // unix nano
 }
 
@@ -753,6 +755,8 @@ type gatewayForwardingSettingsResult struct {
 	imageURLProxyAccountIDs                                                               []int64
 	imageURLStripQueryEnabled                                                             bool
 	imageURLStripQueryAccountIDs                                                          []int64
+	imageEditFormatNormalizeEnabled                                                       bool
+	imageEditFormatNormalizeAccountIDs                                                    []int64
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
@@ -775,6 +779,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 				imageURLProxyAccountIDs:               append([]int64(nil), cached.imageURLProxyAccountIDs...),
 				imageURLStripQueryEnabled:             cached.imageURLStripQueryEnabled,
 				imageURLStripQueryAccountIDs:          append([]int64(nil), cached.imageURLStripQueryAccountIDs...),
+				imageEditFormatNormalizeEnabled:       cached.imageEditFormatNormalizeEnabled,
+				imageEditFormatNormalizeAccountIDs:    append([]int64(nil), cached.imageEditFormatNormalizeAccountIDs...),
 			}
 		}
 	}
@@ -798,6 +804,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 					imageURLProxyAccountIDs:               append([]int64(nil), cached.imageURLProxyAccountIDs...),
 					imageURLStripQueryEnabled:             cached.imageURLStripQueryEnabled,
 					imageURLStripQueryAccountIDs:          append([]int64(nil), cached.imageURLStripQueryAccountIDs...),
+					imageEditFormatNormalizeEnabled:       cached.imageEditFormatNormalizeEnabled,
+					imageEditFormatNormalizeAccountIDs:    append([]int64(nil), cached.imageEditFormatNormalizeAccountIDs...),
 				}, nil
 			}
 		}
@@ -820,6 +828,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyImageURLProxyAccountIDs,
 			SettingKeyImageURLStripQueryEnabled,
 			SettingKeyImageURLStripQueryAccountIDs,
+			SettingKeyImageEditFormatNormalizeEnabled,
+			SettingKeyImageEditFormatNormalizeAccountIDs,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
@@ -869,6 +879,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		imageURLProxyAccountIDs := parseSettingInt64List(values[SettingKeyImageURLProxyAccountIDs])
 		imageURLStripQueryEnabled := values[SettingKeyImageURLStripQueryEnabled] == "true"
 		imageURLStripQueryAccountIDs := parseSettingInt64List(values[SettingKeyImageURLStripQueryAccountIDs])
+		imageEditFormatNormalizeEnabled := values[SettingKeyImageEditFormatNormalizeEnabled] == "true"
+		imageEditFormatNormalizeAccountIDs := parseSettingInt64List(values[SettingKeyImageEditFormatNormalizeAccountIDs])
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			openAITTFTMode:                        ttftMode,
 			fingerprintUnification:                fp,
@@ -886,6 +898,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			imageURLProxyAccountIDs:               imageURLProxyAccountIDs,
 			imageURLStripQueryEnabled:             imageURLStripQueryEnabled,
 			imageURLStripQueryAccountIDs:          imageURLStripQueryAccountIDs,
+			imageEditFormatNormalizeEnabled:       imageEditFormatNormalizeEnabled,
+			imageEditFormatNormalizeAccountIDs:    imageEditFormatNormalizeAccountIDs,
 			expiresAt:                             time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
 		return gatewayForwardingSettingsResult{
@@ -905,12 +919,14 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			imageURLProxyAccountIDs:               imageURLProxyAccountIDs,
 			imageURLStripQueryEnabled:             imageURLStripQueryEnabled,
 			imageURLStripQueryAccountIDs:          imageURLStripQueryAccountIDs,
+			imageEditFormatNormalizeEnabled:       imageEditFormatNormalizeEnabled,
+			imageEditFormatNormalizeAccountIDs:    imageEditFormatNormalizeAccountIDs,
 		}, nil
 	})
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {
 		return r
 	}
-	return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, clientDatelineNormalization: true, imageURLProxyEnabled: false, imageURLProxyAccountIDs: []int64{}, imageURLStripQueryAccountIDs: []int64{}}
+	return gatewayForwardingSettingsResult{fp: true, claudeOAuthSystemPromptInjection: true, clientDatelineNormalization: true, imageURLProxyEnabled: false, imageURLProxyAccountIDs: []int64{}, imageURLStripQueryAccountIDs: []int64{}, imageEditFormatNormalizeEnabled: false, imageEditFormatNormalizeAccountIDs: []int64{}}
 }
 
 // IsOpenAIImagesAspectRatioPromptEnabled reports whether the ratio hint is
@@ -966,6 +982,14 @@ func (s *SettingService) IsImageURLStripQueryEnabledForAccount(ctx context.Conte
 	}
 	v := s.getGatewayForwardingSettingsCached(ctx)
 	return v.imageURLStripQueryEnabled && settingAccountSelected(accountID, v.imageURLStripQueryAccountIDs)
+}
+
+func (s *SettingService) IsImageEditFormatNormalizeEnabledForAccount(ctx context.Context, accountID int64) bool {
+	if s == nil {
+		return false
+	}
+	v := s.getGatewayForwardingSettingsCached(ctx)
+	return v.imageEditFormatNormalizeEnabled && settingAccountSelected(accountID, v.imageEditFormatNormalizeAccountIDs)
 }
 
 // GetOpenAITTFTMode 返回 Responses first_token_ms 的统计口径。

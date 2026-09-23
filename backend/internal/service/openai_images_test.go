@@ -157,6 +157,26 @@ func TestRebuildOpenAIImagesRequestBodyJSONPreservesImagesArray(t *testing.T) {
 	require.False(t, gjson.GetBytes(body, "image").Exists())
 }
 
+func TestRewriteOpenAIImagesModelNormalizesJSONImageReferences(t *testing.T) {
+	original := []byte(`{
+		"model":"gpt-image-2",
+		"prompt":"replace background",
+		"images":[
+			{"image_url":"https://source.example/image.png","detail":"high"},
+			"https://source.example/second.png"
+		],
+		"metadata":{"request":"keep"}
+	}`)
+
+	body, contentType, err := rewriteOpenAIImagesModel(original, "application/json", "gpt-image-2.5", true)
+	require.NoError(t, err)
+	require.Equal(t, "application/json", contentType)
+	require.Equal(t, "gpt-image-2.5", gjson.GetBytes(body, "model").String())
+	require.Equal(t, "https://source.example/image.png", gjson.GetBytes(body, "images.0").String())
+	require.Equal(t, "https://source.example/second.png", gjson.GetBytes(body, "images.1").String())
+	require.Equal(t, "keep", gjson.GetBytes(body, "metadata.request").String())
+}
+
 func TestOpenAIImagesRequestModerationBody_JSONEditIncludesInputImageURLs(t *testing.T) {
 	parsed := &OpenAIImagesRequest{
 		Endpoint:       openAIImagesEditsEndpoint,

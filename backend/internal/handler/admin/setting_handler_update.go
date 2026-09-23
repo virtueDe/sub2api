@@ -372,10 +372,12 @@ type UpdateSettingsRequest struct {
 	CyberSessionBlockTTLSeconds *int  `json:"cyber_session_block_ttl_seconds"`
 
 	// Image URL Proxy (图片 URL 代理到 CF R2)
-	ImageURLProxyEnabled         *bool    `json:"image_url_proxy_enabled"`
-	ImageURLProxyAccountIDs      *[]int64 `json:"image_url_proxy_account_ids"`
-	ImageURLStripQueryEnabled    *bool    `json:"image_url_strip_query_enabled"`
-	ImageURLStripQueryAccountIDs *[]int64 `json:"image_url_strip_query_account_ids"`
+	ImageURLProxyEnabled               *bool    `json:"image_url_proxy_enabled"`
+	ImageURLProxyAccountIDs            *[]int64 `json:"image_url_proxy_account_ids"`
+	ImageURLStripQueryEnabled          *bool    `json:"image_url_strip_query_enabled"`
+	ImageURLStripQueryAccountIDs       *[]int64 `json:"image_url_strip_query_account_ids"`
+	ImageEditFormatNormalizeEnabled    *bool    `json:"image_edit_format_normalize_enabled"`
+	ImageEditFormatNormalizeAccountIDs *[]int64 `json:"image_edit_format_normalize_account_ids"`
 
 	// OpenAI fast/flex policy (optional, only updated when provided)
 	OpenAIFastPolicySettings *dto.OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
@@ -2054,6 +2056,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ImageURLStripQueryAccountIDs
 		}(),
+		ImageEditFormatNormalizeEnabled: func() bool {
+			if req.ImageEditFormatNormalizeEnabled != nil {
+				return *req.ImageEditFormatNormalizeEnabled
+			}
+			return previousSettings.ImageEditFormatNormalizeEnabled
+		}(),
+		ImageEditFormatNormalizeAccountIDs: func() []int64 {
+			if req.ImageEditFormatNormalizeAccountIDs != nil {
+				return normalizeInt64IDList(*req.ImageEditFormatNormalizeAccountIDs)
+			}
+			return previousSettings.ImageEditFormatNormalizeAccountIDs
+		}(),
 	}
 
 	// req.AuthSourceXxxPlatformQuotas 为 nil 表示本次请求未包含该 source 的 quota 配置（保留 previousAuthSourceDefaults 中的值）；
@@ -2363,6 +2377,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ImageURLProxyAccountIDs:                                updatedSettings.ImageURLProxyAccountIDs,
 		ImageURLStripQueryEnabled:                              updatedSettings.ImageURLStripQueryEnabled,
 		ImageURLStripQueryAccountIDs:                           updatedSettings.ImageURLStripQueryAccountIDs,
+		ImageEditFormatNormalizeEnabled:                        updatedSettings.ImageEditFormatNormalizeEnabled,
+		ImageEditFormatNormalizeAccountIDs:                     updatedSettings.ImageEditFormatNormalizeAccountIDs,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 updatedSettings.EnableClaudeOAuthSystemPromptInjection,

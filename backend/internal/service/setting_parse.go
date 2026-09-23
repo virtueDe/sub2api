@@ -876,6 +876,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ImageURLProxyAccountIDs = parseSettingInt64List(settings[SettingKeyImageURLProxyAccountIDs])
 	result.ImageURLStripQueryEnabled = settings[SettingKeyImageURLStripQueryEnabled] == "true"
 	result.ImageURLStripQueryAccountIDs = parseSettingInt64List(settings[SettingKeyImageURLStripQueryAccountIDs])
+	result.ImageEditFormatNormalizeEnabled = settings[SettingKeyImageEditFormatNormalizeEnabled] == "true"
+	result.ImageEditFormatNormalizeAccountIDs = parseSettingInt64List(settings[SettingKeyImageEditFormatNormalizeAccountIDs])
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

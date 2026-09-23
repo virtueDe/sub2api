@@ -245,6 +245,8 @@ type SystemSettings struct {
 	ImageURLProxyAccountIDs                []int64 `json:"image_url_proxy_account_ids"`
 	ImageURLStripQueryEnabled              bool    `json:"image_url_strip_query_enabled"`
 	ImageURLStripQueryAccountIDs           []int64 `json:"image_url_strip_query_account_ids"`
+	ImageEditFormatNormalizeEnabled        bool    `json:"image_edit_format_normalize_enabled"`
+	ImageEditFormatNormalizeAccountIDs     []int64 `json:"image_edit_format_normalize_account_ids"`
 	OpenAITTFTMode                         string  // Responses first_token_ms 统计口径（默认 semantic）
 	EnableFingerprintUnification           bool    // 是否统一 OAuth 账号的指纹头（默认 true）
 	EnableMetadataPassthrough              bool    // 是否透传客户端原始 metadata（默认 false）
