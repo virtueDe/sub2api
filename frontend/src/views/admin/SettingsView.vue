@@ -4808,7 +4808,7 @@
                 <div class="flex items-center justify-between">
                   <div class="pr-4">
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">URL 图片响应兼容模式</label>
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">用户请求 URL 时，上游强制使用 b64_json，网关上传到图片存储后返回 URL。</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">图编辑请求中的网络图片会先转为 Base64 Data URL。同步请求默认返回 b64_json，仅在 response_format=url 时转存并返回 URL；异步请求始终转存到图片存储并返回 URL。</p>
                   </div>
                   <Toggle v-model="form.image_url_response_b64_enabled" />
                 </div>

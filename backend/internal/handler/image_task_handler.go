@@ -508,7 +508,7 @@ func isAsyncImageSummaryField(name string) bool {
 }
 
 func newAsyncImageContext(c *gin.Context, body []byte, timeoutDuration time.Duration) (*gin.Context, *httptest.ResponseRecorder, context.CancelFunc) {
-	base := context.WithoutCancel(c.Request.Context())
+	base := service.WithAsyncImageTaskExecution(context.WithoutCancel(c.Request.Context()))
 	executionCtx, cancel := context.WithTimeout(base, timeoutDuration)
 	request := c.Request.Clone(executionCtx)
 	request.Body = io.NopCloser(bytes.NewReader(body))

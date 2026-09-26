@@ -106,6 +106,18 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	require.Contains(t, pollWriter.Body.String(), "https://example.test/image.png")
 }
 
+func TestNewAsyncImageContextMarksTaskExecution(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits/async", strings.NewReader(`{"prompt":"edit"}`))
+
+	taskCtx, _, cancel := newAsyncImageContext(c, []byte(`{"prompt":"edit"}`), time.Minute)
+	defer cancel()
+
+	require.True(t, service.IsAsyncImageTaskExecution(taskCtx.Request.Context()))
+	require.Equal(t, "/v1/images/edits", taskCtx.Request.URL.Path)
+}
+
 // When object storage is not configured the feature is fully disabled: the
 // endpoints must return 404 without creating a task or writing to Redis.
 func TestAsyncImageHandlerDisabledReturns404(t *testing.T) {

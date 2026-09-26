@@ -46,6 +46,22 @@ const (
 	openAIImagesVerbatimPromptInstructions = "When invoking the image_generation tool, use the user's image prompt verbatim. Do not rewrite, expand, summarize, embellish, translate, normalize punctuation, or add or remove visual details or constraints. Preserve the original language, wording, capitalization, quotes, and punctuation exactly."
 )
 
+type asyncImageTaskExecutionContextKey struct{}
+
+// WithAsyncImageTaskExecution marks an Images API call as the background
+// execution phase of an asynchronous image task.
+func WithAsyncImageTaskExecution(ctx context.Context) context.Context {
+	return context.WithValue(ctx, asyncImageTaskExecutionContextKey{}, true)
+}
+
+func IsAsyncImageTaskExecution(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	enabled, _ := ctx.Value(asyncImageTaskExecutionContextKey{}).(bool)
+	return enabled
+}
+
 // openAIImagesResponsesMainModelValue selects the Responses driver independently
 // of the image_generation tool model. An environment override lets operators
 // recover from upstream model retirement without rebuilding the gateway.
@@ -683,6 +699,20 @@ func (s *OpenAIGatewayService) ForwardImages(
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
+	// Account failover may call ForwardImages more than once with the same parsed
+	// request. Keep account-scoped URL and response-format rewrites local to this
+	// attempt so one selected account cannot affect the next one.
+	forwardParsed := *parsed
+	forwardParsed.InputImageURLs = append([]string(nil), parsed.InputImageURLs...)
+	parsed = &forwardParsed
+	responseB64Enabled := s.settingService != nil && s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID)
+	if account.Type == AccountTypeAPIKey && responseB64Enabled {
+		var rewriteErr error
+		body, parsed.ContentType, rewriteErr = s.rewriteOpenAIImagesInputURLsAsDataURLs(ctx, account, body, parsed)
+		if rewriteErr != nil {
+			return nil, rewriteErr
+		}
+	}
 	proxyEnabledForAccount := s.settingService.IsImageURLProxyEnabledForAccount(ctx, account.ID)
 	stripQueryEnabledForAccount := s.settingService.IsImageURLStripQueryEnabledForAccount(ctx, account.ID)
 	if stripQueryEnabledForAccount && !proxyEnabledForAccount {
@@ -809,18 +839,19 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	}
 
 	responseB64Enabled := s.settingService != nil && s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID)
-	if responseB64Enabled && shouldUseImageURLResponseB64(parsed) {
+	asyncTask := IsAsyncImageTaskExecution(ctx)
+	if responseB64Enabled && shouldNormalizeOpenAIImagesResponseFormat(parsed, asyncTask) {
 		clientResponseFormat := parsed.ResponseFormat
-		if clientResponseFormat == "" {
-			// OpenAI-compatible clients commonly omit response_format when they
-			// expect the endpoint's default URL response.
-			parsed.ResponseFormat = "url"
+		if asyncTask || clientResponseFormat == "" {
+			parsed.ResponseFormat = "b64_json"
 		}
-		if parsed.Stream {
+		if !asyncTask && clientResponseFormat == "url" && parsed.Stream {
 			return nil, fmt.Errorf("response_format=url with stream=true is not supported for this account compatibility mode")
 		}
-		if s.imageResponseStorageReady != nil && !s.imageResponseStorageReady() {
-			return nil, fmt.Errorf("image URL response storage is not configured")
+		if !asyncTask && clientResponseFormat == "url" {
+			if s.imageResponseUploader == nil || (s.imageResponseStorageReady != nil && !s.imageResponseStorageReady()) {
+				return nil, fmt.Errorf("image URL response storage is not configured")
+			}
 		}
 		forwardedBody, forwardedContentType, rewriteErr := rewriteOpenAIImagesResponseFormat(body, parsed.ContentType, "b64_json")
 		if rewriteErr != nil {
@@ -832,6 +863,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		}
 		logger.L().Info("image_url_response_b64.rewrite",
 			zap.Int64("account_id", account.ID),
+			zap.Bool("async_task", asyncTask),
 			zap.String("client_response_format", clientResponseFormat),
 			zap.String("upstream_response_format", "b64_json"),
 		)
@@ -1098,11 +1130,19 @@ func rewriteOpenAIImagesResponseFormat(body []byte, contentType string, response
 	return rewritten, contentType, nil
 }
 
-func shouldUseImageURLResponseB64(parsed *OpenAIImagesRequest) bool {
+func shouldNormalizeOpenAIImagesResponseFormat(parsed *OpenAIImagesRequest, asyncTask bool) bool {
 	if parsed == nil {
 		return false
 	}
-	return parsed.ResponseFormat == "" || parsed.ResponseFormat == "url"
+	if asyncTask {
+		return true
+	}
+	switch parsed.ResponseFormat {
+	case "", "url", "b64_json":
+		return true
+	default:
+		return false
+	}
 }
 
 func rewriteOpenAIImagesMultipartResponseFormat(body []byte, contentType string, responseFormat string) ([]byte, string, error) {

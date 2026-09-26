@@ -102,21 +102,31 @@ func (s *OpenAIGatewayService) fetchOpenAIImageURLBase64(ctx context.Context, ac
 		}
 		return "", errors.New("data url payload is not valid base64")
 	}
+	data, _, err := s.fetchOpenAIImageURLBytes(ctx, account, rawURL)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
+}
+
+// fetchOpenAIImageURLBytes 安全下载公网图片，并返回按文件头嗅探出的真实 MIME。
+// 调用方可据此构造可信的 Data URL，避免沿用不可靠的响应 Content-Type。
+func (s *OpenAIGatewayService) fetchOpenAIImageURLBytes(ctx context.Context, account *Account, rawURL string) ([]byte, string, error) {
 	if s == nil || s.httpUpstream == nil {
-		return "", errors.New("http upstream is not configured")
+		return nil, "", errors.New("http upstream is not configured")
 	}
 	downloadURL, err := s.validateOutboundURL(rawURL)
 	if err != nil {
-		return "", fmt.Errorf("invalid image url: %w", err)
+		return nil, "", fmt.Errorf("invalid image url: %w", err)
 	}
 	if err := rejectPrivateImageHost(downloadURL); err != nil {
-		return "", err
+		return nil, "", err
 	}
 	ctx, cancel := context.WithTimeout(WithHTTPUpstreamPublicHostsOnly(ctx), openAIImageURLDownloadTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("build image download request: %w", err)
+		return nil, "", fmt.Errorf("build image download request: %w", err)
 	}
 	req.Header.Set("Accept", "image/*,*/*;q=0.8")
 	proxyURL := ""
@@ -125,26 +135,27 @@ func (s *OpenAIGatewayService) fetchOpenAIImageURLBase64(ctx context.Context, ac
 	}
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
-		return "", fmt.Errorf("download image: %w", err)
+		return nil, "", fmt.Errorf("download image: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return "", fmt.Errorf("download image: unexpected status %d", resp.StatusCode)
+		return nil, "", fmt.Errorf("download image: unexpected status %d", resp.StatusCode)
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, openAIImageMaxDownloadBytes+1))
 	if err != nil {
-		return "", fmt.Errorf("read image body: %w", err)
+		return nil, "", fmt.Errorf("read image body: %w", err)
 	}
 	if int64(len(data)) > openAIImageMaxDownloadBytes {
-		return "", fmt.Errorf("downloaded image exceeds %d bytes", openAIImageMaxDownloadBytes)
+		return nil, "", fmt.Errorf("downloaded image exceeds %d bytes", openAIImageMaxDownloadBytes)
 	}
 	if len(data) == 0 {
-		return "", errors.New("download image: empty body")
+		return nil, "", errors.New("download image: empty body")
 	}
-	if !isBackfillImageContent(data) {
-		return "", errors.New("download image: content is not an allowed image format")
+	contentType := detectedImageContentType(data)
+	if _, ok := openAIImageBackfillContentTypes[contentType]; !ok {
+		return nil, "", errors.New("download image: content is not an allowed image format")
 	}
-	return base64.StdEncoding.EncodeToString(data), nil
+	return data, contentType, nil
 }
 
 // rejectPrivateImageHost 拒绝主机为 localhost 或回环、私网、链路本地、未指定地址字面量的下载 URL。

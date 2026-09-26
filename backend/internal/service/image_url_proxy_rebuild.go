@@ -35,7 +35,14 @@ func stripImageURLQueries(urls []string) []string {
 
 // redactImageURLForLog keeps the URL shape while hiding signed query values.
 func redactImageURLForLog(raw string) string {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
+	trimmed := strings.TrimSpace(raw)
+	if strings.HasPrefix(strings.ToLower(trimmed), "data:") {
+		if comma := strings.Index(trimmed, ","); comma >= 0 {
+			return trimmed[:comma+1] + "<redacted>"
+		}
+		return "data:<redacted>"
+	}
+	parsed, err := url.Parse(trimmed)
 	if err != nil {
 		return "<invalid_url>"
 	}
@@ -216,13 +223,24 @@ func rebuildOpenAIImagesRequestBody(parsed *OpenAIImagesRequest, originalBodies 
 				if existing, ok := payload["images"].([]any); ok {
 					images = existing
 				}
-				for i, imageURL := range parsed.InputImageURLs {
-					if i < len(images) {
-						if item, ok := images[i].(map[string]any); ok {
-							item["image_url"] = imageURL
-							continue
-						}
+				replacementIndex := 0
+				for _, rawItem := range images {
+					item, ok := rawItem.(map[string]any)
+					if !ok {
+						continue
 					}
+					originalURL, ok := item["image_url"].(string)
+					if !ok || strings.TrimSpace(originalURL) == "" {
+						continue
+					}
+					if replacementIndex >= len(parsed.InputImageURLs) {
+						break
+					}
+					item["image_url"] = parsed.InputImageURLs[replacementIndex]
+					replacementIndex++
+				}
+				for ; replacementIndex < len(parsed.InputImageURLs); replacementIndex++ {
+					imageURL := parsed.InputImageURLs[replacementIndex]
 					images = append(images, map[string]any{"image_url": imageURL})
 				}
 				payload["images"] = images
