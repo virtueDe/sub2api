@@ -219,9 +219,9 @@ type SystemSettings struct {
 	OpenAICodexClientVersion               string  `json:"openai_codex_client_version"`
 	OpenAICodexClientVersionSynced         string  `json:"openai_codex_client_version_synced"`
 	OpenAICodexVersionAutoSyncEnabled      bool    `json:"openai_codex_version_auto_sync_enabled"`
-	ClaudeCodeClientVersion                string `json:"claude_code_client_version"`
-	ClaudeCodeClientVersionSynced          string `json:"claude_code_client_version_synced"`
-	ClaudeCodeVersionAutoSyncEnabled       bool   `json:"claude_code_version_auto_sync_enabled"`
+	ClaudeCodeClientVersion                string  `json:"claude_code_client_version"`
+	ClaudeCodeClientVersionSynced          string  `json:"claude_code_client_version_synced"`
+	ClaudeCodeVersionAutoSyncEnabled       bool    `json:"claude_code_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -341,8 +341,9 @@ type SystemSettings struct {
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
 	// cyber 会话屏蔽开关 + TTL
-	CyberSessionBlockEnabled    bool `json:"cyber_session_block_enabled"`
-	CyberSessionBlockTTLSeconds int  `json:"cyber_session_block_ttl_seconds"`
+	CyberSessionBlockEnabled    bool   `json:"cyber_session_block_enabled"`
+	CyberPolicyUserAllowlist    string `json:"cyber_policy_user_allowlist"`
+	CyberSessionBlockTTLSeconds int    `json:"cyber_session_block_ttl_seconds"`
 
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled bool `json:"affiliate_enabled"`
