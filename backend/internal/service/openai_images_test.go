@@ -1578,7 +1578,8 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyExplicitURLResponseUsesB64Upstr
 
 	_, err = svc.ForwardImages(context.Background(), c, account, body, parsed, "")
 	require.NoError(t, err)
-	upstream := svc.httpUpstream.(*httpUpstreamRecorder)
+	upstream, ok := svc.httpUpstream.(*httpUpstreamRecorder)
+	require.True(t, ok)
 	require.Equal(t, "b64_json", gjson.GetBytes(upstream.lastBody, "response_format").String())
 	require.Equal(t, "https://cdn.test/images/image-api_req_img_url-0.png", gjson.Get(rec.Body.String(), "data.0.url").String())
 	require.False(t, gjson.Get(rec.Body.String(), "data.0.b64_json").Exists())

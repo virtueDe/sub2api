@@ -132,10 +132,6 @@ func (u *ImageResultUploader) rewrite(ctx context.Context, taskID string, result
 	return out, nil
 }
 
-func (u *ImageResultUploader) fetchImageBytes(ctx context.Context, item map[string]json.RawMessage) ([]byte, string, error) {
-	return u.fetchImageBytesMode(ctx, item, false)
-}
-
 func (u *ImageResultUploader) fetchImageBytesMode(ctx context.Context, item map[string]json.RawMessage, b64Only bool) ([]byte, string, error) {
 	if raw, ok := item["b64_json"]; ok {
 		var b64 string
