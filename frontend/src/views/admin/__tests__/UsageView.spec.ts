@@ -623,7 +623,7 @@ describe('admin UsageView handleUserClick', () => {
   })
 })
 
-describe('admin UsageView errors tab filter forwarding', () => {
+describe('admin UsageView detail tab filter forwarding', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     list.mockReset()
@@ -667,9 +667,11 @@ describe('admin UsageView errors tab filter forwarding', () => {
     vm.filters.group_id = 3
     await flushPromises()
 
-    // 切换到「错误请求」标签（第二个 tab 按钮）触发 loadAdminErrors
+    // 按标签选择错误请求，避免二开生图标签改变按钮顺序。
     const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
-    await tabs[1].trigger('click')
+    const errorsTab = tabs.find((tab) => tab.text() === 'usage.tabs.errors')
+    expect(errorsTab).toBeDefined()
+    await errorsTab!.trigger('click')
     await flushPromises()
 
     expect(listErrorLogs).toHaveBeenCalledWith(expect.objectContaining({
@@ -678,6 +680,34 @@ describe('admin UsageView errors tab filter forwarding', () => {
       account_id: 7,
       group_id: 3,
     }))
+  })
+
+  it('keeps the image records tab and forwards image-only filters', async () => {
+    const wrapper = mountRouteFilteredUsageView()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    const vm = wrapper.vm as any
+    vm.filters.model = 'gpt-image-1'
+    vm.filters.account_id = 7
+    vm.filters.group_id = 3
+    vm.filters.billing_mode = 'tokens'
+    list.mockClear()
+
+    const imagesTab = wrapper.findAll('[data-testid="usage-detail-tab"]')
+      .find((tab) => tab.text() === 'usage.tabs.images')
+    expect(imagesTab).toBeDefined()
+    await imagesTab!.trigger('click')
+    await flushPromises()
+
+    expect(vm.activeTab).toBe('images')
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-image-1',
+      account_id: 7,
+      group_id: 3,
+      image_only: true,
+      billing_mode: undefined,
+    }), expect.anything())
   })
 })
 
@@ -720,8 +750,12 @@ describe('admin UsageView ranking tab', () => {
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(false)
 
     const tabs = wrapper.findAll('[data-testid="usage-detail-tab"]')
-    expect(tabs).toHaveLength(3)
-    await tabs[2].trigger('click')
+    expect(tabs.map((tab) => tab.text())).toEqual([
+      'usage.tabs.usage', 'usage.tabs.images', 'usage.tabs.errors', 'usage.tabs.ranking',
+    ])
+    const rankingTab = tabs.find((tab) => tab.text() === 'usage.tabs.ranking')
+    expect(rankingTab).toBeDefined()
+    await rankingTab!.trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-test="ranking"]').exists()).toBe(true)
 

@@ -12,9 +12,21 @@ const groupsViewSource = readFileSync(
 
 describe("groups model allowlist layout", () => {
   it("keeps the toolbar outside of the scrolling list content", () => {
-    expect(groupsViewSource).toContain("overflow-hidden rounded-lg border");
-    expect(groupsViewSource).toContain("max-h-64 space-y-2 overflow-y-auto p-2");
-    expect(groupsViewSource).not.toContain("sticky top-0");
+    for (const mode of ["create", "edit"]) {
+      const panelStart = groupsViewSource.indexOf(
+        `v-if="${mode}ModelAllowlistState.enabled"`,
+      );
+      const itemsStart = groupsViewSource.indexOf(
+        `v-for="(item, index) in ${mode}ModelAllowlistState.items"`,
+        panelStart,
+      );
+      expect(panelStart).toBeGreaterThanOrEqual(0);
+      expect(itemsStart).toBeGreaterThan(panelStart);
+      const allowlistPanel = groupsViewSource.slice(panelStart, itemsStart);
+      expect(allowlistPanel).toContain("overflow-hidden rounded-lg border");
+      expect(allowlistPanel).toContain("max-h-64 space-y-2 overflow-y-auto p-2");
+      expect(allowlistPanel).not.toContain("sticky top-0");
+    }
   });
 
   it("uses a wide dialog and keeps model pricing controls responsive", () => {
