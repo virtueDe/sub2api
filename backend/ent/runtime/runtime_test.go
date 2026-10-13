@@ -17,6 +17,7 @@ func TestRuntimeDefaults(t *testing.T) {
 		got  any
 		want any
 	}{
+		{"group translations", group.DefaultI18n, domain.GroupI18n{}},
 		{"group status", group.DefaultStatus, domain.StatusActive},
 		{"paid entitlement", group.DefaultIsPaidEntitlement, false},
 		{"messages dispatch", group.DefaultMessagesDispatchModelConfig, domain.OpenAIMessagesDispatchModelConfig{}},
