@@ -4,7 +4,8 @@ import OpsErrorDetailModal from '../OpsErrorDetailModal.vue'
 
 const mocks = vi.hoisted(() => ({
   getRequestErrorDetail: vi.fn(),
-  listRequestErrorUpstreamErrors: vi.fn()
+  listRequestErrorUpstreamErrors: vi.fn(),
+  showError: vi.fn()
 }))
 
 vi.mock('@/api/admin/ops', () => ({
@@ -16,7 +17,7 @@ vi.mock('@/api/admin/ops', () => ({
 }))
 
 vi.mock('@/stores', () => ({
-  useAppStore: () => ({ showError: vi.fn() })
+  useAppStore: () => ({ showError: mocks.showError })
 }))
 
 vi.mock('vue-i18n', async (importOriginal) => {
@@ -30,8 +31,42 @@ vi.mock('vue-i18n', async (importOriginal) => {
 describe('OpsErrorDetailModal', () => {
   beforeEach(() => {
     mocks.getRequestErrorDetail.mockReset()
+    mocks.showError.mockReset()
     mocks.listRequestErrorUpstreamErrors.mockReset()
     mocks.listRequestErrorUpstreamErrors.mockResolvedValue({ items: [] })
+  })
+
+  it('ignores a delayed failure after leaving the page', async () => {
+    let rejectOld!: (reason: unknown) => void
+    mocks.getRequestErrorDetail.mockReturnValueOnce(new Promise((_, reject) => { rejectOld = reject }))
+    const wrapper = shallowMount(OpsErrorDetailModal, {
+      props: { show: true, errorId: 1, errorType: 'request' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } }
+    })
+    wrapper.unmount()
+    rejectOld(new Error('old error'))
+    await flushPromises()
+    expect(mocks.showError).not.toHaveBeenCalled()
+  })
+
+  it('keeps the selected image failure when an earlier detail request finishes late', async () => {
+    let resolveOld!: (value: unknown) => void
+    mocks.getRequestErrorDetail.mockReturnValueOnce(new Promise(resolve => { resolveOld = resolve }))
+      .mockResolvedValueOnce({ id: 2, model: 'current-image', phase: 'request', image_generation: { prompt: 'current prompt', request_params: {}, images: [] } })
+    const wrapper = shallowMount(OpsErrorDetailModal, {
+      props: { show: true, errorId: 1, errorType: 'request' },
+      global: { stubs: {
+        BaseDialog: { template: '<div><slot /></div>' },
+        ImageGenerationDetail: { props: ['detail'], template: '<p>{{ detail?.prompt }}</p>' },
+        Icon: true
+      } }
+    })
+    await wrapper.setProps({ errorId: 2 })
+    await flushPromises()
+    resolveOld({ id: 1, model: 'old-image', phase: 'request', image_generation: { prompt: 'old prompt' } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('current prompt')
+    expect(wrapper.text()).not.toContain('old prompt')
   })
 
   it('prioritizes upstream root cause and deduplicates diagnostic payloads', async () => {

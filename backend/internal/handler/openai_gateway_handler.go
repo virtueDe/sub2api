@@ -256,6 +256,9 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	if requestID, _ := parent.Value(ctxkey.RequestID).(string); strings.TrimSpace(requestID) != "" {
 		base = context.WithValue(base, ctxkey.RequestID, strings.TrimSpace(requestID))
 	}
+	if detail := service.ImageGenerationDetailFromContext(parent); detail != nil {
+		base = service.WithImageGenerationDetail(base, detail)
+	}
 	return base
 }
 
@@ -269,6 +272,9 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 	done := func() {}
 	if parent != nil {
 		done = service.InflightReservationFromContext(parent).Acquire()
+		if detail := service.ImageGenerationDetailFromContext(parent); detail != nil {
+			parent = service.WithImageGenerationDetail(parent, detail)
+		}
 	}
 	return func(ctx context.Context) {
 		defer done()
@@ -435,6 +441,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	defer beginImageGenerationCapture(c, body)()
 
 	setOpsRequestContext(c, "", false)
 	sessionHashBody := body
@@ -1199,6 +1206,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	defer beginImageGenerationCapture(c, body)()
 
 	if !gjson.ValidBytes(body) {
 		logRequestBodyParseFailure(reqLog, body, nil)

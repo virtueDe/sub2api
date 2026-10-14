@@ -5,7 +5,7 @@
  */
 
 import { apiClient, buildGatewayUrl } from '../client'
-import type { PaginatedResponse } from '@/types'
+import type { ImageGenerationDetail, PaginatedResponse } from '@/types'
 
 export type OpsQueryMode = 'auto' | 'raw' | 'preagg'
 
@@ -949,6 +949,7 @@ export interface OpsErrorLog {
 }
 
 export interface OpsErrorDetail extends OpsErrorLog {
+  image_generation?: ImageGenerationDetail | null
   error_body: string
 
   // Upstream context (optional; enriched by gateway services)

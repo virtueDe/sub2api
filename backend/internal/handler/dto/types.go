@@ -655,6 +655,9 @@ type UsageLog struct {
 	ImageSizeBreakdown map[string]int `json:"image_size_breakdown"`
 	MediaType          *string        `json:"media_type"`
 
+	HasImageGeneration bool                           `json:"has_image_generation"`
+	ImageGeneration    *service.ImageGenerationDetail `json:"image_generation,omitempty"`
+
 	// User-Agent
 	UserAgent *string `json:"user_agent"`
 	// IPAddress is visible to the owner of the usage record.

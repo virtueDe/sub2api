@@ -125,6 +125,8 @@
 
       </div>
 
+      <ImageGenerationDetail v-if="detail.image_generation || (detail.inbound_endpoint || '').includes('/images/')" :detail="detail.image_generation" />
+
       <div v-if="rootCauseMessage" class="rounded-xl bg-amber-50 p-6 dark:bg-amber-900/10">
         <h3 class="text-sm font-black uppercase tracking-wider text-amber-900 dark:text-amber-200">{{ t('admin.ops.errorDetail.rootCause') }}</h3>
         <div class="mt-3 break-words text-sm font-medium text-amber-900 dark:text-amber-100">{{ rootCauseMessage }}</div>
@@ -228,6 +230,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ImageGenerationDetail from '@/components/usage/ImageGenerationDetail.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores'
 import { opsAPI, type OpsErrorDetail } from '@/api/admin/ops'
@@ -336,6 +339,7 @@ function displayModel(d: OpsErrorDetail | null): string {
 
 const correlatedUpstream = ref<OpsErrorDetail[]>([])
 const correlatedUpstreamLoading = ref(false)
+let requestVersion = 0
 
 const correlatedUpstreamErrors = computed<OpsErrorDetail[]>(() => correlatedUpstream.value)
 
@@ -354,7 +358,7 @@ function toggleUpstreamDetail(id: number) {
   expandedUpstreamDetailIds.value = next
 }
 
-async function fetchCorrelatedUpstreamErrors(requestErrorId: number) {
+async function fetchCorrelatedUpstreamErrors(requestErrorId: number, version: number) {
   correlatedUpstreamLoading.value = true
   try {
     const res = await opsAPI.listRequestErrorUpstreamErrors(
@@ -362,12 +366,13 @@ async function fetchCorrelatedUpstreamErrors(requestErrorId: number) {
       { page: 1, page_size: 100, view: 'all' },
       { include_detail: true }
     )
-    correlatedUpstream.value = res.items || []
+    if (version === requestVersion) correlatedUpstream.value = res.items || []
   } catch (err) {
+    if (version !== requestVersion) return
     console.error('[OpsErrorDetailModal] Failed to load correlated upstream errors', err)
     correlatedUpstream.value = []
   } finally {
-    correlatedUpstreamLoading.value = false
+    if (version === requestVersion) correlatedUpstreamLoading.value = false
   }
 }
 
@@ -389,32 +394,39 @@ function prettyJSON(raw?: string): string {
   }
 }
 
-async function fetchDetail(id: number) {
+async function fetchDetail(id: number, version: number) {
   loading.value = true
   try {
     const kind = props.errorType || (detail.value?.phase === 'upstream' ? 'upstream' : 'request')
     const d = kind === 'upstream' ? await opsAPI.getUpstreamErrorDetail(id) : await opsAPI.getRequestErrorDetail(id)
-    detail.value = d
+    if (version === requestVersion) detail.value = d
   } catch (err: any) {
+    if (version !== requestVersion) return
     detail.value = null
     appStore.showError(err?.message || t('admin.ops.failedToLoadErrorDetail'))
   } finally {
-    loading.value = false
+    if (version === requestVersion) loading.value = false
   }
 }
 
 watch(
-  () => [props.show, props.errorId] as const,
-  ([show, id]) => {
+  () => [props.show, props.errorId, props.errorType] as const,
+  ([show, id], _, onCleanup) => {
+    const version = ++requestVersion
+    onCleanup(() => { requestVersion++ })
+    detail.value = null
+    loading.value = false
+    correlatedUpstream.value = []
+    correlatedUpstreamLoading.value = false
     if (!show) {
       detail.value = null
       return
     }
     if (typeof id === 'number' && id > 0) {
       expandedUpstreamDetailIds.value = new Set()
-      fetchDetail(id)
+      fetchDetail(id, version)
       if (props.errorType === 'request') {
-        fetchCorrelatedUpstreamErrors(id)
+        fetchCorrelatedUpstreamErrors(id, version)
       } else {
         correlatedUpstream.value = []
       }

@@ -60,6 +60,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 
+	defer beginImageGenerationCapture(c, body)()
 	setOpsRequestContext(c, "", false)
 
 	// Validate JSON

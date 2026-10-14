@@ -1796,7 +1796,23 @@ export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber'
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
+export interface GeneratedImage {
+  url?: string
+  b64_json?: string
+  mime_type?: string
+  revised_prompt?: string
+  partial?: boolean
+}
+
+export interface ImageGenerationDetail {
+  prompt: string
+  request_params: Record<string, unknown>
+  images: GeneratedImage[]
+}
+
 export interface UsageLog {
+  has_image_generation?: boolean
+  image_generation?: ImageGenerationDetail | null
   id: number
   user_id: number
   api_key_id: number
@@ -2240,6 +2256,7 @@ export interface UserErrorRequest {
 }
 
 export interface UserErrorRequestDetail extends UserErrorRequest {
+  image_generation?: ImageGenerationDetail | null
   error_body: string
   upstream_status_code?: number
 }

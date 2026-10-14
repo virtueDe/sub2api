@@ -55,9 +55,10 @@ INSERT INTO ops_error_logs (
   response_latency_ms,
   time_to_first_token_ms,
   created_at,
-  api_key_prefix
+  api_key_prefix,
+  image_generation
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -167,6 +168,7 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullInt64(input.TimeToFirstTokenMs),
 		input.CreatedAt,
 		opsNullString(input.APIKeyPrefix),
+		service.ImageGenerationDetailJSON(input.ImageGeneration),
 	}
 }
 
@@ -449,7 +451,8 @@ SELECT
   e.time_to_first_token_ms,
   COALESCE(e.api_key_prefix, ''),
   COALESCE(ak.name, ''),
-  ak.deleted_at
+  ak.deleted_at,
+  e.image_generation::text
 FROM ops_error_logs e
 LEFT JOIN users u ON e.user_id = u.id
 LEFT JOIN accounts a ON e.account_id = a.id
@@ -458,6 +461,7 @@ LEFT JOIN api_keys ak ON ak.id = e.api_key_id
 WHERE e.id = $1
 LIMIT 1`
 
+	var generationJSON sql.NullString
 	var out service.OpsErrorLogDetail
 	var statusCode sql.NullInt64
 	var upstreamStatusCode sql.NullInt64
@@ -524,11 +528,16 @@ LIMIT 1`
 		&out.APIKeyPrefix,
 		&detailAPIKeyName,
 		&detailAPIKeyDeletedAt,
+		&generationJSON,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	out.ImageGeneration, err = service.ParseImageGenerationDetail(generationJSON.String)
+	if err != nil {
+		return nil, err
+	}
 	out.StatusCode = int(statusCode.Int64)
 	if resolvedAt.Valid {
 		t := resolvedAt.Time

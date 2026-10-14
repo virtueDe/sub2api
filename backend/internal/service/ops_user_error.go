@@ -125,6 +125,7 @@ func ToUserErrorRequest(e *OpsErrorLog) *UserErrorRequest {
 // 在 UserErrorRequest 基础上额外暴露 error_body(上游错误响应正文)与 upstream_status_code;
 // 仍严禁任何内部/敏感字段。
 type UserErrorRequestDetail struct {
+	ImageGeneration *ImageGenerationDetail `json:"image_generation,omitempty"`
 	UserErrorRequest
 	ErrorBody          string `json:"error_body"`
 	UpstreamStatusCode *int   `json:"upstream_status_code,omitempty"`
@@ -139,6 +140,7 @@ func ToUserErrorRequestDetail(e *OpsErrorLogDetail) *UserErrorRequestDetail {
 	return &UserErrorRequestDetail{
 		UserErrorRequest:   *base,
 		ErrorBody:          e.ErrorBody,
+		ImageGeneration:    e.ImageGeneration,
 		UpstreamStatusCode: e.UpstreamStatusCode,
 	}
 }

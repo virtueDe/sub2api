@@ -336,6 +336,20 @@ export default {
 
   // Usage
   usage: {
+    imageDetail: {
+      title: '生图记录详情',
+      action: '详情',
+      prompt: '提示词',
+      requestParams: '请求参数',
+      images: '生成后的图片',
+      noImages: '未生成图片',
+      notRecorded: '该历史记录未保存生图详情。',
+      partial: '失败前生成的部分图片',
+      imageUnavailable: '图片无法加载，原链接可能已失效。',
+      imageAlt: '生成图片 {index}',
+      loadFailed: '详情加载失败，请重试。',
+    },
+
     title: '使用记录',
     description: '查看和分析您的 API 使用历史',
     costDetails: '费用明细',

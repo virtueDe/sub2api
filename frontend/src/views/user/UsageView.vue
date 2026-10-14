@@ -186,6 +186,7 @@
           :show-upstream-endpoint="false"
           default-sort-key="created_at"
           default-sort-order="desc"
+          @imageDetail="openImageDetail"
           @sort="handleSort"
           @ipGeoBatchFailed="handleIpGeoBatchFailed"
         />
@@ -215,6 +216,7 @@
       />
     </div>
   </AppLayout>
+  <ImageUsageDetailModal v-model:show="showImageDetail" :usage-id="selectedImageUsageId" />
 
 </template>
 
@@ -230,6 +232,7 @@ import Select, { type SelectOption } from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
+import ImageUsageDetailModal from '@/components/usage/ImageUsageDetailModal.vue'
 import ModelDistributionChart from '@/components/charts/ModelDistributionChart.vue'
 import GroupDistributionChart from '@/components/charts/GroupDistributionChart.vue'
 import EndpointDistributionChart from '@/components/charts/EndpointDistributionChart.vue'
@@ -256,6 +259,12 @@ import type { Column } from '@/components/common/types'
 import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
 
 const { t } = useI18n()
+const showImageDetail = ref(false)
+const selectedImageUsageId = ref<number | null>(null)
+function openImageDetail(id: number) {
+  selectedImageUsageId.value = id
+  showImageDetail.value = true
+}
 const appStore = useAppStore()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
