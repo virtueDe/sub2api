@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
 
 type openAIImagesForceResponsesContextKey struct{}
@@ -212,7 +214,9 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingResponse(resp 
 		}
 		return OpenAIUsage{}, 0, nil, err
 	}
+	conversionTiming := imagetiming.Start(c.Request.Context(), "response_convert")
 	results, err := parseCodexDirectImagesResponse(body)
+	defer func() { conversionTiming.End(err) }()
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
@@ -256,6 +260,9 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingResponse(resp 
 			contentType = upstreamType
 		}
 	}
+	conversionTiming.End(nil)
+	writeTiming := imagetiming.Start(c.Request.Context(), "response_write")
 	c.Data(resp.StatusCode, contentType, body)
+	writeTiming.End(nil, zap.Int("body_bytes", len(body)))
 	return usage, len(results), openAIResponsesImageResultSizes(results), nil
 }

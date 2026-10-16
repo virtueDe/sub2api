@@ -17,11 +17,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/gemini"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
+	"github.com/tidwall/gjson"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -325,7 +327,13 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	stream := action == "streamGenerateContent"
 	reqLog = reqLog.With(zap.String("model", modelName), zap.String("action", action), zap.Bool("stream", stream))
 
+	imageRequest := service.IsGeminiImageGenerationModel(modelName)
+	if imageRequest {
+		defer imagetiming.Begin(c, "gemini_image_request")()
+	}
+	readTiming := imagetiming.Start(c.Request.Context(), "request_body_read")
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	readTiming.End(err, zap.Int("body_bytes", len(body)))
 	if err != nil {
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			googleError(c, http.StatusRequestEntityTooLarge, buildBodyTooLargeMessage(maxErr.Limit))
@@ -339,6 +347,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		return
 	}
 
+	if !imageRequest && strings.Contains(strings.ToUpper(gjson.GetBytes(body, "generationConfig.responseModalities").Raw), "IMAGE") {
+		defer imagetiming.Begin(c, "gemini_image_request")()
+	}
 	setOpsRequestContext(c, modelName, stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
 	pricingCtx, pricingAt := service.WithGatewayTokenRequestPricing(c.Request.Context())
@@ -544,7 +555,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if cachedContentExclusions != nil {
 			excludedAccountIDs = mergeAccountIDSets(cachedContentExclusions, fs.FailedAccountIDs)
 		}
+		selectionTiming := imagetiming.Start(c.Request.Context(), "account_select")
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, excludedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
+		selectionTiming.End(err)
 		if err == nil && cachedContentBinding != nil && selection.Account.ID != cachedContentBinding.AccountID {
 			if selection.Acquired && selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()

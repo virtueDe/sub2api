@@ -21,8 +21,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
+	"go.uber.org/zap"
 	"golang.org/x/mod/semver"
 	"golang.org/x/net/http2"
 
@@ -299,6 +301,12 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 // doUpstreamRequest owns cancellation for one attempt, without cancelling the
 // caller's context (which may be detached for billing or reused for retries).
 func doUpstreamRequest(client *http.Client, req *http.Request) (*http.Response, error) {
+	return imagetiming.HTTP(req, func(traced *http.Request) (*http.Response, error) {
+		return doUnobservedUpstreamRequest(client, traced)
+	})
+}
+
+func doUnobservedUpstreamRequest(client *http.Client, req *http.Request) (*http.Response, error) {
 	ctx, cancel := context.WithCancel(req.Context())
 	resp, err := servertiming.Do(client, req.WithContext(ctx))
 	if err != nil {
@@ -393,7 +401,17 @@ func httpClientWithGrokAccessDeniedFallback(client *http.Client) *http.Client {
 }
 
 func (t *grokAccessDeniedFallbackTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	resp, err := t.base.RoundTrip(req)
+	roundTrip := func(request *http.Request, fallback bool) (*http.Response, error) {
+		phase := imagetiming.Start(request.Context(), "http_transport_attempt", zap.String("upstream_host", request.URL.Hostname()), zap.Bool("fallback", fallback))
+		response, err := t.base.RoundTrip(request.WithContext(phase.Context(request.Context())))
+		fields := []zap.Field{}
+		if response != nil {
+			fields = append(fields, zap.Int("http_status", response.StatusCode), zap.String("http_protocol", response.Proto))
+		}
+		phase.End(err, fields...)
+		return response, err
+	}
+	resp, err := roundTrip(req, false)
 	if err != nil || !isGrokCLIAccessDeniedFallbackCandidate(req, resp) {
 		return resp, err
 	}
@@ -407,7 +425,7 @@ func (t *grokAccessDeniedFallbackTransport) RoundTrip(req *http.Request) (*http.
 	if err != nil {
 		return resp, nil
 	}
-	fallbackResp, fallbackErr := t.base.RoundTrip(fallbackReq)
+	fallbackResp, fallbackErr := roundTrip(fallbackReq, true)
 	if fallbackErr != nil {
 		slog.Debug("grok_cli_access_denied_api_fallback_failed", "path", req.URL.EscapedPath(), "error", fallbackErr)
 		return resp, nil

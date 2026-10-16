@@ -188,6 +188,16 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 	require.Equal(t, "1536x1024", loggedFields["img_size"])
 	require.NotContains(t, loggedFields, "prompt")
 
+	timingLogs := observedLogs.FilterMessage("image.timing")
+	attemptLogs := timingLogs.FilterField(zap.String("stage", "forward_attempt")).All()
+	require.Len(t, attemptLogs, 2)
+	require.EqualValues(t, 1, attemptLogs[0].ContextMap()["account_id"])
+	require.EqualValues(t, 2, attemptLogs[1].ContextMap()["account_id"])
+	require.Equal(t, "error", attemptLogs[0].ContextMap()["outcome"])
+	require.NotEqual(t, attemptLogs[0].ContextMap()["span_id"], attemptLogs[1].ContextMap()["span_id"])
+	require.Len(t, timingLogs.FilterField(zap.String("stage", "http_headers")).All(), 2)
+	require.Len(t, timingLogs.FilterField(zap.String("stage", "response_body")).All(), 2)
+
 	require.Equal(t, []int64{1, 2}, upstream.calls())
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())

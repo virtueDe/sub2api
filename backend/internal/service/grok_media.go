@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -653,7 +655,15 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	requestID string,
 	body []byte,
 	contentType string,
-) (*OpenAIForwardResult, error) {
+) (timingResult *OpenAIForwardResult, timingErr error) {
+	if imagetiming.Enabled(ctx) && account != nil {
+		ctx = context.WithValue(ctx, ctxkey.AccountID, account.ID)
+	}
+	attemptTiming := imagetiming.Start(ctx, "forward_attempt")
+	ctx = attemptTiming.Context(ctx)
+	defer func() { attemptTiming.End(timingErr) }()
+	prepareTiming := imagetiming.Start(ctx, "prepare_upstream_request")
+	defer func() { prepareTiming.End(timingErr) }()
 	startTime := time.Now()
 	if account == nil {
 		return nil, fmt.Errorf("grok account is required")
@@ -662,7 +672,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		return nil, fmt.Errorf("account platform %s is not supported for grok media", account.Platform)
 	}
 
+	credentialTiming := imagetiming.Start(ctx, "upstream_credentials")
 	token, _, err := s.getRequestCredential(ctx, c, account)
+	credentialTiming.End(err)
 	if err != nil {
 		return nil, err
 	}
@@ -814,6 +826,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		proxyURL = account.Proxy.URL()
 	}
 	upstreamStart := time.Now()
+	prepareTiming.End(nil, zap.Int64("request_bytes", upstreamReq.ContentLength))
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
@@ -849,7 +862,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 			grokMediaContentProxyURL(c, requestID),
 		)
 	}
+	writeTiming := imagetiming.Start(ctx, "response_write")
 	writeGrokMediaResponse(c, resp, respBody, s.responseHeaderFilter)
+	writeTiming.End(nil, zap.Int("body_bytes", len(respBody)))
 	usage := grokMediaUsageFromResponse(endpoint, requestInfo, respBody)
 	resultModel := requestModel
 	resultBillingModel := requestModel

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -22,6 +23,7 @@ import (
 // POST /v1/images/generations
 // POST /v1/images/edits
 func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
+	defer imagetiming.Begin(c, "image_request")()
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
 
@@ -49,7 +51,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		return
 	}
 
+	bodyRead := imagetiming.Start(c.Request.Context(), "request_body_read")
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+	bodyRead.End(err, zap.Int("body_bytes", len(body)))
 	if err != nil {
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
@@ -70,7 +74,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		setOpsRequestContext(c, "", false)
 	}
 
+	parseTiming := imagetiming.Start(c.Request.Context(), "request_parse")
 	parsed, err := h.gatewayService.ParseOpenAIImagesRequest(c, body)
+	parseTiming.End(err)
 	if err != nil {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -118,7 +124,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			reqLog = reqLog.With(zap.String("aspect_ratio_hint", fmt.Sprint(ratio)))
 		}
 	}
+	imageSlotTiming := imagetiming.Start(c.Request.Context(), "image_slot_wait")
 	imageReleaseFunc, acquired := h.acquireImageGenerationSlot(c, streamStarted)
+	imageSlotTiming.End(nil, zap.Bool("acquired", acquired))
 	if !acquired {
 		return
 	}
@@ -140,7 +148,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
+	userSlotTiming := imagetiming.Start(c.Request.Context(), "user_slot_wait")
 	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, parsed.Stream, &streamStarted, reqLog)
+	userSlotTiming.End(nil, zap.Bool("acquired", acquired))
 	if !acquired {
 		return
 	}
@@ -186,6 +196,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	for {
 		reqLog.Debug("openai.images.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		selectionTiming := imagetiming.Start(c.Request.Context(), "account_select", zap.Int("switch_count", switchCount))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForImages(
 			requestCtx,
 			apiKey.GroupID,
@@ -194,6 +205,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			failedAccountIDs,
 			parsed.RequiredCapabilityForModel(channelMapping.MappedModel),
 		)
+		selectionTiming.End(err)
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("openai.images.account_select_aborted_client_disconnected", zap.Error(err))
@@ -249,7 +261,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		reqLog.Debug("openai.images.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
+		accountSlotTiming := imagetiming.Start(c.Request.Context(), "account_slot_wait", zap.Int64("account_id", account.ID))
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, parsed.Stream, &streamStarted, reqLog)
+		accountSlotTiming.End(nil, zap.Bool("acquired", slotResult == openAISlotAcquireOK))
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// Images 调度不装利润门，此分支实际不可达；防御性排除重选并受同一否决上限约束。
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
@@ -346,11 +360,14 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 								zap.Int("retry_count", sameAccountRetryCount[account.ID]),
 								zap.Duration("retry_delay", retryDelay),
 							)
+							retryTiming := imagetiming.Start(requestCtx, "retry_wait", zap.Int64("account_id", account.ID), zap.Int("retry_count", sameAccountRetryCount[account.ID]))
 							select {
 							case <-requestCtx.Done():
+								retryTiming.End(requestCtx.Err())
 								return
 							case <-time.After(retryDelay):
 							}
+							retryTiming.End(nil)
 							continue
 						}
 					}

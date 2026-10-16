@@ -11,10 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
 
 // AccountExtraImagesURLToB64JSON 是账户 extra 中的开关键。开启后，Images 端点的非流式响应里
@@ -67,8 +69,11 @@ func (s *OpenAIGatewayService) backfillOpenAIImagesB64JSON(
 		if rawURL == "" {
 			continue
 		}
-		encoded, err := s.fetchOpenAIImageURLBase64(ctx, account, rawURL)
+		imageCtx := imagetiming.WithFields(ctx, zap.Int("image_index", index), zap.String("image_direction", "output"))
+		backfillTiming := imagetiming.Start(imageCtx, "image_base64_backfill")
+		encoded, err := s.fetchOpenAIImageURLBase64(backfillTiming.Context(imageCtx), account, rawURL)
 		if err != nil {
+			backfillTiming.End(err, zap.Bool("fallback", true))
 			logger.LegacyPrintf(
 				"service.openai_gateway",
 				"[OpenAI] Images b64_json backfill skipped account_id=%d index=%d err=%s",
@@ -79,6 +84,7 @@ func (s *OpenAIGatewayService) backfillOpenAIImagesB64JSON(
 			continue
 		}
 		updated, err := sjson.SetBytes(body, fmt.Sprintf("data.%d.b64_json", index), encoded)
+		backfillTiming.End(err, zap.Bool("fallback", err != nil))
 		if err != nil {
 			logger.LegacyPrintf(
 				"service.openai_gateway",
@@ -109,12 +115,18 @@ func (s *OpenAIGatewayService) fetchOpenAIImageURLBase64(ctx context.Context, ac
 	if err != nil {
 		return "", err
 	}
-	return base64.StdEncoding.EncodeToString(data), nil
+	encodeTiming := imagetiming.Start(ctx, "image_base64_encode")
+	encoded := base64.StdEncoding.EncodeToString(data)
+	encodeTiming.End(nil, zap.Int("body_bytes", len(data)))
+	return encoded, nil
 }
 
 // fetchOpenAIImageURLBytes 安全下载公网图片，并返回按文件头嗅探出的真实 MIME。
 // 调用方可据此构造可信的 Data URL，避免沿用不可靠的响应 Content-Type。
-func (s *OpenAIGatewayService) fetchOpenAIImageURLBytes(ctx context.Context, account *Account, rawURL string) ([]byte, string, error) {
+func (s *OpenAIGatewayService) fetchOpenAIImageURLBytes(ctx context.Context, account *Account, rawURL string) (timingData []byte, timingType string, timingErr error) {
+	phase := imagetiming.Start(ctx, "image_url_download")
+	ctx = phase.Context(ctx)
+	defer func() { phase.End(timingErr, zap.Int("body_bytes", len(timingData))) }()
 	if s == nil || s.httpUpstream == nil {
 		return nil, "", errors.New("http upstream is not configured")
 	}

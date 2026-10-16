@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
+	"go.uber.org/zap"
 )
 
 const defaultImageMaxDownloadBytes int64 = 32 << 20 // 32 MiB
@@ -103,15 +106,20 @@ func (u *ImageResultUploader) rewrite(ctx context.Context, taskID string, result
 		return result, nil
 	}
 	for i, item := range items {
+		imageCtx := imagetiming.WithFields(ctx, zap.Int("image_index", i))
 		if i < len(passthroughItems) && passthroughItems[i] {
 			continue
 		}
-		data, contentType, err := u.fetchImageBytesMode(ctx, item, b64Only)
+		decodeTiming := imagetiming.Start(imageCtx, "result_image_decode_or_download")
+		data, contentType, err := u.fetchImageBytesMode(decodeTiming.Context(imageCtx), item, b64Only)
+		decodeTiming.End(err, zap.Int("body_bytes", len(data)))
 		if err != nil {
 			return nil, fmt.Errorf("image %d: %w", i, err)
 		}
 		key := u.buildKey(taskID, i, contentType)
-		url, err := u.storage.Save(ctx, key, contentType, data)
+		uploadTiming := imagetiming.Start(imageCtx, "result_image_upload", zap.Int("body_bytes", len(data)))
+		url, err := u.storage.Save(uploadTiming.Context(imageCtx), key, contentType, data)
+		uploadTiming.End(err)
 		if err != nil {
 			return nil, fmt.Errorf("image %d: upload to object storage: %w", i, err)
 		}
@@ -231,7 +239,7 @@ func (u *ImageResultUploader) download(ctx context.Context, rawURL string) ([]by
 	if err != nil {
 		return nil, "", fmt.Errorf("build download request: %w", err)
 	}
-	resp, err := u.httpClient.Do(req)
+	resp, err := imagetiming.HTTP(req, u.httpClient.Do)
 	if err != nil {
 		return nil, "", fmt.Errorf("download image: %w", err)
 	}

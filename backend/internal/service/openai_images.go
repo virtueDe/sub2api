@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
@@ -697,7 +699,13 @@ func (s *OpenAIGatewayService) ForwardImages(
 	body []byte,
 	parsed *OpenAIImagesRequest,
 	channelMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (result *OpenAIForwardResult, resultErr error) {
+	if account != nil {
+		ctx = context.WithValue(ctx, ctxkey.AccountID, account.ID)
+	}
+	attempt := imagetiming.Start(ctx, "forward_attempt")
+	ctx = attempt.Context(ctx)
+	defer func() { attempt.End(resultErr) }()
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
@@ -751,7 +759,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	body []byte,
 	parsed *OpenAIImagesRequest,
 	channelMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (timingResult *OpenAIForwardResult, timingErr error) {
+	prepareTiming := imagetiming.Start(ctx, "prepare_upstream_request")
+	defer func() { prepareTiming.End(timingErr) }()
 	startTime := time.Now()
 	requestModel := strings.TrimSpace(parsed.Model)
 	if mapped := strings.TrimSpace(channelMappedModel); mapped != "" {
@@ -872,7 +882,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		)
 	}
 
+	buildTiming := imagetiming.Start(ctx, "request_encode", zap.String("upstream_model", upstreamModel))
 	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel, formatNormalizeEnabled)
+	buildTiming.End(err, zap.Int("body_bytes", len(forwardBody)))
 	if err != nil {
 		return nil, err
 	}
@@ -884,7 +896,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	defer releaseUpstreamCtx()
 
+	credentialTiming := imagetiming.Start(ctx, "upstream_credentials")
 	token, _, err := s.GetAccessToken(upstreamCtx, account)
+	credentialTiming.End(err)
 	if err != nil {
 		return nil, err
 	}
@@ -897,6 +911,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	prepareTiming.End(nil, zap.Int64("request_bytes", upstreamReq.ContentLength))
 	upstreamStart := time.Now()
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
@@ -1303,11 +1318,13 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(
 	c *gin.Context,
 	account *Account,
 	parsed *OpenAIImagesRequest,
-) (OpenAIUsage, int, []string, error) {
+) (timingUsage OpenAIUsage, timingCount int, timingSizes []string, timingErr error) {
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
+	processTiming := imagetiming.Start(ctx, "response_process")
+	defer func() { processTiming.End(timingErr) }()
 	if s.settingService != nil && account != nil && parsed != nil && !parsed.upstreamResponsePassthrough &&
 		parsed.ResponseFormat == "url" &&
 		s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID) {
@@ -1324,7 +1341,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(
 		}
 		body = rewritten
 	}
+	backfillTiming := imagetiming.Start(ctx, "response_backfill")
 	body = s.backfillOpenAIImagesB64JSON(ctx, account, parsed, body)
+	backfillTiming.End(nil)
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := "application/json"
 	if s.cfg != nil && !s.cfg.Security.ResponseHeaders.Enabled {
@@ -1332,10 +1351,17 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(
 			contentType = upstreamType
 		}
 	}
+	processTiming.End(nil)
+	writeTiming := imagetiming.Start(ctx, "response_write")
 	c.Data(resp.StatusCode, contentType, body)
+	writeTiming.End(nil, zap.Int("body_bytes", len(body)))
 
+	parseTiming := imagetiming.Start(ctx, "usage_and_image_metadata_parse")
 	usage, _ := extractOpenAIUsageFromJSONBytes(body)
-	return usage, extractOpenAIImageCountFromJSONBytes(body), collectOpenAIResponseImageOutputSizesFromJSONBytes(body), nil
+	count := extractOpenAIImageCountFromJSONBytes(body)
+	sizes := collectOpenAIResponseImageOutputSizesFromJSONBytes(body)
+	parseTiming.End(nil)
+	return usage, count, sizes, nil
 }
 
 func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
@@ -1343,7 +1369,13 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	c *gin.Context,
 	startTime time.Time,
 	direct *OpenAIImagesRequest,
-) (OpenAIUsage, int, []string, *int, error) {
+) (timingUsage OpenAIUsage, timingCount int, timingSizes []string, timingFirst *int, timingErr error) {
+	streamTiming := imagetiming.Start(c.Request.Context(), "image_stream")
+	firstImageTiming := imagetiming.Start(c.Request.Context(), "wait_first_complete_image")
+	defer func() {
+		streamTiming.End(timingErr, zap.Int("image_count", timingCount))
+		firstImageTiming.End(timingErr, zap.Bool("image_received", false))
+	}()
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
 	if contentType == "" {
@@ -1368,6 +1400,26 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	seenSSEData := false
 	fallbackTooLarge := false
 	var sseData openAISSEDataAccumulator
+	// Observe received payloads before forwarding them. A slow client must not
+	// delay the timestamp of an already-received, complete single-line event.
+	var receivedData openAISSEDataAccumulator
+	receivedImages := newOpenAIImageOutputCounter()
+	observePayload := func(data []byte) {
+		receivedImages.AddSSEData(data)
+		if receivedImages.Count() > 0 {
+			firstImageTiming.End(nil, zap.Bool("image_received", true))
+		}
+	}
+	observeFirstImage := func(line []byte) {
+		if firstImageTiming == nil || receivedImages.Count() > 0 {
+			return
+		}
+		trimmed := strings.TrimRight(string(line), "\r\n")
+		if data, ok := extractOpenAISSEDataLine(trimmed); ok && gjson.Valid(data) {
+			observePayload([]byte(data))
+		}
+		receivedData.AddLine(trimmed, observePayload)
+	}
 	var streamErr error
 	finish := func() error {
 		if direct == nil {
@@ -1396,6 +1448,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		}
 		mergeOpenAIUsage(&usage, dataBytes)
 		imageCounter.AddSSEData(dataBytes)
+		if imageCounter.Count() > 0 {
+			firstImageTiming.End(nil, zap.Bool("image_received", true))
+		}
 		if direct == nil || string(dataBytes) == "[DONE]" {
 			return
 		}
@@ -1496,6 +1551,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		}
 		mergeOpenAIUsage(&usage, body)
 		imageCounter.AddJSONResponse(body)
+		if imageCounter.Count() > 0 {
+			firstImageTiming.End(nil, zap.Bool("image_received", true), zap.Bool("json_fallback", true))
+		}
 	}
 
 	streamInterval := s.openAIImageStreamDataInterval()
@@ -1504,6 +1562,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		reader := bufio.NewReader(resp.Body)
 		for {
 			line, err := reader.ReadBytes('\n')
+			observeFirstImage(line)
 			processLine(line)
 			if err == io.EOF {
 				break
@@ -1539,6 +1598,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		reader := bufio.NewReader(resp.Body)
 		for {
 			line, err := reader.ReadBytes('\n')
+			observeFirstImage(line)
 			if len(line) > 0 {
 				atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
 			}
