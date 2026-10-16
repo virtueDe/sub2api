@@ -37,7 +37,9 @@ func TestHTTPSeparatesHeadersAndBodyAndRecordsNegotiatedProtocol(t *testing.T) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.(http.Flusher).Flush()
+		flusher, ok := w.(http.Flusher)
+		require.True(t, ok)
+		flusher.Flush()
 		<-release
 		_, _ = io.WriteString(w, `{"data":[]}`)
 	}))
@@ -49,7 +51,7 @@ func TestHTTPSeparatesHeadersAndBodyAndRecordsNegotiatedProtocol(t *testing.T) {
 	require.NoError(t, err)
 	resp, err := HTTP(req, server.Client().Do)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { require.NoError(t, resp.Body.Close()) }()
 	headers := stages(logs, "http_headers")
 	require.Len(t, headers, 1)
 	require.Equal(t, "HTTP/2.0", headers[0].ContextMap()["http_protocol"])
@@ -65,7 +67,9 @@ func TestHTTPSeparatesHeadersAndBodyAndRecordsNegotiatedProtocol(t *testing.T) {
 	fields := reads[0].ContextMap()
 	require.Equal(t, "eof", fields["body_end"])
 	require.EqualValues(t, len(data), fields["body_bytes"])
-	require.GreaterOrEqual(t, fields["read_wait_ms"].(float64), 15.0)
+	readWait, ok := fields["read_wait_ms"].(float64)
+	require.True(t, ok)
+	require.GreaterOrEqual(t, readWait, 15.0)
 	require.Equal(t, "request-1", fields["request_id"])
 	require.Equal(t, "client-1", fields["client_request_id"])
 	require.NotEmpty(t, stages(logs, "tls_handshake"))
@@ -167,7 +171,9 @@ func TestGinMeasuresDownstreamWaitAndPreservesResponse(t *testing.T) {
 	require.Equal(t, 200, recorder.Code)
 	writes := stages(logs, "downstream_write")
 	require.Len(t, writes, 1)
-	require.GreaterOrEqual(t, writes[0].ContextMap()["write_wait_ms"].(float64), 15.0)
+	writeWait, ok := writes[0].ContextMap()["write_wait_ms"].(float64)
+	require.True(t, ok)
+	require.GreaterOrEqual(t, writeWait, 15.0)
 }
 
 func TestSpanOnceAndDetachedTaskCorrelation(t *testing.T) {
@@ -248,7 +254,9 @@ func TestBodyCloseWaitsForActiveReadAccounting(t *testing.T) {
 	require.Len(t, entries, 1)
 	require.EqualValues(t, 4, entries[0].ContextMap()["body_bytes"])
 	require.Equal(t, "canceled", entries[0].ContextMap()["error_kind"])
-	require.Greater(t, entries[0].ContextMap()["read_wait_ms"].(float64), 0.0)
+	readWait, ok := entries[0].ContextMap()["read_wait_ms"].(float64)
+	require.True(t, ok)
+	require.Greater(t, readWait, 0.0)
 }
 
 type slowFailedCloseBody struct {

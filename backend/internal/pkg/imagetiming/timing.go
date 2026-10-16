@@ -61,7 +61,10 @@ func Start(ctx context.Context, stage string, fields ...zap.Field) *Span {
 	if !Enabled(ctx) {
 		return nil
 	}
-	t := ctx.Value(contextKey{}).(*trace)
+	t, ok := ctx.Value(contextKey{}).(*trace)
+	if !ok || t == nil {
+		return nil
+	}
 	s := &Span{ctx: ctx, started: time.Now(), id: t.next.Add(1)}
 	s.fields = append(s.fields, zap.String("stage", stage), zap.Int64("span_id", s.id),
 		zap.Float64("start_offset_ms", milliseconds(s.started.Sub(t.started))), zap.Bool(logger.OpsSystemLogSkipField, true))
