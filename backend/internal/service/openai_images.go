@@ -122,6 +122,8 @@ type OpenAIImagesRequest struct {
 	MaskUpload          *OpenAIImagesUpload
 	Body                []byte
 	bodyHash            string
+
+	upstreamResponsePassthrough bool
 }
 
 func (r *OpenAIImagesRequest) ModerationBody() []byte {
@@ -705,6 +707,7 @@ func (s *OpenAIGatewayService) ForwardImages(
 	forwardParsed := *parsed
 	forwardParsed.InputImageURLs = append([]string(nil), parsed.InputImageURLs...)
 	parsed = &forwardParsed
+	parsed.upstreamResponsePassthrough = s.IsImageUpstreamResponsePassthroughEnabledForAccount(ctx, account.ID)
 	responseB64Enabled := s.settingService != nil && s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID)
 	if account.Type == AccountTypeAPIKey && responseB64Enabled {
 		var rewriteErr error
@@ -840,7 +843,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 
 	responseB64Enabled := s.settingService != nil && s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID)
 	asyncTask := IsAsyncImageTaskExecution(ctx)
-	if responseB64Enabled && shouldNormalizeOpenAIImagesResponseFormat(parsed, asyncTask) {
+	if !parsed.upstreamResponsePassthrough && responseB64Enabled && shouldNormalizeOpenAIImagesResponseFormat(parsed, asyncTask) {
 		clientResponseFormat := parsed.ResponseFormat
 		if asyncTask || clientResponseFormat == "" {
 			parsed.ResponseFormat = "b64_json"
@@ -1305,7 +1308,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
-	if s.settingService != nil && account != nil && parsed != nil &&
+	if s.settingService != nil && account != nil && parsed != nil && !parsed.upstreamResponsePassthrough &&
 		parsed.ResponseFormat == "url" &&
 		s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID) {
 		if s.imageResponseUploader == nil {
@@ -1421,7 +1424,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			eventType = strings.Replace(eventType, "image_generation.", "image_edit.", 1)
 			dataBytes, _ = sjson.SetBytes(dataBytes, "type", eventType)
 		}
-		if direct.ResponseFormat == "url" {
+		if !direct.upstreamResponsePassthrough && direct.ResponseFormat == "url" {
 			b64 := gjson.GetBytes(dataBytes, "b64_json").String()
 			format := gjson.GetBytes(dataBytes, "output_format").String()
 			if format == "" {

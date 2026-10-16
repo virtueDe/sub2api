@@ -388,6 +388,9 @@ type UpdateSettingsRequest struct {
 	ImageURLResponseB64Enabled         *bool    `json:"image_url_response_b64_enabled"`
 	ImageURLResponseB64AccountIDs      *[]int64 `json:"image_url_response_b64_account_ids"`
 
+	ImageUpstreamResponsePassthroughEnabled    *bool    `json:"image_upstream_response_passthrough_enabled"`
+	ImageUpstreamResponsePassthroughAccountIDs *[]int64 `json:"image_upstream_response_passthrough_account_ids"`
+
 	// OpenAI fast/flex policy (optional, only updated when provided)
 	OpenAIFastPolicySettings *dto.OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
 
@@ -2126,6 +2129,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ImageURLResponseB64AccountIDs
 		}(),
+		ImageUpstreamResponsePassthroughEnabled: func() bool {
+			if req.ImageUpstreamResponsePassthroughEnabled != nil {
+				return *req.ImageUpstreamResponsePassthroughEnabled
+			}
+			return previousSettings.ImageUpstreamResponsePassthroughEnabled
+		}(),
+		ImageUpstreamResponsePassthroughAccountIDs: func() []int64 {
+			if req.ImageUpstreamResponsePassthroughAccountIDs != nil {
+				return normalizeInt64IDList(*req.ImageUpstreamResponsePassthroughAccountIDs)
+			}
+			return previousSettings.ImageUpstreamResponsePassthroughAccountIDs
+		}(),
 	}
 
 	// req.AuthSourceXxxPlatformQuotas 为 nil 表示本次请求未包含该 source 的 quota 配置（保留 previousAuthSourceDefaults 中的值）；
@@ -2442,6 +2457,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ImageEditFormatNormalizeAccountIDs:                     updatedSettings.ImageEditFormatNormalizeAccountIDs,
 		ImageURLResponseB64Enabled:                             updatedSettings.ImageURLResponseB64Enabled,
 		ImageURLResponseB64AccountIDs:                          updatedSettings.ImageURLResponseB64AccountIDs,
+		ImageUpstreamResponsePassthroughEnabled:                updatedSettings.ImageUpstreamResponsePassthroughEnabled,
+		ImageUpstreamResponsePassthroughAccountIDs:             updatedSettings.ImageUpstreamResponsePassthroughAccountIDs,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 updatedSettings.EnableClaudeOAuthSystemPromptInjection,

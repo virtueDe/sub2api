@@ -98,8 +98,8 @@ func NewImageTaskServiceWithOptions(store ImageTaskStore, ttl, executionTimeout 
 	return &ImageTaskService{store: store, ttl: ttl, executionTimeout: executionTimeout}
 }
 
-// NewImageTaskServiceWithUploader 构造一个已启用的图片任务服务：结果会先经 uploader
-// 转存到对象存储再落 Redis。uploader 为 nil 时不做转存（仅用于测试）。
+// NewImageTaskServiceWithUploader 构造一个已启用的图片任务服务：默认先转存结果，
+// 按账号开启响应直返时保留上游结果。uploader 为 nil 时不做转存（仅用于测试）。
 func NewImageTaskServiceWithUploader(store ImageTaskStore, uploader *ImageResultUploader, ttl, executionTimeout time.Duration) *ImageTaskService {
 	s := NewImageTaskServiceWithOptions(store, ttl, executionTimeout)
 	s.uploader = uploader
@@ -191,8 +191,11 @@ func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode i
 	if !json.Valid(result) {
 		return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "upstream returned a non-JSON image response"))
 	}
+	if imageUpstreamResponsePassthrough(ctx) {
+		return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
+	}
 	if uploader, _ := s.current(); uploader != nil {
-		rewritten, err := uploader.Rewrite(ctx, id, result)
+		rewritten, err := uploader.rewrite(ctx, id, result, false, imageUpstreamResponsePassthroughItems(ctx))
 		if err != nil {
 			// 转存失败不回退存 base64，避免大 blob 撑爆 Redis：直接把任务标记为失败。
 			logger.L().Error("image_task.offload_failed", zap.String("task_id", id), zap.Error(err))

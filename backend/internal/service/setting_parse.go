@@ -250,6 +250,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyImageURLResponseB64Enabled:            "false",
 		SettingKeyImageURLResponseB64AccountIDs:         "[]",
 
+		SettingKeyImageUpstreamResponsePassthroughEnabled:    "false",
+		SettingKeyImageUpstreamResponsePassthroughAccountIDs: "[]",
+
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled:              "false",
 		SettingKeyAffiliateAdminRechargeEnabled: strconv.FormatBool(AdminRechargeRebateEnabledDefault),
@@ -888,6 +891,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ImageEditFormatNormalizeAccountIDs = parseSettingInt64List(settings[SettingKeyImageEditFormatNormalizeAccountIDs])
 	result.ImageURLResponseB64Enabled = settings[SettingKeyImageURLResponseB64Enabled] == "true"
 	result.ImageURLResponseB64AccountIDs = parseSettingInt64List(settings[SettingKeyImageURLResponseB64AccountIDs])
+	result.ImageUpstreamResponsePassthroughEnabled = settings[SettingKeyImageUpstreamResponsePassthroughEnabled] == "true"
+	result.ImageUpstreamResponsePassthroughAccountIDs = parseSettingInt64List(settings[SettingKeyImageUpstreamResponsePassthroughAccountIDs])
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

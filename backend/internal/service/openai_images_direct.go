@@ -237,7 +237,7 @@ func (s *OpenAIGatewayService) handleCodexDirectImagesNonStreamingResponse(resp 
 			}
 		}
 	}
-	if parsed.ResponseFormat == "url" {
+	if !parsed.upstreamResponsePassthrough && parsed.ResponseFormat == "url" {
 		for i, item := range gjson.GetBytes(body, "data").Array() {
 			format := item.Get("output_format").String()
 			if format == "" {

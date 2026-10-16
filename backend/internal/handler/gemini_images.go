@@ -74,6 +74,7 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 		count = 4
 	}
 	images := make([]map[string]string, 0, count)
+	var passthroughItems []bool
 	for i := 0; i < count; i++ {
 		status, responseBody := h.forwardGeminiImage(c, parsed.Model, nativeBody)
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
@@ -87,6 +88,15 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 			return
 		}
 		images = append(images, items...)
+		if service.IsAsyncImageTaskExecution(c.Request.Context()) {
+			passthrough := h.openAIGatewayService.IsImageUpstreamResponsePassthroughEnabledForAccount(context.WithoutCancel(c.Request.Context()), c.GetInt64(opsAccountIDKey))
+			for range items {
+				passthroughItems = append(passthroughItems, passthrough)
+			}
+		}
+	}
+	if passthroughItems != nil {
+		c.Set(imageTaskPassthroughItemsKey, passthroughItems)
 	}
 	imageResponse, _ := json.Marshal(map[string]any{"created": time.Now().Unix(), "data": images})
 	c.Data(http.StatusOK, "application/json", imageResponse)

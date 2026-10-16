@@ -69,17 +69,17 @@ func (u *ImageResultUploader) GetStorage() ImageStorage {
 // 返回改写后的紧凑结果（data[i].url 指向对象存储，b64_json 被移除）。
 // 任一图片转存失败即返回 error（调用方据此将任务标记为失败，绝不把大 blob 落 Redis）。
 func (u *ImageResultUploader) Rewrite(ctx context.Context, taskID string, result json.RawMessage) (json.RawMessage, error) {
-	return u.rewrite(ctx, taskID, result, false)
+	return u.rewrite(ctx, taskID, result, false, nil)
 }
 
 // RewriteB64 rewrites an upstream response that must contain b64_json image
 // items. It deliberately rejects URL-only items so this path cannot turn an
 // unexpected upstream URL into a server-side image download.
 func (u *ImageResultUploader) RewriteB64(ctx context.Context, taskID string, result json.RawMessage) (json.RawMessage, error) {
-	return u.rewrite(ctx, taskID, result, true)
+	return u.rewrite(ctx, taskID, result, true, nil)
 }
 
-func (u *ImageResultUploader) rewrite(ctx context.Context, taskID string, result json.RawMessage, b64Only bool) (json.RawMessage, error) {
+func (u *ImageResultUploader) rewrite(ctx context.Context, taskID string, result json.RawMessage, b64Only bool, passthroughItems []bool) (json.RawMessage, error) {
 	if u == nil || u.storage == nil {
 		if b64Only {
 			return nil, errors.New("image response storage is not configured")
@@ -103,6 +103,9 @@ func (u *ImageResultUploader) rewrite(ctx context.Context, taskID string, result
 		return result, nil
 	}
 	for i, item := range items {
+		if i < len(passthroughItems) && passthroughItems[i] {
+			continue
+		}
 		data, contentType, err := u.fetchImageBytesMode(ctx, item, b64Only)
 		if err != nil {
 			return nil, fmt.Errorf("image %d: %w", i, err)

@@ -40,6 +40,9 @@ func (s *OpenAIGatewayService) backfillOpenAIImagesB64JSON(
 	parsed *OpenAIImagesRequest,
 	body []byte,
 ) []byte {
+	if parsed != nil && parsed.upstreamResponsePassthrough {
+		return body
+	}
 	if !ImagesURLToB64JSONEnabled(account) {
 		return body
 	}

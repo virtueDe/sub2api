@@ -31,6 +31,8 @@ type AsyncImageHandler struct {
 	execute func(platform string, c *gin.Context)
 }
 
+const imageTaskPassthroughItemsKey = "image_task_passthrough_items"
+
 func NewAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGatewayHandler, ops ...*service.OpsService) *AsyncImageHandler {
 	var opsService *service.OpsService
 	if len(ops) > 0 {
@@ -50,8 +52,8 @@ func (h *AsyncImageHandler) SetGeminiHandler(gemini *GatewayHandler) {
 }
 
 // enabled reports whether the async image task feature is available. Object
-// storage is the enablement gate: without it the endpoints are fully disabled
-// so that large base64 results never land in Redis.
+// storage remains the enablement gate; selected accounts may opt out of result
+// offloading through the upstream response passthrough setting.
 func (h *AsyncImageHandler) enabled() bool {
 	return h != nil && h.tasks != nil && h.tasks.Enabled()
 }
@@ -290,7 +292,19 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 			h.failTask(taskID, platform, taskCtx, http.StatusBadGateway, imageTaskErrorPayload("api_error", "upstream returned an invalid image response"))
 			return
 		}
-		if err := h.tasks.Complete(context.Background(), taskID, statusCode, json.RawMessage(body)); err != nil {
+		completionCtx := context.Background()
+		if items, ok := taskCtx.Get(imageTaskPassthroughItemsKey); ok {
+			// Gemini may aggregate successful requests from different accounts.
+			if policies, ok := items.([]bool); ok {
+				completionCtx = service.WithImageUpstreamResponsePassthroughItems(completionCtx, policies)
+			}
+		} else {
+			// Use the final successful account, never an earlier failed attempt.
+			passthrough := h.openAI != nil && h.openAI.gatewayService.IsImageUpstreamResponsePassthroughEnabledForAccount(
+				completionCtx, taskCtx.GetInt64(opsAccountIDKey))
+			completionCtx = service.WithImageUpstreamResponsePassthrough(completionCtx, passthrough)
+		}
+		if err := h.tasks.Complete(completionCtx, taskID, statusCode, json.RawMessage(body)); err != nil {
 			logger.L().Error("image_task.complete_store_failed", zap.String("task_id", taskID), zap.Error(err))
 		}
 		return

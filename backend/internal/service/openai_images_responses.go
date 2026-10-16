@@ -1934,11 +1934,16 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	// 与 handleOpenAIImagesOAuthResponseError 的比较端同口径：排除非流式 JSON
 	// keepalive 心跳字节，避免 failover 第 2 轮起把上一轮心跳残留误判为已写响应。
 	writerSizeBeforeResponse := OpenAIImagesJSONKeepaliveAdjustedWrittenSize(c)
+	responseFormat := parsed.ResponseFormat
+	if parsed.upstreamResponsePassthrough {
+		// Responses image_generation results contain base64 image data.
+		responseFormat = "b64_json"
+	}
 	if parsed.Stream {
 		if direct {
 			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesStreamingResponse(resp, c, startTime, parsed)
 		} else {
-			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesOAuthStreamingResponse(resp, c, startTime, parsed.ResponseFormat, openAIImagesStreamPrefix(parsed), upstreamModel)
+			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesOAuthStreamingResponse(resp, c, startTime, responseFormat, openAIImagesStreamPrefix(parsed), upstreamModel)
 		}
 		if err != nil {
 			if imageCount > 0 {
@@ -1976,7 +1981,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		if direct {
 			usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingResponse(resp, c, parsed)
 		} else {
-			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel)
+			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, responseFormat, requestModel)
 		}
 		if err != nil {
 			return nil, s.handleOpenAIImagesOAuthResponseError(

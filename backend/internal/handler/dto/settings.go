@@ -374,6 +374,9 @@ type SystemSettings struct {
 	ImageEditFormatNormalizeAccountIDs []int64 `json:"image_edit_format_normalize_account_ids"`
 	ImageURLResponseB64Enabled         bool    `json:"image_url_response_b64_enabled"`
 	ImageURLResponseB64AccountIDs      []int64 `json:"image_url_response_b64_account_ids"`
+
+	ImageUpstreamResponsePassthroughEnabled    bool    `json:"image_upstream_response_passthrough_enabled"`
+	ImageUpstreamResponsePassthroughAccountIDs []int64 `json:"image_upstream_response_passthrough_account_ids"`
 }
 
 type DefaultSubscriptionSetting struct {
