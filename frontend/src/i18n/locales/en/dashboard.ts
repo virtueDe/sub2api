@@ -415,6 +415,8 @@ export default {
     ws: 'WS',
     stream: 'Stream',
     sync: 'Sync',
+    imageSync: 'Image request - Sync',
+    imageAsync: 'Image request - Async',
     nativeCompactionV2: 'Compaction',
     compactionFilter: 'Request Kind',
     allCompactionTypes: 'All Requests',

@@ -617,6 +617,7 @@ func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usage
 	if repo == nil || usageLog == nil {
 		return
 	}
+	usageLog.classifyImageRequestType(ctx)
 	usageCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
 

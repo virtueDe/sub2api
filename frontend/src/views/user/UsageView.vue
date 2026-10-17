@@ -256,7 +256,7 @@ import type {
   UserErrorRequest,
 } from '@/types'
 import type { Column } from '@/components/common/types'
-import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
+import { COMMON_ERROR_STATUS_CODES, requestTypeLabelKey } from '@/utils/errorBadges'
 
 const { t } = useI18n()
 const showImageDetail = ref(false)
@@ -392,6 +392,8 @@ const granularityOptions = computed<SelectOption[]>(() => [
 ])
 const requestTypeOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allTypes') },
+  { value: 'image_sync', label: t('usage.imageSync') },
+  { value: 'image_async', label: t('usage.imageAsync') },
   { value: 'ws_v2', label: t('usage.ws') },
   { value: 'live', label: t('usage.live') },
   { value: 'stream', label: t('usage.stream') },
@@ -619,6 +621,7 @@ const handleIpGeoBatchFailed = () => {
 
 const getRequestTypeExportText = (log: UsageLog): string => {
   const requestType = resolveUsageRequestType(log)
+  if (requestType === 'image_sync' || requestType === 'image_async') return t(requestTypeLabelKey(requestType))
   if (requestType === 'cyber') return 'Cyber'
   if (requestType === 'live') return 'Live'
   if (requestType === 'ws_v2') return 'WS'

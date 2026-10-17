@@ -6,6 +6,7 @@
       <div class="grid grid-cols-2 gap-4 text-sm text-gray-700 dark:text-dark-200">
         <div>{{ t('usage.model') }}<p class="mt-1 font-medium">{{ record.model }}</p></div>
         <div>{{ t('usage.time') }}<p class="mt-1">{{ formatDateTime(record.created_at) }}</p></div>
+        <div>{{ t('admin.ops.errorDetail.requestType') }}<p class="mt-1">{{ t(requestTypeLabelKey(resolveUsageRequestType(record))) }}</p></div>
       </div>
       <ImageGenerationDetail :detail="record.image_generation" />
     </div>
@@ -20,6 +21,8 @@ import ImageGenerationDetail from './ImageGenerationDetail.vue'
 import { getById as getUserUsage } from '@/api/usage'
 import { getById as getAdminUsage } from '@/api/admin/usage'
 import { formatDateTime } from '@/utils/format'
+import { resolveUsageRequestType } from '@/utils/usageRequestType'
+import { requestTypeLabelKey } from '@/utils/errorBadges'
 import type { UsageLog } from '@/types'
 
 const props = defineProps<{ show: boolean; usageId: number | null; admin?: boolean }>()

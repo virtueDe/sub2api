@@ -314,6 +314,8 @@ function isUpstreamError(d: OpsErrorDetail | null): boolean {
 
 function formatRequestTypeLabel(type: number | null | undefined): string {
   switch (type) {
+    case 6: return t('usage.imageSync')
+    case 7: return t('usage.imageAsync')
     case 1: return t('admin.ops.errorDetail.requestTypeSync')
     case 2: return t('admin.ops.errorDetail.requestTypeStream')
     case 3: return t('admin.ops.errorDetail.requestTypeWs')

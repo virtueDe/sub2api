@@ -420,6 +420,8 @@ export default {
     ws: 'WS',
     stream: '流式',
     sync: '同步',
+    imageSync: '生图请求-同步',
+    imageAsync: '生图请求-异步',
     nativeCompactionV2: '压缩',
     compactionFilter: '请求类别',
     allCompactionTypes: '全部请求',

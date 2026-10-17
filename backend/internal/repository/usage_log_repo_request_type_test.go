@@ -855,6 +855,8 @@ func TestBuildRequestTypeFilterConditionLegacyFallback(t *testing.T) {
 		wantWhere string
 		wantArg   int16
 	}{
+		{name: "image_sync", request: int16(service.RequestTypeImageSync), wantWhere: "request_type = $3", wantArg: int16(service.RequestTypeImageSync)},
+		{name: "image_async", request: int16(service.RequestTypeImageAsync), wantWhere: "request_type = $3", wantArg: int16(service.RequestTypeImageAsync)},
 		{
 			name:      "sync_with_legacy_fallback",
 			request:   int16(service.RequestTypeSync),

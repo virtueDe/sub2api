@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -20,11 +21,13 @@ const (
 	RequestTypeWSV2         RequestType = 3
 	RequestTypeCyberBlocked RequestType = 4 // cyber_policy 命中（透传但被上游安全策略拒绝）
 	RequestTypeLive         RequestType = 5
+	RequestTypeImageSync    RequestType = 6
+	RequestTypeImageAsync   RequestType = 7
 )
 
 func (t RequestType) IsValid() bool {
 	switch t {
-	case RequestTypeUnknown, RequestTypeSync, RequestTypeStream, RequestTypeWSV2, RequestTypeCyberBlocked, RequestTypeLive:
+	case RequestTypeUnknown, RequestTypeSync, RequestTypeStream, RequestTypeWSV2, RequestTypeCyberBlocked, RequestTypeLive, RequestTypeImageSync, RequestTypeImageAsync:
 		return true
 	default:
 		return false
@@ -50,6 +53,10 @@ func (t RequestType) String() string {
 		return "cyber"
 	case RequestTypeLive:
 		return "live"
+	case RequestTypeImageSync:
+		return "image_sync"
+	case RequestTypeImageAsync:
+		return "image_async"
 	default:
 		return "unknown"
 	}
@@ -73,8 +80,12 @@ func ParseUsageRequestType(value string) (RequestType, error) {
 		return RequestTypeCyberBlocked, nil
 	case "live":
 		return RequestTypeLive, nil
+	case "image_sync":
+		return RequestTypeImageSync, nil
+	case "image_async":
+		return RequestTypeImageAsync, nil
 	default:
-		return RequestTypeUnknown, fmt.Errorf("invalid request_type, allowed values: unknown, sync, stream, ws_v2, cyber, live")
+		return RequestTypeUnknown, fmt.Errorf("invalid request_type, allowed values: unknown, sync, stream, ws_v2, cyber, live, image_sync, image_async")
 	}
 }
 
@@ -222,6 +233,42 @@ type UsageLog struct {
 
 func (u *UsageLog) TotalTokens() int {
 	return u.InputTokens + u.OutputTokens + u.CacheCreationTokens + u.CacheReadTokens
+}
+
+// ResolveImageRequestType shares execution-mode classification between usage
+// and error records, including failures before an image handler starts.
+func ResolveImageRequestType(ctx context.Context, endpoint string, hasImageGeneration bool) RequestType {
+	endpoint = strings.TrimSpace(endpoint)
+	path := strings.TrimSuffix(endpoint, "/async")
+	imageEndpoint := strings.HasSuffix(path, "/images/generations") || strings.HasSuffix(path, "/images/edits")
+	if IsAsyncImageTaskExecution(ctx) || strings.HasSuffix(path, "/images/batches") ||
+		(imageEndpoint && strings.HasSuffix(endpoint, "/async")) {
+		return RequestTypeImageAsync
+	}
+	if hasImageGeneration || imageEndpoint {
+		return RequestTypeImageSync
+	}
+	return RequestTypeUnknown
+}
+
+// classifyImageRequestType runs only for new records. Historical Images rows
+// did not retain the async execution marker, so reads must not guess their mode.
+func (u *UsageLog) classifyImageRequestType(ctx context.Context) {
+	if u == nil {
+		return
+	}
+	switch u.RequestType {
+	case RequestTypeCyberBlocked, RequestTypeLive, RequestTypeImageSync, RequestTypeImageAsync:
+		return
+	}
+	if u.VideoCount > 0 || optionalStringValue(u.BillingMode) == string(BillingModeVideo) {
+		return
+	}
+	hasImages := u.ImageGeneration != nil || u.HasImageGeneration || u.ImageCount > 0 || u.ImageOutputTokens > 0 ||
+		optionalStringValue(u.BillingMode) == string(BillingModeImage)
+	if requestType := ResolveImageRequestType(ctx, optionalStringValue(u.InboundEndpoint), hasImages); requestType != RequestTypeUnknown {
+		u.RequestType = requestType
+	}
 }
 
 func (u *UsageLog) EffectiveRequestType() RequestType {

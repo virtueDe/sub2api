@@ -1249,19 +1249,8 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				}
 				return ""
 			}(),
-			RequestType: func() *int16 {
-				if v, ok := c.Get(opsRequestTypeKey); ok {
-					switch t := v.(type) {
-					case int16:
-						return &t
-					case int:
-						v16 := int16(t)
-						return &v16
-					}
-				}
-				return nil
-			}(),
-			UserAgent: c.GetHeader("User-Agent"),
+			RequestType: opsRequestTypeFromContext(c),
+			UserAgent:   c.GetHeader("User-Agent"),
 
 			ErrorPhase:        phase,
 			ErrorType:         normalizedType,
@@ -1441,6 +1430,17 @@ func opsRequestTypeFromContext(c *gin.Context) *int16 {
 	if c == nil {
 		return nil
 	}
+	if c.Request != nil {
+		ctx := c.Request.Context()
+		path := ""
+		if c.Request.URL != nil {
+			path = c.Request.URL.Path
+		}
+		if requestType := service.ResolveImageRequestType(ctx, path, service.ImageGenerationCaptureFromContext(ctx) != nil); requestType != service.RequestTypeUnknown {
+			result := int16(requestType)
+			return &result
+		}
+	}
 	if value, ok := c.Get(opsRequestTypeKey); ok {
 		switch typed := value.(type) {
 		case int16:
@@ -1570,19 +1570,8 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 			}
 			return ""
 		}(),
-		RequestType: func() *int16 {
-			if v, ok := c.Get(opsRequestTypeKey); ok {
-				switch t := v.(type) {
-				case int16:
-					return &t
-				case int:
-					v16 := int16(t)
-					return &v16
-				}
-			}
-			return nil
-		}(),
-		UserAgent: c.GetHeader("User-Agent"),
+		RequestType: opsRequestTypeFromContext(c),
+		UserAgent:   c.GetHeader("User-Agent"),
 
 		ErrorPhase:        phase,
 		ErrorType:         normalizedType,

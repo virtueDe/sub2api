@@ -669,6 +669,8 @@ export interface SystemSettings {
   image_url_response_b64_account_ids: number[];
   image_upstream_response_passthrough_enabled: boolean;
   image_upstream_response_passthrough_account_ids: number[];
+  image_force_url_response_enabled: boolean;
+  image_force_url_response_account_ids: number[];
 
   // Payment configuration
   payment_enabled: boolean;
@@ -1011,6 +1013,8 @@ export interface UpdateSettingsRequest {
   image_url_response_b64_account_ids?: number[];
   image_upstream_response_passthrough_enabled?: boolean;
   image_upstream_response_passthrough_account_ids?: number[];
+  image_force_url_response_enabled?: boolean;
+  image_force_url_response_account_ids?: number[];
   // Payment configuration
   payment_enabled?: boolean;
   risk_control_enabled?: boolean;

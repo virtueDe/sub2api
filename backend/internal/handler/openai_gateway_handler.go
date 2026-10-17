@@ -260,6 +260,9 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	if detail := service.ImageGenerationDetailFromContext(parent); detail != nil {
 		base = service.WithImageGenerationDetail(base, detail)
 	}
+	if service.IsAsyncImageTaskExecution(parent) {
+		base = service.WithAsyncImageTaskExecution(base)
+	}
 	return base
 }
 

@@ -417,6 +417,12 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !reflect.DeepEqual(before.ImageUpstreamResponsePassthroughAccountIDs, after.ImageUpstreamResponsePassthroughAccountIDs) {
 		changed = append(changed, "image_upstream_response_passthrough_account_ids")
 	}
+	if before.ImageForceURLResponseEnabled != after.ImageForceURLResponseEnabled {
+		changed = append(changed, "image_force_url_response_enabled")
+	}
+	if !reflect.DeepEqual(before.ImageForceURLResponseAccountIDs, after.ImageForceURLResponseAccountIDs) {
+		changed = append(changed, "image_force_url_response_account_ids")
+	}
 	if before.IdentityPatchPrompt != after.IdentityPatchPrompt {
 		changed = append(changed, "identity_patch_prompt")
 	}

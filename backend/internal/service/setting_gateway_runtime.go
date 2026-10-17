@@ -77,6 +77,8 @@ type cachedGatewayForwardingSettings struct {
 
 	imageUpstreamResponsePassthroughEnabled    bool
 	imageUpstreamResponsePassthroughAccountIDs []int64
+	imageForceURLResponseEnabled               bool
+	imageForceURLResponseAccountIDs            []int64
 
 	expiresAt int64 // unix nano
 }
@@ -888,6 +890,8 @@ type gatewayForwardingSettingsResult struct {
 
 	imageUpstreamResponsePassthroughEnabled    bool
 	imageUpstreamResponsePassthroughAccountIDs []int64
+	imageForceURLResponseEnabled               bool
+	imageForceURLResponseAccountIDs            []int64
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
@@ -917,6 +921,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 
 				imageUpstreamResponsePassthroughEnabled:    cached.imageUpstreamResponsePassthroughEnabled,
 				imageUpstreamResponsePassthroughAccountIDs: append([]int64(nil), cached.imageUpstreamResponsePassthroughAccountIDs...),
+				imageForceURLResponseEnabled:               cached.imageForceURLResponseEnabled,
+				imageForceURLResponseAccountIDs:            append([]int64(nil), cached.imageForceURLResponseAccountIDs...),
 			}
 		}
 	}
@@ -947,6 +953,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 
 					imageUpstreamResponsePassthroughEnabled:    cached.imageUpstreamResponsePassthroughEnabled,
 					imageUpstreamResponsePassthroughAccountIDs: append([]int64(nil), cached.imageUpstreamResponsePassthroughAccountIDs...),
+					imageForceURLResponseEnabled:               cached.imageForceURLResponseEnabled,
+					imageForceURLResponseAccountIDs:            append([]int64(nil), cached.imageForceURLResponseAccountIDs...),
 				}, nil
 			}
 		}
@@ -975,6 +983,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 			SettingKeyImageURLResponseB64AccountIDs,
 			SettingKeyImageUpstreamResponsePassthroughEnabled,
 			SettingKeyImageUpstreamResponsePassthroughAccountIDs,
+			SettingKeyImageForceURLResponseEnabled,
+			SettingKeyImageForceURLResponseAccountIDs,
 		})
 		if err != nil {
 			slog.Warn("failed to get gateway forwarding settings", "error", err)
@@ -999,6 +1009,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 
 				imageUpstreamResponsePassthroughEnabled:    false,
 				imageUpstreamResponsePassthroughAccountIDs: []int64{},
+				imageForceURLResponseEnabled:               false,
+				imageForceURLResponseAccountIDs:            []int64{},
 
 				expiresAt: time.Now().Add(gatewayForwardingErrorTTL).UnixNano(),
 			})
@@ -1038,6 +1050,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 		imageURLResponseB64AccountIDs := parseSettingInt64List(values[SettingKeyImageURLResponseB64AccountIDs])
 		imageUpstreamResponsePassthroughEnabled := values[SettingKeyImageUpstreamResponsePassthroughEnabled] == "true"
 		imageUpstreamResponsePassthroughAccountIDs := parseSettingInt64List(values[SettingKeyImageUpstreamResponsePassthroughAccountIDs])
+		imageForceURLResponseEnabled := values[SettingKeyImageForceURLResponseEnabled] == "true"
+		imageForceURLResponseAccountIDs := parseSettingInt64List(values[SettingKeyImageForceURLResponseAccountIDs])
 		gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 			openAITTFTMode:                        ttftMode,
 			fingerprintUnification:                fp,
@@ -1062,6 +1076,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 
 			imageUpstreamResponsePassthroughEnabled:    imageUpstreamResponsePassthroughEnabled,
 			imageUpstreamResponsePassthroughAccountIDs: imageUpstreamResponsePassthroughAccountIDs,
+			imageForceURLResponseEnabled:               imageForceURLResponseEnabled,
+			imageForceURLResponseAccountIDs:            imageForceURLResponseAccountIDs,
 
 			expiresAt: time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 		})
@@ -1089,6 +1105,8 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 
 			imageUpstreamResponsePassthroughEnabled:    imageUpstreamResponsePassthroughEnabled,
 			imageUpstreamResponsePassthroughAccountIDs: imageUpstreamResponsePassthroughAccountIDs,
+			imageForceURLResponseEnabled:               imageForceURLResponseEnabled,
+			imageForceURLResponseAccountIDs:            imageForceURLResponseAccountIDs,
 		}, nil
 	})
 	if r, ok := val.(gatewayForwardingSettingsResult); ok {
@@ -1178,6 +1196,15 @@ func (s *SettingService) IsImageUpstreamResponsePassthroughEnabledForAccount(ctx
 	}
 	v := s.getGatewayForwardingSettingsCached(ctx)
 	return v.imageUpstreamResponsePassthroughEnabled && settingAccountSelected(accountID, v.imageUpstreamResponsePassthroughAccountIDs)
+}
+
+// IsImageForceURLResponseEnabledForAccount overrides response_format on Images requests.
+func (s *SettingService) IsImageForceURLResponseEnabledForAccount(ctx context.Context, accountID int64) bool {
+	if s == nil || accountID <= 0 {
+		return false
+	}
+	v := s.getGatewayForwardingSettingsCached(ctx)
+	return v.imageForceURLResponseEnabled && settingAccountSelected(accountID, v.imageForceURLResponseAccountIDs)
 }
 
 // GetOpenAITTFTMode 返回 Responses first_token_ms 的统计口径。

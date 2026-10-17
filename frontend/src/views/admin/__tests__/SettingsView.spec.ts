@@ -1483,6 +1483,57 @@ describe("admin SettingsView payment visible method controls", () => {
     }));
   });
 
+  it("keeps forced image URL response off by default and saves the selected accounts", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const card = wrapper.get('[data-testid="image-force-url-response"]');
+    const toggle = card.get('input[type="checkbox"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(false);
+    expect(card.findComponent({ name: "ImageAccountSelector" }).exists()).toBe(false);
+    expect(card.text()).toContain("response_format=url");
+    expect(card.text()).toContain("同步、异步及图片编辑请求均生效");
+
+    await toggle.setValue(true);
+    const selector = card.getComponent({ name: "ImageAccountSelector" });
+    expect(selector.props("modelValue")).toEqual([]);
+    selector.vm.$emit("update:modelValue", [7, 9]);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      image_force_url_response_enabled: true,
+      image_force_url_response_account_ids: [7, 9],
+    }));
+  });
+
+  it("loads forced image URL response accounts and retains the selection when disabled", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      image_force_url_response_enabled: true,
+      image_force_url_response_account_ids: [7, 9],
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const card = wrapper.get('[data-testid="image-force-url-response"]');
+    const toggle = card.get('input[type="checkbox"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+    expect(card.getComponent({ name: "ImageAccountSelector" }).props("modelValue")).toEqual([7, 9]);
+
+    await toggle.setValue(false);
+    expect(card.findComponent({ name: "ImageAccountSelector" }).exists()).toBe(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      image_force_url_response_enabled: false,
+      image_force_url_response_account_ids: [7, 9],
+    }));
+  });
+
   it("loads and saves upstream billing probe settings from the gateway tab", async () => {
     getUpstreamBillingProbeSettings.mockResolvedValueOnce({
       enabled: false,
