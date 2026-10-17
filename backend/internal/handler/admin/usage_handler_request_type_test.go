@@ -121,6 +121,25 @@ func TestAdminUsageListInvalidNativeCompactionFilter(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
+func TestAdminUsageImageRequestTypeFilters(t *testing.T) {
+	for _, kind := range []service.RequestType{service.RequestTypeImageSync, service.RequestTypeImageAsync} {
+		for _, endpoint := range []string{"/admin/usage", "/admin/usage/stats"} {
+			repo := &adminUsageRepoCapture{}
+			router := newAdminUsageRequestTypeTestRouter(repo)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, endpoint+"?request_type="+kind.String()+"&stream=bad", nil))
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			filters := repo.listFilters
+			if endpoint == "/admin/usage/stats" {
+				filters = repo.statsFilters
+			}
+			require.NotNil(t, filters.RequestType)
+			require.Equal(t, int16(kind), *filters.RequestType)
+			require.Nil(t, filters.Stream)
+		}
+	}
+}
+
 func TestAdminUsageListExactTotalTrue(t *testing.T) {
 	repo := &adminUsageRepoCapture{}
 	router := newAdminUsageRequestTypeTestRouter(repo)

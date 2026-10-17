@@ -5,8 +5,29 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAsyncImageExecutionSurvivesUsageQueue(t *testing.T) {
+	ctx := service.WithAsyncImageTaskExecution(context.Background())
+	for _, submit := range []func(context.Context, service.UsageRecordTask){
+		(&GatewayHandler{}).submitUsageRecordTask,
+		(&OpenAIGatewayHandler{}).submitUsageRecordTask,
+	} {
+		called := false
+		submit(ctx, func(billingCtx context.Context) {
+			called = true
+			require.True(t, service.IsAsyncImageTaskExecution(billingCtx))
+		})
+		require.True(t, called)
+	}
+	task, abandon := wrapUsageRecordTaskContext(ctx, func(billingCtx context.Context) {
+		require.True(t, service.IsAsyncImageTaskExecution(billingCtx))
+	})
+	defer abandon()
+	task(context.Background())
+}
 
 func TestSubmitUsageRecordTaskCopiesRequestContext(t *testing.T) {
 	parent := context.WithValue(context.Background(), ctxkey.ClientRequestID, "client-request-123")

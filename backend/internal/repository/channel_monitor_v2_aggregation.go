@@ -171,7 +171,7 @@ INSERT INTO channel_monitor_v2_metrics_1m (
 )
 SELECT date_trunc('minute', ul.created_at), %s, COALESCE(ul.group_id, 0), %s,
        COUNT(DISTINCT COALESCE(NULLIF(ul.request_id, ''), 'usage:' || ul.id::text))
-         FILTER (WHERE COALESCE(ul.request_type, 0) NOT IN (4, 6) AND ` + usageLogSuccessFilterUL + `),
+         FILTER (WHERE COALESCE(ul.request_type, 0) <> 4 AND ` + usageLogSuccessFilterUL + `),
        COALESCE(SUM(ul.input_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
        COALESCE(SUM(ul.output_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
        COALESCE(SUM(ul.cache_creation_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
@@ -194,7 +194,7 @@ INSERT INTO channel_monitor_v2_user_metrics_1m (
 )
 SELECT date_trunc('minute', ul.created_at), %s, COALESCE(ul.group_id, 0), %s, ul.user_id,
        COUNT(DISTINCT COALESCE(NULLIF(ul.request_id, ''), 'usage:' || ul.id::text))
-         FILTER (WHERE COALESCE(ul.request_type, 0) NOT IN (4, 6) AND ` + usageLogSuccessFilterUL + `),
+         FILTER (WHERE COALESCE(ul.request_type, 0) <> 4 AND ` + usageLogSuccessFilterUL + `),
        COALESCE(SUM(ul.input_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
        COALESCE(SUM(ul.output_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),
        COALESCE(SUM(ul.cache_creation_tokens) FILTER (WHERE ` + usageLogSuccessFilterUL + `), 0),

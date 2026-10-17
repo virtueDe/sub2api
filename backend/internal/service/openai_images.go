@@ -126,6 +126,7 @@ type OpenAIImagesRequest struct {
 	bodyHash            string
 
 	upstreamResponsePassthrough bool
+	forceURLResponse            bool
 }
 
 func (r *OpenAIImagesRequest) ModerationBody() []byte {
@@ -853,7 +854,15 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 
 	responseB64Enabled := s.settingService != nil && s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID)
 	asyncTask := IsAsyncImageTaskExecution(ctx)
-	if !parsed.upstreamResponsePassthrough && responseB64Enabled && shouldNormalizeOpenAIImagesResponseFormat(parsed, asyncTask) {
+	parsed.forceURLResponse = s.settingService.IsImageForceURLResponseEnabledForAccount(ctx, account.ID)
+	if parsed.forceURLResponse {
+		var rewriteErr error
+		body, parsed.ContentType, rewriteErr = rewriteOpenAIImagesResponseFormat(body, parsed.ContentType, "url")
+		if rewriteErr != nil {
+			return nil, fmt.Errorf("force image URL response format: %w", rewriteErr)
+		}
+		parsed.ResponseFormat = "url"
+	} else if !parsed.upstreamResponsePassthrough && responseB64Enabled && shouldNormalizeOpenAIImagesResponseFormat(parsed, asyncTask) {
 		clientResponseFormat := parsed.ResponseFormat
 		if asyncTask || clientResponseFormat == "" {
 			parsed.ResponseFormat = "b64_json"
@@ -1327,6 +1336,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(
 	defer func() { processTiming.End(timingErr) }()
 	if s.settingService != nil && account != nil && parsed != nil && !parsed.upstreamResponsePassthrough &&
 		parsed.ResponseFormat == "url" &&
+		!parsed.forceURLResponse &&
 		s.settingService.IsImageURLResponseB64EnabledForAccount(ctx, account.ID) {
 		if s.imageResponseUploader == nil {
 			return OpenAIUsage{}, 0, nil, fmt.Errorf("image URL response storage is not configured")

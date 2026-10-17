@@ -795,6 +795,13 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if err != nil {
 		return nil, err
 	}
+	if (endpoint == GrokMediaEndpointImagesGenerations || endpoint == GrokMediaEndpointImagesEdits) &&
+		s.settingService.IsImageForceURLResponseEnabledForAccount(ctx, account.ID) {
+		body, contentType, err = rewriteOpenAIImagesResponseFormat(body, contentType, "url")
+		if err != nil {
+			return nil, fmt.Errorf("force image URL response format: %w", err)
+		}
+	}
 
 	var bodyReader io.Reader
 	if endpoint.RequiresRequestBody() {

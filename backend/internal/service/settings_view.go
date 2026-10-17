@@ -277,6 +277,8 @@ type SystemSettings struct {
 
 	ImageUpstreamResponsePassthroughEnabled    bool    `json:"image_upstream_response_passthrough_enabled"`
 	ImageUpstreamResponsePassthroughAccountIDs []int64 `json:"image_upstream_response_passthrough_account_ids"`
+	ImageForceURLResponseEnabled               bool    `json:"image_force_url_response_enabled"`
+	ImageForceURLResponseAccountIDs            []int64 `json:"image_force_url_response_account_ids"`
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟

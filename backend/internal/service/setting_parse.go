@@ -252,6 +252,8 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 		SettingKeyImageUpstreamResponsePassthroughEnabled:    "false",
 		SettingKeyImageUpstreamResponsePassthroughAccountIDs: "[]",
+		SettingKeyImageForceURLResponseEnabled:               "false",
+		SettingKeyImageForceURLResponseAccountIDs:            "[]",
 
 		// Affiliate (邀请返利) feature (default disabled; opt-in)
 		SettingKeyAffiliateEnabled:              "false",
@@ -893,6 +895,8 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ImageURLResponseB64AccountIDs = parseSettingInt64List(settings[SettingKeyImageURLResponseB64AccountIDs])
 	result.ImageUpstreamResponsePassthroughEnabled = settings[SettingKeyImageUpstreamResponsePassthroughEnabled] == "true"
 	result.ImageUpstreamResponsePassthroughAccountIDs = parseSettingInt64List(settings[SettingKeyImageUpstreamResponsePassthroughAccountIDs])
+	result.ImageForceURLResponseEnabled = settings[SettingKeyImageForceURLResponseEnabled] == "true"
+	result.ImageForceURLResponseAccountIDs = parseSettingInt64List(settings[SettingKeyImageForceURLResponseAccountIDs])
 
 	// Affiliate (邀请返利) feature (default: disabled; strict true)
 	result.AffiliateEnabled = settings[SettingKeyAffiliateEnabled] == "true"

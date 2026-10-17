@@ -480,6 +480,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, fmt.Errorf("marshal image upstream response passthrough account ids: %w", err)
 	}
 	updates[SettingKeyImageUpstreamResponsePassthroughAccountIDs] = string(passthroughAccountIDsJSON)
+	updates[SettingKeyImageForceURLResponseEnabled] = strconv.FormatBool(settings.ImageForceURLResponseEnabled)
+	forceURLAccountIDsJSON, err := json.Marshal(normalizeSettingInt64List(settings.ImageForceURLResponseAccountIDs))
+	if err != nil {
+		return nil, fmt.Errorf("marshal image force URL response account ids: %w", err)
+	}
+	updates[SettingKeyImageForceURLResponseAccountIDs] = string(forceURLAccountIDsJSON)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
@@ -780,6 +786,9 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 
 		imageUpstreamResponsePassthroughEnabled:    settings.ImageUpstreamResponsePassthroughEnabled,
 		imageUpstreamResponsePassthroughAccountIDs: normalizeSettingInt64List(settings.ImageUpstreamResponsePassthroughAccountIDs),
+
+		imageForceURLResponseEnabled:    settings.ImageForceURLResponseEnabled,
+		imageForceURLResponseAccountIDs: normalizeSettingInt64List(settings.ImageForceURLResponseAccountIDs),
 
 		expiresAt: time.Now().Add(gatewayForwardingCacheTTL).UnixNano(),
 	})

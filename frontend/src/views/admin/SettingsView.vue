@@ -4820,6 +4820,23 @@
                 />
               </div>
 
+              <div class="mt-6 border-t border-gray-100 pt-5 dark:border-dark-700" data-testid="image-force-url-response">
+                <div class="flex items-center justify-between">
+                  <div class="pr-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">强制生图使用 URL 响应格式</label>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">对使用 response_format 的 Images 上游请求强制设置 response_format=url：未传时添加，b64_json 等其他值改为 url。同步、异步及图片编辑请求均生效，优先于 URL 图片响应兼容模式的 b64_json 设置。</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">可与上游图片响应直返同时开启；异步结果是否转存仍由原有存储和直返设置控制。Gemini 原生和 Responses 协议不添加此参数。</p>
+                  </div>
+                  <Toggle v-model="form.image_force_url_response_enabled" />
+                </div>
+                <ImageAccountSelector
+                  v-if="form.image_force_url_response_enabled"
+                  v-model="form.image_force_url_response_account_ids"
+                  label="处理账号"
+                  hint="留空表示对所有支持生图分组的账号生效；选择后仅对选中的账号生效。"
+                />
+              </div>
+
               <div class="mt-6 border-t border-gray-100 pt-5 dark:border-dark-700" data-testid="image-upstream-response-passthrough">
                 <div class="flex items-center justify-between">
                   <div class="pr-4">
@@ -10292,6 +10309,8 @@ const form = reactive<SettingsForm>({
   image_url_response_b64_account_ids: [] as number[],
   image_upstream_response_passthrough_enabled: false,
   image_upstream_response_passthrough_account_ids: [] as number[],
+  image_force_url_response_enabled: false,
+  image_force_url_response_account_ids: [] as number[],
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled: false,
   balance_low_notify_threshold: 0,
@@ -12050,6 +12069,8 @@ async function saveSettings() {
       image_url_response_b64_account_ids: [...form.image_url_response_b64_account_ids],
       image_upstream_response_passthrough_enabled: form.image_upstream_response_passthrough_enabled,
       image_upstream_response_passthrough_account_ids: [...form.image_upstream_response_passthrough_account_ids],
+      image_force_url_response_enabled: form.image_force_url_response_enabled,
+      image_force_url_response_account_ids: [...form.image_force_url_response_account_ids],
       // Payment configuration
       payment_enabled: form.payment_enabled,
       risk_control_enabled: form.risk_control_enabled,

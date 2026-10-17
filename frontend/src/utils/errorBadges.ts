@@ -17,6 +17,8 @@ export function statusCodeBadgeClass(code: number): string {
 
 /** 请求类型徽章配色(cyber 红、live 绿、ws 紫、stream 蓝、sync 灰、未知琥珀) */
 export function requestTypeBadgeClass(kind: UsageRequestKind): string {
+  if (kind === 'image_sync') return 'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200'
+  if (kind === 'image_async') return 'bg-indigo-100 text-indigo-800 dark:bg-indigo-900 dark:text-indigo-200'
   if (kind === 'cyber') return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
   if (kind === 'live') return 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'
   if (kind === 'ws_v2') return 'bg-violet-100 text-violet-800 dark:bg-violet-900 dark:text-violet-200'
@@ -27,6 +29,8 @@ export function requestTypeBadgeClass(kind: UsageRequestKind): string {
 
 /** 请求类型 i18n 键(展示方自行 t()) */
 export function requestTypeLabelKey(kind: UsageRequestKind): string {
+  if (kind === 'image_sync') return 'usage.imageSync'
+  if (kind === 'image_async') return 'usage.imageAsync'
   if (kind === 'cyber') return 'usage.cyber'
   if (kind === 'live') return 'usage.live'
   if (kind === 'ws_v2') return 'usage.ws'
@@ -44,6 +48,8 @@ export function numericRequestTypeKind(
   stream?: boolean | null
 ): UsageRequestKind | null {
   const rt = requestType ?? (stream == null ? 0 : stream ? 2 : 1)
+  if (rt === 6) return 'image_sync'
+  if (rt === 7) return 'image_async'
   if (rt === 3) return 'ws_v2'
   if (rt === 5) return 'live'
   if (rt === 2) return 'stream'

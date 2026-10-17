@@ -6,7 +6,7 @@ export interface UsageRequestTypeLike {
   openai_ws_mode?: boolean | null
 }
 
-const VALID_REQUEST_TYPES = new Set<UsageRequestType>(['unknown', 'sync', 'stream', 'ws_v2', 'cyber', 'live'])
+const VALID_REQUEST_TYPES = new Set<UsageRequestType>(['unknown', 'sync', 'stream', 'ws_v2', 'cyber', 'live', 'image_sync', 'image_async'])
 
 export const isUsageRequestType = (value: unknown): value is UsageRequestType => {
   return typeof value === 'string' && VALID_REQUEST_TYPES.has(value as UsageRequestType)
@@ -23,8 +23,8 @@ export const resolveUsageRequestType = (value: UsageRequestTypeLike): UsageReque
 }
 
 export const requestTypeToLegacyStream = (requestType?: UsageRequestType | null): boolean | null | undefined => {
-  // cyber 与 stream 正交（cyber 可发生在 stream 或非 stream 请求），不映射到 legacy stream 维度。
-  if (!requestType || requestType === 'unknown' || requestType === 'cyber' || requestType === 'live') {
+  // 生图执行方式和 cyber/live 与传输方式正交，不附加 legacy stream 筛选。
+  if (!requestType || !['sync', 'stream', 'ws_v2'].includes(requestType)) {
     return null
   }
   if (requestType === 'sync') {

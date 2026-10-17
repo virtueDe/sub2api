@@ -72,6 +72,8 @@ const messages: Record<string, string> = {
   'usage.imageTotalPrice': 'Image total price',
   'usage.stream': 'Stream',
   'usage.sync': 'Sync',
+  'usage.imageSync': '生图请求-同步',
+  'usage.imageAsync': '生图请求-异步',
   'usage.nativeCompactionV2': 'Compaction',
   'admin.usage.billingModeToken': 'Token',
   'admin.usage.billingModePerRequest': 'Per request',
@@ -235,6 +237,29 @@ describe('admin UsageTable tooltip', () => {
     expect(wrapper.find('[data-request-id="req-long-context-disabled"] [data-testid="long-context-billing-marker"]').exists()).toBe(false)
     expect(wrapper.find('[data-request-id="req-long-context-absent"] [data-testid="long-context-billing-marker"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('x2')
+  })
+
+  it('distinguishes synchronous and asynchronous images even when streaming is enabled', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          { ...baseImageRow, request_id: 'image-sync', request_type: 'image_sync', stream: true },
+          { ...baseImageRow, request_id: 'image-async', request_type: 'image_async', stream: false },
+        ],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: { props: ['data'], template: '<div><slot v-for="row in data" name="cell-stream" :row="row" /></div>' },
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+    expect(wrapper.findAll('[data-testid="request-type-badge"]').map(badge => badge.text()))
+      .toEqual(['生图请求-同步', '生图请求-异步'])
   })
 
   it('keeps the request type badge and adds a separate badge only for native compaction rows', () => {
