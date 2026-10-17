@@ -15,7 +15,9 @@ func TestImageGenerationCapturePreservesRequestAndRedactsCredentials(t *testing.
 	require.Equal(t, "画一只猫", detail.Prompt)
 	require.Equal(t, "1024x1024", detail.RequestParams["size"])
 	require.Equal(t, float64(2), detail.RequestParams["n"])
-	require.Equal(t, "[REDACTED]", detail.RequestParams["extra"].(map[string]any)["api_key"])
+	extra, ok := detail.RequestParams["extra"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "[REDACTED]", extra["api_key"])
 	require.Equal(t, "[IMAGE_DATA_OMITTED]", detail.RequestParams["image_url"])
 	require.Empty(t, detail.Images)
 }
@@ -32,9 +34,13 @@ func TestImageGenerationCaptureMultipartRequest(t *testing.T) {
 	require.NoError(t, w.Close())
 	detail := NewImageGenerationCapture(w.FormDataContentType(), body.Bytes()).Snapshot()
 	require.Equal(t, "edit this cat", detail.Prompt)
-	files := detail.RequestParams["image"].([]any)
-	require.Equal(t, "cat.png", files[0].(map[string]any)["filename"])
-	require.EqualValues(t, 17, files[0].(map[string]any)["size"])
+	files, ok := detail.RequestParams["image"].([]any)
+	require.True(t, ok)
+	require.Len(t, files, 1)
+	fileInfo, ok := files[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "cat.png", fileInfo["filename"])
+	require.EqualValues(t, 17, fileInfo["size"])
 }
 
 func TestImageGenerationCaptureResponseFormats(t *testing.T) {
