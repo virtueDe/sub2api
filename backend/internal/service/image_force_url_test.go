@@ -205,7 +205,8 @@ func TestGrokImagesForceURLAfterBodyRebuild(t *testing.T) {
 				cacheImageForceURLSettings(t, true, []int64{7}, false)
 				body := []byte(`{"model":"grok-imagine-image","prompt":"cat","response_format":"b64_json"}`)
 				contentType := "application/json"
-				if endpoint == GrokMediaEndpointImagesEdits {
+				switch endpoint {
+				case GrokMediaEndpointImagesEdits:
 					var buf bytes.Buffer
 					writer := multipart.NewWriter(&buf)
 					require.NoError(t, writer.WriteField("model", "grok-imagine-edit"))
@@ -216,7 +217,7 @@ func TestGrokImagesForceURLAfterBodyRebuild(t *testing.T) {
 					require.NoError(t, err)
 					require.NoError(t, writer.Close())
 					body, contentType = buf.Bytes(), writer.FormDataContentType()
-				} else if endpoint == GrokMediaEndpointVideosGenerations {
+				case GrokMediaEndpointVideosGenerations:
 					body = []byte(`{"model":"grok-imagine-video","prompt":"cat"}`)
 				}
 				c, _ := gin.CreateTestContext(httptest.NewRecorder())
