@@ -159,6 +159,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
 		return
 	}
+	defer beginImageGenerationCapture(c, body)()
 
 	setOpsRequestContext(c, "", false)
 
@@ -2567,6 +2568,9 @@ func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task serv
 	if task == nil {
 		return
 	}
+	if delayImageGenerationUsageTask(parent, task, h.submitUsageRecordTask) {
+		return
+	}
 	task, abandon := wrapUsageRecordTaskContext(parent, task)
 	if h.usageRecordWorkerPool != nil {
 		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
@@ -2598,6 +2602,9 @@ func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task serv
 // submitMandatoryUsageRecordTask never silently drops billing work on pool overflow.
 func (h *GatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
 	if task == nil {
+		return
+	}
+	if delayImageGenerationUsageTask(parent, task, h.submitMandatoryUsageRecordTask) {
 		return
 	}
 	task, _ = wrapUsageRecordTaskContext(parent, task)

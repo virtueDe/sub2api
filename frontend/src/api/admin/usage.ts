@@ -95,6 +95,11 @@ export interface AdminUsageQueryParams extends UsageQueryParams {
 
 // ==================== API Functions ====================
 
+export async function getById(id: number): Promise<AdminUsageLog> {
+  const { data } = await apiClient.get<AdminUsageLog>(`/admin/usage/${id}`)
+  return data
+}
+
 /**
  * List all usage logs with optional filters (admin only)
  * @param params - Query parameters for filtering and pagination
@@ -208,6 +213,7 @@ export async function cancelCleanupTask(taskId: number): Promise<{ id: number; s
 }
 
 export const adminUsageAPI = {
+  getById,
   list,
   getStats,
   searchUsers,

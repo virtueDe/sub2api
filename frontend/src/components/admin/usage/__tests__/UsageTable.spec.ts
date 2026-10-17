@@ -111,6 +111,7 @@ const DataTableStub = {
         <slot name="cell-cost" :row="row" />
         <slot name="cell-request_id" :row="row" />
         <slot name="cell-upstream_request_id" :row="row" />
+        <slot name="cell-image_detail" :row="row" />
       </div>
     </div>
   `,
@@ -145,6 +146,23 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
+  it('opens details for token billed images and saved image details, while skipping ordinary text', async () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          { ...baseImageRow, id: 1, request_id: 'token-image', billing_mode: 'token', image_count: 1 },
+          { ...baseImageRow, id: 2, request_id: 'saved-image', billing_mode: 'token', image_count: 0, has_image_generation: true },
+          { ...baseImageRow, id: 3, request_id: 'text', billing_mode: 'token', image_count: 0 }
+        ],
+        loading: false, columns: []
+      },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } }
+    })
+    const buttons = wrapper.findAll('[data-testid="image-usage-detail-button"]')
+    expect(buttons).toHaveLength(2)
+    await buttons[0].trigger('click')
+    expect(wrapper.emitted('imageDetail')).toEqual([[1]])
+  })
   it('shows output TPS in the latency cell using total duration', () => {
     const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 1000, duration_ms: 20_000, first_token_ms: 10_000 }
     const wrapper = mount(UsageTable, {

@@ -331,6 +331,20 @@ export default {
 
   // Usage
   usage: {
+    imageDetail: {
+      title: 'Image generation details',
+      action: 'Details',
+      prompt: 'Prompt',
+      requestParams: 'Request parameters',
+      images: 'Generated images',
+      noImages: 'No images generated',
+      notRecorded: 'Image details were not saved for this historical record.',
+      partial: 'Partial image generated before failure',
+      imageUnavailable: 'Image unavailable. The original link may have expired.',
+      imageAlt: 'Generated image {index}',
+      loadFailed: 'Failed to load details. Please try again.',
+    },
+
     title: 'Usage Records',
     description: 'View and analyze your API usage history',
     costDetails: 'Cost Breakdown',

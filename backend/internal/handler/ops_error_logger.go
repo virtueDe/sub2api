@@ -243,27 +243,42 @@ func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLo
 	opsErrorLogOnce.Do(startOpsErrorLogWorkers)
 
 	opsErrorLogMu.RLock()
-	defer opsErrorLogMu.RUnlock()
 	if opsErrorLogStopping || opsErrorLogQueue == nil {
+		opsErrorLogMu.RUnlock()
 		return
 	}
 	queuedBytes := estimateOpsErrorLogJobBytes(entry)
 	if !reserveOpsErrorLogQueueBytes(queuedBytes) {
-		opsErrorLogDropped.Add(1)
-		maybeLogOpsErrorLogDrop()
+		opsErrorLogMu.RUnlock()
+		persistOrDropOpsErrorLogOverflow(ops, entry)
 		return
 	}
 
 	select {
 	case opsErrorLogQueue <- opsErrorLogJob{ops: ops, entry: entry, queuedBytes: queuedBytes}:
 		opsErrorLogEnqueued.Add(1)
+		opsErrorLogMu.RUnlock()
 	default:
 		opsErrorLogQueueLen.Add(-1)
 		opsErrorLogQueueBytes.Add(-queuedBytes)
-		// Queue is full; drop to avoid blocking request handling.
-		opsErrorLogDropped.Add(1)
-		maybeLogOpsErrorLogDrop()
+		opsErrorLogMu.RUnlock()
+		persistOrDropOpsErrorLogOverflow(ops, entry)
 	}
+}
+
+func persistOrDropOpsErrorLogOverflow(ops *service.OpsService, entry *service.OpsInsertErrorLogInput) {
+	// Generated images can exceed the queue's byte budget. Persist image details
+	// inline with a timeout so that a failed request does not lose its output.
+	if entry.ImageGeneration != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), opsErrorLogTimeout)
+		defer cancel()
+		if err := ops.RecordError(ctx, entry); err == nil {
+			opsErrorLogProcessed.Add(1)
+			return
+		}
+	}
+	opsErrorLogDropped.Add(1)
+	maybeLogOpsErrorLogDrop()
 }
 
 func normalizeOpsPersistentUserAgent(value string) string {
@@ -400,8 +415,12 @@ func estimateOpsErrorLogJobBytes(entry *service.OpsInsertErrorLogInput) int64 {
 	if entry == nil {
 		return 1
 	}
+	imageBytes := 0
+	if data, ok := service.ImageGenerationDetailJSON(entry.ImageGeneration).(string); ok {
+		imageBytes = len(data)
+	}
 	const fixedOverhead = 512
-	size := fixedOverhead + len(entry.RequestID) + len(entry.ClientRequestID) +
+	size := fixedOverhead + imageBytes + len(entry.RequestID) + len(entry.ClientRequestID) +
 		len(entry.Platform) + len(entry.Model) + len(entry.RequestPath) +
 		len(entry.InboundEndpoint) + len(entry.UpstreamEndpoint) +
 		len(entry.RequestedModel) + len(entry.UpstreamModel) + len(entry.UserAgent) +
@@ -1091,6 +1110,13 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		c.Writer = w
 		captureImageRequestSummary(c)
 		c.Next()
+		if service.ImageGenerationCaptureFromContext(c.Request.Context()) == nil {
+			if value, ok := c.Get("ops_image_request_capture"); ok {
+				if capture, ok := value.(*service.ImageGenerationCapture); ok {
+					c.Request = c.Request.WithContext(service.WithImageGenerationCapture(c.Request.Context(), capture))
+				}
+			}
+		}
 		w.finalizeCapture()
 
 		if _, rejected := middleware2.GetIngressRejectReason(c); rejected {
@@ -1198,6 +1224,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 		phase, isBusinessLimited, errorOwner, errorSource := classifyOpsErrorLog(c, normalizedType, parsed.Message, parsed.Code, status)
 
 		entry := &service.OpsInsertErrorLogInput{
+			ImageGeneration: service.ImageGenerationDetailFromContext(c.Request.Context()),
 			RequestID:       requestID,
 			ClientRequestID: clientRequestID,
 
@@ -1300,7 +1327,7 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 		return
 	}
 
-	entry := &service.OpsInsertErrorLogInput{StatusCode: finalStatus}
+	entry := &service.OpsInsertErrorLogInput{ImageGeneration: service.ImageGenerationDetailFromContext(c.Request.Context()), StatusCode: finalStatus}
 	applyOpsUpstreamFieldsFromContext(c, entry)
 	if len(entry.UpstreamErrors) > 0 {
 		visibleEvents := make([]*service.OpsUpstreamErrorEvent, 0, len(entry.UpstreamErrors))
@@ -1517,6 +1544,7 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 	}
 
 	entry := &service.OpsInsertErrorLogInput{
+		ImageGeneration: service.ImageGenerationDetailFromContext(c.Request.Context()),
 		RequestID:       requestID,
 		ClientRequestID: clientRequestID,
 

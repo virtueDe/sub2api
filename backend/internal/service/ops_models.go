@@ -77,6 +77,7 @@ type OpsErrorLog struct {
 }
 
 type OpsErrorLogDetail struct {
+	ImageGeneration *ImageGenerationDetail `json:"image_generation,omitempty"`
 	OpsErrorLog
 
 	ErrorBody string `json:"error_body"`

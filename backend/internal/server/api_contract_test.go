@@ -614,6 +614,7 @@ func TestAPIContracts(t *testing.T) {
 							"duration_ms": 100,
 							"first_token_ms": 50,
 							"image_count": 0,
+							"has_image_generation": false,
 							"image_size": null,
 							"image_input_size": null,
 							"image_output_size": null,

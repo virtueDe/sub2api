@@ -91,15 +91,6 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		imageTaskJSONError(c, http.StatusNotFound, "not_found_error", "Images API is not supported for this platform")
 		return
 	}
-	if !service.GroupAllowsImageGeneration(apiKey.Group) {
-		imageTaskJSONError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
-		return
-	}
-	if h == nil || h.tasks == nil || h.execute == nil {
-		imageTaskError(c, service.ErrImageTaskUnavailable)
-		return
-	}
-
 	bodyRead := imagetiming.Start(c.Request.Context(), "request_body_read")
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	bodyRead.End(err, zap.Int("body_bytes", len(body)))
@@ -113,6 +104,18 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 	if len(body) == 0 {
 		imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", "Request body is empty")
+		return
+	}
+	// The detached execution context carries the same capture so failures and
+	// partial output are saved even after the submit response has returned.
+	capture := service.NewImageGenerationCapture(c.GetHeader("Content-Type"), body)
+	c.Request = c.Request.WithContext(service.WithImageGenerationCapture(c.Request.Context(), capture))
+	if !service.GroupAllowsImageGeneration(apiKey.Group) {
+		imageTaskJSONError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
+		return
+	}
+	if h == nil || h.tasks == nil || h.execute == nil {
+		imageTaskError(c, service.ErrImageTaskUnavailable)
 		return
 	}
 	if asyncImageRequestStreams(c.GetHeader("Content-Type"), body) {
@@ -415,7 +418,8 @@ func (h *AsyncImageHandler) recordAsyncFailure(taskID, platform string, taskCtx 
 		phase, source, owner = "upstream", "upstream_http", "provider"
 	}
 	entry := &service.OpsInsertErrorLogInput{
-		RequestID: requestID, ClientRequestID: clientRequestID,
+		ImageGeneration: service.ImageGenerationDetailFromContext(taskCtx.Request.Context()),
+		RequestID:       requestID, ClientRequestID: clientRequestID,
 		UserID: userID, APIKeyID: apiKeyID, GroupID: groupID,
 		Platform: resolveOpsPlatform(taskCtx.Request.Context(), apiKey, platform), Model: model,
 		RequestPath: requestPath, InboundEndpoint: requestPath, Stream: false,
@@ -521,6 +525,11 @@ func captureImageRequestSummary(c *gin.Context) {
 	c.Request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(data), c.Request.Body))
 	if err != nil {
 		return
+	}
+	// Keep a bounded, sanitized request snapshot for errors rejected before the
+	// image handler reads the body. The handler captures the full body when reached.
+	if len(data) < 512<<10 && (json.Valid(data) || isMultipartImagesContentType(c.GetHeader("Content-Type"))) {
+		c.Set("ops_image_request_capture", service.NewImageGenerationCapture(c.GetHeader("Content-Type"), data))
 	}
 	if summary := summarizeImageRequestBytes(c.GetHeader("Content-Type"), data); summary != "" {
 		c.Set(opsImageRequestSummaryKey, summary)

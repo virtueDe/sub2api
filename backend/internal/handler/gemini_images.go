@@ -32,16 +32,17 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 		geminiImageError(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
 		return
 	}
-	if !service.GroupAllowsImageGeneration(apiKey.Group) {
-		geminiImageError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
-		return
-	}
-
 	readTiming := imagetiming.Start(c.Request.Context(), "request_body_read")
 	body, err := readImageRequestBody(c)
 	readTiming.End(err, zap.Int("body_bytes", len(body)))
 	if err != nil {
 		geminiImageError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	finishCapture := beginImageGenerationCapture(c, body)
+	defer finishCapture()
+	if !service.GroupAllowsImageGeneration(apiKey.Group) {
+		geminiImageError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
 	if h.openAIGatewayService == nil {
@@ -82,6 +83,11 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 	if count > 4 {
 		count = 4
 	}
+	if count > 1 {
+		queue := &imageGenerationUsageQueue{}
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), imageGenerationUsageQueueKey{}, queue))
+		defer queue.flush()
+	}
 	images := make([]map[string]string, 0, count)
 	var passthroughItems []bool
 	for i := 0; i < count; i++ {
@@ -112,6 +118,9 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 		c.Set(imageTaskPassthroughItemsKey, passthroughItems)
 	}
 	imageResponse, _ := json.Marshal(map[string]any{"created": time.Now().Unix(), "data": images})
+	// Native child responses already supplied these images to the shared capture.
+	// Avoid observing the public envelope a second time, preserving even identical outputs.
+	finishCapture()
 	c.Data(http.StatusOK, "application/json", imageResponse)
 }
 

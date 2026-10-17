@@ -61,6 +61,8 @@
         <p class="mt-0.5 text-gray-900 dark:text-dark-100 break-all">{{ detail.message }}</p>
       </div>
 
+      <ImageGenerationDetail v-if="detail.image_generation || (detail.inbound_endpoint || '').includes('/images/')" :detail="detail.image_generation" />
+
       <!-- Error Body -->
       <div v-if="detail.error_body">
         <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.errors.detail.responseBody') }}</span>
@@ -74,6 +76,7 @@
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ImageGenerationDetail from '@/components/usage/ImageGenerationDetail.vue'
 import { getMyErrorDetail } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import type { UserErrorRequestDetail } from '@/types'

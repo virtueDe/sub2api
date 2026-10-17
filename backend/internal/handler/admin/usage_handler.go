@@ -28,6 +28,22 @@ type UsageHandler struct {
 	dailyTokenRankingRewardService *service.DailyTokenRankingRewardService
 }
 
+// GetByID returns one usage row including stored generation details. The route
+// is protected by the same admin middleware as the usage list.
+func (h *UsageHandler) GetByID(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "Invalid usage ID")
+		return
+	}
+	record, err := h.usageService.GetByID(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.UsageLogFromServiceAdmin(record))
+}
+
 func (h *UsageHandler) SetDailyTokenRankingRewardService(rewardService *service.DailyTokenRankingRewardService) {
 	h.dailyTokenRankingRewardService = rewardService
 }

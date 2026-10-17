@@ -60,6 +60,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 
+	defer beginImageGenerationCapture(c, body)()
 	setOpsRequestContext(c, "", false)
 
 	// Validate JSON
@@ -103,6 +104,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	defer beginImageGenerationCapture(c, body, channelMapping.MappedModel)()
 
 	// Claude Code only restriction: /v1/chat/completions is never a Claude Code
 	// endpoint. With a fallback group the request continues and account selection

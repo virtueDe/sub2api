@@ -18,7 +18,7 @@
     </div>
     <div class="overflow-auto">
       <DataTable
-        :columns="columns"
+        :columns="detailColumns"
         :data="data"
         :loading="loading"
         :server-side-sort="serverSideSort"
@@ -203,6 +203,13 @@
               </div>
             </div>
           </div>
+        </template>
+
+        <template #cell-image_detail="{ row }">
+          <button v-if="row.has_image_generation || row.image_count > 0 || isImageUsage(row) || hasImageOutputTokens(row) || (row.inbound_endpoint || '').includes('/images/')" type="button" class="text-sm font-medium text-primary-600 hover:underline dark:text-primary-400" data-testid="image-usage-detail-button" @click.stop="emit('imageDetail', row.id)">
+            {{ t('usage.imageDetail.action') }}
+          </button>
+          <span v-else class="text-gray-400">-</span>
         </template>
 
         <template #cell-cost="{ row }">
@@ -613,12 +620,14 @@ const props = withDefaults(defineProps<Props>(), {
   flat: false
 })
 const emit = defineEmits<{
+  imageDetail: [usageID: number]
   userClick: [userID: number, email?: string]
   sort: [key: string, order: 'asc' | 'desc']
   ipGeoBatchFailed: []
 }>()
 const { t } = useI18n()
 const appStore = useAppStore()
+const detailColumns = computed(() => [...props.columns, { key: 'image_detail', label: t('common.actions'), sortable: false }])
 const copiedRequestId = ref<string | null>(null)
 const showAccountBilling = props.showAccountBilling
 const showUpstreamEndpoint = props.showUpstreamEndpoint

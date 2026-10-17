@@ -107,6 +107,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 	}
 
+	defer beginImageGenerationCapture(c, body)()
 	contentType := c.GetHeader("Content-Type")
 	parseTiming := imagetiming.Start(c.Request.Context(), "request_parse")
 	requestInfo := service.ParseGrokMediaRequest(contentType, body)
