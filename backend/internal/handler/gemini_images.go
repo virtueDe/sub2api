@@ -14,22 +14,27 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 // GeminiImages adapts the public OpenAI-compatible image contract to Gemini's
 // native generateContent request. Account selection, failover, billing and
 // auditing remain in GeminiV1BetaModels.
 func (h *GatewayHandler) GeminiImages(c *gin.Context) {
+	defer imagetiming.Begin(c, "image_request")()
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil {
 		geminiImageError(c, http.StatusUnauthorized, "authentication_error", "Invalid API key")
 		return
 	}
+	readTiming := imagetiming.Start(c.Request.Context(), "request_body_read")
 	body, err := readImageRequestBody(c)
+	readTiming.End(err, zap.Int("body_bytes", len(body)))
 	if err != nil {
 		geminiImageError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -44,7 +49,9 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 		geminiImageError(c, http.StatusServiceUnavailable, "api_error", "image gateway is unavailable")
 		return
 	}
+	parseTiming := imagetiming.Start(c.Request.Context(), "request_parse")
 	parsed, err := h.openAIGatewayService.ParseGeminiImagesRequest(c, body)
+	parseTiming.End(err)
 	if err != nil {
 		geminiImageError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -61,7 +68,9 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 		geminiImageError(c, http.StatusBadRequest, "invalid_request_error", "prompt is required")
 		return
 	}
+	buildTiming := imagetiming.Start(c.Request.Context(), "prepare_image_request")
 	nativeBody, err := buildGeminiImageRequest(parsed)
+	buildTiming.End(err)
 	if err != nil {
 		geminiImageError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -80,19 +89,33 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 		defer queue.flush()
 	}
 	images := make([]map[string]string, 0, count)
+	var passthroughItems []bool
 	for i := 0; i < count; i++ {
-		status, responseBody := h.forwardGeminiImage(c, parsed.Model, nativeBody)
+		imageCtx := imagetiming.WithFields(c.Request.Context(), zap.Int("image_index", i))
+		imageTiming := imagetiming.Start(imageCtx, "generate_image")
+		status, responseBody := h.forwardGeminiImage(c, imageTiming.Context(imageCtx), parsed.Model, nativeBody)
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
+			imageTiming.End(fmt.Errorf("image upstream HTTP status %d", status), zap.Int("http_status", status))
 			// Gemini native errors are converted to the public image API envelope.
 			geminiImageError(c, status, "api_error", extractGeminiImageError(responseBody))
 			return
 		}
 		items, err := geminiImageItems(responseBody)
+		imageTiming.End(err, zap.Int("http_status", status), zap.Int("image_count", len(items)))
 		if err != nil {
 			geminiImageError(c, http.StatusBadGateway, "api_error", err.Error())
 			return
 		}
 		images = append(images, items...)
+		if service.IsAsyncImageTaskExecution(c.Request.Context()) {
+			passthrough := h.openAIGatewayService.IsImageUpstreamResponsePassthroughEnabledForAccount(context.WithoutCancel(c.Request.Context()), c.GetInt64(opsAccountIDKey))
+			for range items {
+				passthroughItems = append(passthroughItems, passthrough)
+			}
+		}
+	}
+	if passthroughItems != nil {
+		c.Set(imageTaskPassthroughItemsKey, passthroughItems)
 	}
 	imageResponse, _ := json.Marshal(map[string]any{"created": time.Now().Unix(), "data": images})
 	// Native child responses already supplied these images to the shared capture.
@@ -212,11 +235,11 @@ func geminiAspectRatio(req *service.OpenAIImagesRequest) string {
 	}
 }
 
-func (h *GatewayHandler) forwardGeminiImage(c *gin.Context, model string, body []byte) (int, []byte) {
+func (h *GatewayHandler) forwardGeminiImage(c *gin.Context, ctx context.Context, model string, body []byte) (int, []byte) {
 	recorder := httptest.NewRecorder()
 	child, _ := gin.CreateTestContext(recorder)
 	child.Keys = c.Keys
-	child.Request = c.Request.Clone(c.Request.Context())
+	child.Request = c.Request.Clone(ctx)
 	child.Request.Body = io.NopCloser(bytes.NewReader(body))
 	child.Request.URL.Path = "/v1beta/models/" + model + ":generateContent"
 	child.Params = gin.Params{{Key: "modelAction", Value: "/" + model + ":generateContent"}}

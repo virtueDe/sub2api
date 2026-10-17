@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -34,11 +35,14 @@ func (s *OpenAIGatewayService) rewriteOpenAIImagesInputURLsAsDataURLs(
 		if !isHTTPImageURL(rawURL) {
 			continue
 		}
-		imageData, contentType, err := s.fetchOpenAIImageURLBytes(ctx, account, rawURL)
+		imageCtx := imagetiming.WithFields(ctx, zap.Int("image_index", index), zap.String("image_direction", "input"))
+		imageData, contentType, err := s.fetchOpenAIImageURLBytes(imageCtx, account, rawURL)
 		if err != nil {
 			return nil, "", fmt.Errorf("convert images[%d].image_url to base64: %w", index, err)
 		}
+		encodeTiming := imagetiming.Start(imageCtx, "image_base64_encode")
 		converted[index] = "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(imageData)
+		encodeTiming.End(nil, zap.Int("body_bytes", len(imageData)))
 		convertedCount++
 	}
 	if convertedCount == 0 {

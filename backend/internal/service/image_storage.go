@@ -12,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
+	"go.uber.org/zap"
 )
 
 const defaultImageMaxDownloadBytes int64 = 32 << 20 // 32 MiB
@@ -69,17 +72,17 @@ func (u *ImageResultUploader) GetStorage() ImageStorage {
 // 返回改写后的紧凑结果（data[i].url 指向对象存储，b64_json 被移除）。
 // 任一图片转存失败即返回 error（调用方据此将任务标记为失败，绝不把大 blob 落 Redis）。
 func (u *ImageResultUploader) Rewrite(ctx context.Context, taskID string, result json.RawMessage) (json.RawMessage, error) {
-	return u.rewrite(ctx, taskID, result, false)
+	return u.rewrite(ctx, taskID, result, false, nil)
 }
 
 // RewriteB64 rewrites an upstream response that must contain b64_json image
 // items. It deliberately rejects URL-only items so this path cannot turn an
 // unexpected upstream URL into a server-side image download.
 func (u *ImageResultUploader) RewriteB64(ctx context.Context, taskID string, result json.RawMessage) (json.RawMessage, error) {
-	return u.rewrite(ctx, taskID, result, true)
+	return u.rewrite(ctx, taskID, result, true, nil)
 }
 
-func (u *ImageResultUploader) rewrite(ctx context.Context, taskID string, result json.RawMessage, b64Only bool) (json.RawMessage, error) {
+func (u *ImageResultUploader) rewrite(ctx context.Context, taskID string, result json.RawMessage, b64Only bool, passthroughItems []bool) (json.RawMessage, error) {
 	if u == nil || u.storage == nil {
 		if b64Only {
 			return nil, errors.New("image response storage is not configured")
@@ -103,12 +106,20 @@ func (u *ImageResultUploader) rewrite(ctx context.Context, taskID string, result
 		return result, nil
 	}
 	for i, item := range items {
-		data, contentType, err := u.fetchImageBytesMode(ctx, item, b64Only)
+		imageCtx := imagetiming.WithFields(ctx, zap.Int("image_index", i))
+		if i < len(passthroughItems) && passthroughItems[i] {
+			continue
+		}
+		decodeTiming := imagetiming.Start(imageCtx, "result_image_decode_or_download")
+		data, contentType, err := u.fetchImageBytesMode(decodeTiming.Context(imageCtx), item, b64Only)
+		decodeTiming.End(err, zap.Int("body_bytes", len(data)))
 		if err != nil {
 			return nil, fmt.Errorf("image %d: %w", i, err)
 		}
 		key := u.buildKey(taskID, i, contentType)
-		url, err := u.storage.Save(ctx, key, contentType, data)
+		uploadTiming := imagetiming.Start(imageCtx, "result_image_upload", zap.Int("body_bytes", len(data)))
+		url, err := u.storage.Save(uploadTiming.Context(imageCtx), key, contentType, data)
+		uploadTiming.End(err)
 		if err != nil {
 			return nil, fmt.Errorf("image %d: upload to object storage: %w", i, err)
 		}
@@ -228,7 +239,7 @@ func (u *ImageResultUploader) download(ctx context.Context, rawURL string) ([]by
 	if err != nil {
 		return nil, "", fmt.Errorf("build download request: %w", err)
 	}
-	resp, err := u.httpClient.Do(req)
+	resp, err := imagetiming.HTTP(req, u.httpClient.Do)
 	if err != nil {
 		return nil, "", fmt.Errorf("download image: %w", err)
 	}

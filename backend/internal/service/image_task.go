@@ -9,6 +9,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -98,8 +99,8 @@ func NewImageTaskServiceWithOptions(store ImageTaskStore, ttl, executionTimeout 
 	return &ImageTaskService{store: store, ttl: ttl, executionTimeout: executionTimeout}
 }
 
-// NewImageTaskServiceWithUploader 构造一个已启用的图片任务服务：结果会先经 uploader
-// 转存到对象存储再落 Redis。uploader 为 nil 时不做转存（仅用于测试）。
+// NewImageTaskServiceWithUploader 构造一个已启用的图片任务服务：默认先转存结果，
+// 按账号开启响应直返时保留上游结果。uploader 为 nil 时不做转存（仅用于测试）。
 func NewImageTaskServiceWithUploader(store ImageTaskStore, uploader *ImageResultUploader, ttl, executionTimeout time.Duration) *ImageTaskService {
 	s := NewImageTaskServiceWithOptions(store, ttl, executionTimeout)
 	s.uploader = uploader
@@ -191,8 +192,16 @@ func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode i
 	if !json.Valid(result) {
 		return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "upstream returned a non-JSON image response"))
 	}
-	if uploader, _ := s.current(); uploader != nil {
-		rewritten, err := uploader.Rewrite(ctx, id, result)
+	if imageUpstreamResponsePassthrough(ctx) {
+		return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
+	}
+	resolveTiming := imagetiming.Start(ctx, "storage_resolve")
+	uploader, _ := s.current()
+	resolveTiming.End(nil, zap.Bool("storage_enabled", uploader != nil))
+	if uploader != nil {
+		storeTiming := imagetiming.Start(ctx, "result_store")
+		rewritten, err := uploader.rewrite(storeTiming.Context(ctx), id, result, false, imageUpstreamResponsePassthroughItems(ctx))
+		storeTiming.End(err)
 		if err != nil {
 			// 转存失败不回退存 base64，避免大 blob 撑爆 Redis：直接把任务标记为失败。
 			logger.L().Error("image_task.offload_failed", zap.String("task_id", id), zap.Error(err))
@@ -210,7 +219,12 @@ func (s *ImageTaskService) Fail(ctx context.Context, id string, statusCode int, 
 	return s.finish(ctx, id, ImageTaskStatusFailed, statusCode, nil, taskErr)
 }
 
-func (s *ImageTaskService) finish(ctx context.Context, id, status string, statusCode int, result, taskErr json.RawMessage) error {
+func (s *ImageTaskService) finish(ctx context.Context, id, status string, statusCode int, result, taskErr json.RawMessage) (timingErr error) {
+	phase := imagetiming.Start(ctx, "task_finalize", zap.String("task_id", id), zap.String("task_status", status), zap.Int("http_status", statusCode))
+	defer func() {
+		phase.End(timingErr)
+		recordImageTaskTimingOutcome(ctx, status, statusCode, timingErr)
+	}()
 	if s == nil || s.store == nil {
 		return ErrImageTaskUnavailable
 	}

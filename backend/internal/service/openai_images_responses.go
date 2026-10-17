@@ -14,11 +14,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
 
 type openAIResponsesImageResult struct {
@@ -1384,12 +1386,16 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthNonStreamingResponse(
 		firstMeta.Model = strings.TrimSpace(fallbackModel)
 	}
 
+	conversionTiming := imagetiming.Start(c.Request.Context(), "response_convert")
 	responseBody, err := buildOpenAIImagesAPIResponse(results, createdAt, usageRaw, firstMeta, responseFormat)
+	conversionTiming.End(err, zap.Int("body_bytes", len(responseBody)))
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+	writeTiming := imagetiming.Start(c.Request.Context(), "response_write")
 	c.Data(resp.StatusCode, "application/json; charset=utf-8", responseBody)
+	writeTiming.End(nil, zap.Int("body_bytes", len(responseBody)))
 	return usage, len(results), openAIResponsesImageResultSizes(results), nil
 }
 
@@ -1400,7 +1406,13 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 	responseFormat string,
 	streamPrefix string,
 	fallbackModel string,
-) (OpenAIUsage, int, []string, *int, error) {
+) (timingUsage OpenAIUsage, timingCount int, timingSizes []string, timingFirst *int, timingErr error) {
+	streamTiming := imagetiming.Start(c.Request.Context(), "image_stream")
+	firstImageTiming := imagetiming.Start(c.Request.Context(), "wait_first_complete_image")
+	defer func() {
+		streamTiming.End(timingErr, zap.Int("image_count", timingCount))
+		firstImageTiming.End(timingErr, zap.Bool("image_received", false))
+	}()
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
@@ -1508,6 +1520,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 			}
 			pendingSeen[key] = struct{}{}
 			pendingResults = append(pendingResults, img)
+			firstImageTiming.End(nil, zap.Bool("image_received", true))
 		case "response.completed":
 			results, _, usageRaw, firstMeta, extractErr := extractOpenAIImagesFromResponsesCompleted(dataBytes)
 			if extractErr != nil {
@@ -1550,6 +1563,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 				processDataDone = true
 				return
 			}
+			firstImageTiming.End(nil, zap.Bool("image_received", true))
 			eventName := streamPrefix + ".completed"
 			for _, img := range finalResults {
 				key := openAIResponsesImageResultKey("", img)
@@ -1601,6 +1615,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 			return nil
 		}
 		if len(pendingResults) > 0 {
+			firstImageTiming.End(nil, zap.Bool("image_received", true))
 			eventName := streamPrefix + ".completed"
 			finalResults := append([]openAIResponsesImageResult(nil), pendingResults...)
 			for i := range finalResults {
@@ -1787,7 +1802,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	account *Account,
 	parsed *OpenAIImagesRequest,
 	channelMappedModel string,
-) (*OpenAIForwardResult, error) {
+) (timingResult *OpenAIForwardResult, timingErr error) {
+	prepareTiming := imagetiming.Start(ctx, "prepare_upstream_request")
+	defer func() { prepareTiming.End(timingErr) }()
 	startTime := time.Now()
 	requestModel := strings.TrimSpace(parsed.Model)
 	if mapped := strings.TrimSpace(channelMappedModel); mapped != "" {
@@ -1817,7 +1834,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	defer releaseUpstreamCtx()
 
+	credentialTiming := imagetiming.Start(ctx, "upstream_credentials")
 	token, _, err := s.GetAccessToken(upstreamCtx, account)
+	credentialTiming.End(err)
 	if err != nil {
 		return nil, err
 	}
@@ -1858,6 +1877,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
+	prepareTiming.End(nil, zap.Int64("request_bytes", upstreamReq.ContentLength))
 	upstreamStart := time.Now()
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
@@ -1934,11 +1954,16 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	// 与 handleOpenAIImagesOAuthResponseError 的比较端同口径：排除非流式 JSON
 	// keepalive 心跳字节，避免 failover 第 2 轮起把上一轮心跳残留误判为已写响应。
 	writerSizeBeforeResponse := OpenAIImagesJSONKeepaliveAdjustedWrittenSize(c)
+	responseFormat := parsed.ResponseFormat
+	if parsed.upstreamResponsePassthrough {
+		// Responses image_generation results contain base64 image data.
+		responseFormat = "b64_json"
+	}
 	if parsed.Stream {
 		if direct {
 			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesStreamingResponse(resp, c, startTime, parsed)
 		} else {
-			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesOAuthStreamingResponse(resp, c, startTime, parsed.ResponseFormat, openAIImagesStreamPrefix(parsed), upstreamModel)
+			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesOAuthStreamingResponse(resp, c, startTime, responseFormat, openAIImagesStreamPrefix(parsed), upstreamModel)
 		}
 		if err != nil {
 			if imageCount > 0 {
@@ -1976,7 +2001,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 		if direct {
 			usage, imageCount, imageOutputSizes, err = s.handleCodexDirectImagesNonStreamingResponse(resp, c, parsed)
 		} else {
-			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, parsed.ResponseFormat, requestModel)
+			usage, imageCount, imageOutputSizes, err = s.handleOpenAIImagesOAuthNonStreamingResponse(resp, c, responseFormat, requestModel)
 		}
 		if err != nil {
 			return nil, s.handleOpenAIImagesOAuthResponseError(

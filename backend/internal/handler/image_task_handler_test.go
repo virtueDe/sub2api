@@ -10,10 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 type asyncImageMemoryStore struct {
@@ -69,7 +73,9 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 	router.POST("/v1/images/generations/async", h.Submit)
 	router.GET("/v1/images/tasks/:task_id", h.Get)
 
-	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	core, timingLogs := observer.New(zap.InfoLevel)
+	logCtx := logger.IntoContext(context.Background(), zap.New(core).With(zap.String("client_request_id", "async-client-1")))
+	requestCtx, cancelRequest := context.WithCancel(logCtx)
 	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-1","prompt":"cat"}`)).WithContext(requestCtx)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -97,6 +103,14 @@ func TestAsyncImageHandlerSubmitAndPoll(t *testing.T) {
 		return err == nil && got.Status == service.ImageTaskStatusCompleted
 	}, time.Second, 10*time.Millisecond)
 
+	require.Eventually(t, func() bool {
+		return timingLogs.FilterMessage("image.timing").FilterField(zap.String("stage", "task_finalize")).Len() == 1
+	}, time.Second, time.Millisecond)
+	finalized := timingLogs.FilterMessage("image.timing").FilterField(zap.String("stage", "task_finalize")).All()[0].ContextMap()
+	require.Equal(t, "async-client-1", finalized["client_request_id"])
+	require.Equal(t, accepted.TaskID, finalized["task_id"])
+	require.Equal(t, "completed", finalized["task_status"])
+
 	pollReq := httptest.NewRequest(http.MethodGet, accepted.PollURL, nil)
 	pollWriter := httptest.NewRecorder()
 	router.ServeHTTP(pollWriter, pollReq)
@@ -116,6 +130,40 @@ func TestNewAsyncImageContextMarksTaskExecution(t *testing.T) {
 
 	require.True(t, service.IsAsyncImageTaskExecution(taskCtx.Request.Context()))
 	require.Equal(t, "/v1/images/edits", taskCtx.Request.URL.Path)
+}
+
+func TestAsyncImageHandlerTimingReportsExecutionFailures(t *testing.T) {
+	for _, scenario := range []string{"panic", "invalid_json", "upstream_error", "timeout"} {
+		t.Run(scenario, func(t *testing.T) {
+			store := &asyncImageMemoryStore{tasks: make(map[string]*service.ImageTaskRecord)}
+			tasks := service.NewImageTaskServiceWithUploader(store, nil, time.Hour, time.Minute)
+			task, err := tasks.Create(context.Background(), service.ImageTaskOwner{UserID: 1, APIKeyID: 1})
+			require.NoError(t, err)
+			core, logs := observer.New(zap.InfoLevel)
+			ctx, cancel := context.WithCancel(imagetiming.Enable(logger.IntoContext(context.Background(), zap.New(core))))
+			defer cancel()
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations", nil).WithContext(ctx)
+			h := &AsyncImageHandler{tasks: tasks, execute: func(_ string, c *gin.Context) {
+				switch scenario {
+				case "panic":
+					panic("test panic")
+				case "invalid_json":
+					c.Data(200, "application/json", []byte("invalid"))
+				case "upstream_error":
+					c.JSON(502, gin.H{"error": gin.H{"message": "upstream failed"}})
+				case "timeout":
+					cancel()
+				}
+			}}
+			h.run(task.ID, service.PlatformOpenAI, c, recorder, cancel)
+			entries := logs.FilterMessage("image.timing").FilterField(zap.String("stage", "async_task")).All()
+			require.Len(t, entries, 1)
+			require.Equal(t, "error", entries[0].ContextMap()["outcome"])
+			require.Equal(t, "failed", entries[0].ContextMap()["task_status"])
+		})
+	}
 }
 
 // When object storage is not configured the feature is fully disabled: the

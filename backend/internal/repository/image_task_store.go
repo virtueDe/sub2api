@@ -6,8 +6,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 )
 
 const imageTaskKeyPrefix = "image_task:"
@@ -20,7 +22,9 @@ func NewImageTaskStore(rdb *redis.Client) service.ImageTaskStore {
 	return &imageTaskStore{rdb: rdb}
 }
 
-func (s *imageTaskStore) Save(ctx context.Context, task *service.ImageTaskRecord, ttl time.Duration) error {
+func (s *imageTaskStore) Save(ctx context.Context, task *service.ImageTaskRecord, ttl time.Duration) (timingErr error) {
+	phase := imagetiming.Start(ctx, "task_state_save", zap.String("task_id", task.ID), zap.String("task_status", task.Status))
+	defer func() { phase.End(timingErr) }()
 	data, err := json.Marshal(task)
 	if err != nil {
 		return err
@@ -28,7 +32,9 @@ func (s *imageTaskStore) Save(ctx context.Context, task *service.ImageTaskRecord
 	return s.rdb.Set(ctx, imageTaskKey(task.ID), data, ttl).Err()
 }
 
-func (s *imageTaskStore) Get(ctx context.Context, id string) (*service.ImageTaskRecord, error) {
+func (s *imageTaskStore) Get(ctx context.Context, id string) (timingTask *service.ImageTaskRecord, timingErr error) {
+	phase := imagetiming.Start(ctx, "task_state_read", zap.String("task_id", id))
+	defer func() { phase.End(timingErr) }()
 	data, err := s.rdb.Get(ctx, imageTaskKey(id)).Bytes()
 	if err != nil {
 		if err == redis.Nil {

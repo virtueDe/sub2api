@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -81,7 +82,9 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 	// 检查缓存
 	cacheKey := p.buildCacheKey(imageURL)
 	if p.cache != nil {
+		cacheTiming := imagetiming.Start(ctx, "input_image_cache_read")
 		cachedURL, err := p.cache.Get(ctx, cacheKey)
+		cacheTiming.End(err, zap.Bool("cache_hit", err == nil && cachedURL != ""))
 		if err == nil && cachedURL != "" {
 			logger.L().Debug("image_url_proxy.cache_hit",
 				zap.String("cache_key", cacheKey),
@@ -96,7 +99,9 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 
 	// 下载图片
 	downloadStart := time.Now()
-	imageData, contentType, err := p.downloadImage(ctx, imageURL)
+	downloadTiming := imagetiming.Start(ctx, "input_image_download")
+	imageData, contentType, err := p.downloadImage(downloadTiming.Context(ctx), imageURL)
+	downloadTiming.End(err, zap.Int("body_bytes", len(imageData)), zap.Bool("fallback", err != nil))
 	downloadDuration := time.Since(downloadStart)
 	if err != nil {
 		logger.L().Warn("image_url_proxy.download_failed",
@@ -117,7 +122,9 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 
 	// 上传到 CF R2
 	uploadStart := time.Now()
-	cfURL, err := p.uploadToR2(ctx, imageData, contentType)
+	uploadTiming := imagetiming.Start(ctx, "input_image_upload")
+	cfURL, err := p.uploadToR2(uploadTiming.Context(ctx), imageData, contentType)
+	uploadTiming.End(err, zap.Bool("fallback", err != nil))
 	uploadDuration := time.Since(uploadStart)
 	if err != nil {
 		logger.L().Warn("image_url_proxy.upload_failed",
@@ -163,7 +170,7 @@ func (p *ImageURLProxy) ProxyURLs(ctx context.Context, imageURLs []string) ([]st
 
 	result := make([]string, len(imageURLs))
 	for i, imageURL := range imageURLs {
-		proxiedURL, err := p.ProxyURL(ctx, imageURL)
+		proxiedURL, err := p.ProxyURL(imagetiming.WithFields(ctx, zap.Int("image_index", i)), imageURL)
 		if err != nil {
 			return nil, fmt.Errorf("proxy url[%d]: %w", i, err)
 		}
@@ -252,7 +259,7 @@ func (p *ImageURLProxy) downloadImage(ctx context.Context, imageURL string) ([]b
 		return nil, "", fmt.Errorf("create request: %w", err)
 	}
 
-	resp, err := p.httpClient.Do(req)
+	resp, err := imagetiming.HTTP(req, p.httpClient.Do)
 	if err != nil {
 		return nil, "", fmt.Errorf("http request: %w", err)
 	}

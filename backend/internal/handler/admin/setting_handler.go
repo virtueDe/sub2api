@@ -355,6 +355,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ImageEditFormatNormalizeAccountIDs:                     settings.ImageEditFormatNormalizeAccountIDs,
 		ImageURLResponseB64Enabled:                             settings.ImageURLResponseB64Enabled,
 		ImageURLResponseB64AccountIDs:                          settings.ImageURLResponseB64AccountIDs,
+		ImageUpstreamResponsePassthroughEnabled:                settings.ImageUpstreamResponsePassthroughEnabled,
+		ImageUpstreamResponsePassthroughAccountIDs:             settings.ImageUpstreamResponsePassthroughAccountIDs,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 settings.EnableClaudeOAuthSystemPromptInjection,

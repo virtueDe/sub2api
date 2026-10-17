@@ -4808,7 +4808,7 @@
                 <div class="flex items-center justify-between">
                   <div class="pr-4">
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">URL 图片响应兼容模式</label>
-                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">图编辑请求中的网络图片会先转为 Base64 Data URL。同步请求默认返回 b64_json，仅在 response_format=url 时转存并返回 URL；异步请求始终转存到图片存储并返回 URL。</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">图编辑请求中的网络图片会先转为 Base64 Data URL。同步请求默认返回 b64_json，仅在 response_format=url 时转存并返回 URL；异步请求转存到图片存储并返回 URL。开启上游图片响应直返的账号跳过输出格式转换和转存。</p>
                   </div>
                   <Toggle v-model="form.image_url_response_b64_enabled" />
                 </div>
@@ -4816,6 +4816,23 @@
                   v-if="form.image_url_response_b64_enabled"
                   v-model="form.image_url_response_b64_account_ids"
                   label="处理账号"
+                  hint="留空表示对所有支持生图分组的账号生效；选择后仅对选中的账号生效。"
+                />
+              </div>
+
+              <div class="mt-6 border-t border-gray-100 pt-5 dark:border-dark-700" data-testid="image-upstream-response-passthrough">
+                <div class="flex items-center justify-between">
+                  <div class="pr-4">
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">上游图片响应直返</label>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">同步和异步请求均保留上游返回的图片格式：URL 直接返回，Base64 也直接返回，不下载结果图片、不转存到图片存储。优先于响应格式兼容和 URL 转 Base64；输入图片处理不受影响。</p>
+                    <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">异步接口仍需开启图片存储总开关，直返账号的生成结果不会转存。异步 Base64 结果会保存在任务缓存中，上游链接的有效期由上游决定。</p>
+                  </div>
+                  <Toggle v-model="form.image_upstream_response_passthrough_enabled" />
+                </div>
+                <ImageAccountSelector
+                  v-if="form.image_upstream_response_passthrough_enabled"
+                  v-model="form.image_upstream_response_passthrough_account_ids"
+                  label="直返账号"
                   hint="留空表示对所有支持生图分组的账号生效；选择后仅对选中的账号生效。"
                 />
               </div>
@@ -10273,6 +10290,8 @@ const form = reactive<SettingsForm>({
   image_edit_format_normalize_account_ids: [] as number[],
   image_url_response_b64_enabled: false,
   image_url_response_b64_account_ids: [] as number[],
+  image_upstream_response_passthrough_enabled: false,
+  image_upstream_response_passthrough_account_ids: [] as number[],
   // 余额、订阅到期与账号限额通知
   balance_low_notify_enabled: false,
   balance_low_notify_threshold: 0,
@@ -12029,6 +12048,8 @@ async function saveSettings() {
       image_edit_format_normalize_account_ids: [...form.image_edit_format_normalize_account_ids],
       image_url_response_b64_enabled: form.image_url_response_b64_enabled,
       image_url_response_b64_account_ids: [...form.image_url_response_b64_account_ids],
+      image_upstream_response_passthrough_enabled: form.image_upstream_response_passthrough_enabled,
+      image_upstream_response_passthrough_account_ids: [...form.image_upstream_response_passthrough_account_ids],
       // Payment configuration
       payment_enabled: form.payment_enabled,
       risk_control_enabled: form.risk_control_enabled,

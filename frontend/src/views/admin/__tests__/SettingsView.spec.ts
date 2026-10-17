@@ -382,6 +382,8 @@ const baseSettingsResponse = {
   passkey_rp_origins: ["https://sub3.nebula-spaces.com"],
   default_balance: 0,
   default_concurrency: 1,
+  image_upstream_response_passthrough_enabled: false,
+  image_upstream_response_passthrough_account_ids: [],
   default_subscriptions: [],
   site_name: "Sub2API",
   site_logo: "",
@@ -564,6 +566,7 @@ function mountView() {
         GroupOptionItem: true,
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
+        ImageAccountSelector: true,
         BackupSettings: true,
       },
     },
@@ -1427,6 +1430,57 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(summary.text()).toContain("过滤");
     expect(summary.text()).not.toContain("其他模型");
     expect(summary.text()).not.toContain("透传");
+  });
+
+  it("keeps upstream image passthrough off by default and saves the selected accounts", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const card = wrapper.get('[data-testid="image-upstream-response-passthrough"]');
+    const toggle = card.get('input[type="checkbox"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(false);
+    expect(card.findComponent({ name: "ImageAccountSelector" }).exists()).toBe(false);
+    expect(card.text()).toContain("URL 直接返回，Base64 也直接返回");
+    expect(card.text()).toContain("异步接口仍需开启图片存储总开关");
+
+    await toggle.setValue(true);
+    const selector = card.getComponent({ name: "ImageAccountSelector" });
+    expect(selector.props("modelValue")).toEqual([]);
+    selector.vm.$emit("update:modelValue", [7, 9]);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      image_upstream_response_passthrough_enabled: true,
+      image_upstream_response_passthrough_account_ids: [7, 9],
+    }));
+  });
+
+  it("loads upstream image passthrough accounts and retains the selection when disabled", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      image_upstream_response_passthrough_enabled: true,
+      image_upstream_response_passthrough_account_ids: [7, 9],
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    const card = wrapper.get('[data-testid="image-upstream-response-passthrough"]');
+    const toggle = card.get('input[type="checkbox"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+    expect(card.getComponent({ name: "ImageAccountSelector" }).props("modelValue")).toEqual([7, 9]);
+
+    await toggle.setValue(false);
+    expect(card.findComponent({ name: "ImageAccountSelector" }).exists()).toBe(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      image_upstream_response_passthrough_enabled: false,
+      image_upstream_response_passthrough_account_ids: [7, 9],
+    }));
   });
 
   it("loads and saves upstream billing probe settings from the gateway tab", async () => {

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -19,6 +20,7 @@ import (
 
 // GrokImages handles xAI image generation/editing through Grok groups.
 func (h *OpenAIGatewayHandler) GrokImages(c *gin.Context) {
+	defer imagetiming.Begin(c, "image_request")()
 	endpoint := service.GrokMediaEndpointImagesGenerations
 	if strings.Contains(c.Request.URL.Path, "/images/edits") {
 		endpoint = service.GrokMediaEndpointImagesEdits
@@ -88,7 +90,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	var body []byte
 	var err error
 	if endpoint.RequiresRequestBody() {
+		readTiming := imagetiming.Start(c.Request.Context(), "request_body_read")
 		body, err = pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
+		readTiming.End(err, zap.Int("body_bytes", len(body)))
 		if err != nil {
 			if maxErr, ok := extractMaxBytesError(err); ok {
 				h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
@@ -105,7 +109,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 
 	defer beginImageGenerationCapture(c, body)()
 	contentType := c.GetHeader("Content-Type")
+	parseTiming := imagetiming.Start(c.Request.Context(), "request_parse")
 	requestInfo := service.ParseGrokMediaRequest(contentType, body)
+	parseTiming.End(nil)
 	if endpoint == service.SeedanceEndpointCreate {
 		requestInfo, err = service.ParseSeedanceRequest(body)
 		if err != nil {
@@ -140,7 +146,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				return
 			}
 		}
+		imageSlotTiming := imagetiming.Start(c.Request.Context(), "image_slot_wait")
 		imageReleaseFunc, acquired := h.acquireImageGenerationSlot(c, streamStarted)
+		imageSlotTiming.End(nil, zap.Bool("acquired", acquired))
 		if !acquired {
 			return
 		}
@@ -156,7 +164,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
+	userSlotTiming := imagetiming.Start(c.Request.Context(), "user_slot_wait")
 	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, false, &streamStarted, reqLog)
+	userSlotTiming.End(nil, zap.Bool("acquired", acquired))
 	if !acquired {
 		return
 	}
@@ -238,6 +248,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		if failoverClientGone(c) {
 			return
 		}
+		selectionTiming := imagetiming.Start(c.Request.Context(), "account_select")
 		var selection *service.AccountSelectionResult
 		var scheduleDecision service.OpenAIAccountScheduleDecision
 		if boundLookupAccountID > 0 {
@@ -260,6 +271,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				platform,
 			)
 		}
+		selectionTiming.End(err)
 		// Own an eagerly acquired slot before any rejection or eligibility probe.
 		// Forwarding takes over the same once-only release after admission.
 		if selection != nil && selection.Acquired {
@@ -437,11 +449,14 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 							zap.Int("retry_count", sameAccountRetryCount[account.ID]),
 							zap.Duration("retry_delay", retryDelay),
 						)
+						retryTiming := imagetiming.Start(requestCtx, "retry_wait", zap.Int64("account_id", account.ID), zap.Int("retry_count", sameAccountRetryCount[account.ID]))
 						select {
 						case <-requestCtx.Done():
+							retryTiming.End(requestCtx.Err())
 							return
 						case <-time.After(retryDelay):
 						}
+						retryTiming.End(nil)
 						continue
 					}
 				}

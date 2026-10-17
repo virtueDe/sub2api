@@ -585,6 +585,9 @@ const (
 	SettingKeyImageURLResponseB64Enabled    = "image_url_response_b64_enabled"
 	SettingKeyImageURLResponseB64AccountIDs = "image_url_response_b64_account_ids"
 
+	SettingKeyImageUpstreamResponsePassthroughEnabled    = "image_upstream_response_passthrough_enabled"
+	SettingKeyImageUpstreamResponsePassthroughAccountIDs = "image_upstream_response_passthrough_account_ids"
+
 	// SettingKeyUpstreamBillingProbeSettings stores the global enable switch and interval
 	// for probing remote Sub2API API-key billing metadata.
 	SettingKeyUpstreamBillingProbeSettings = "upstream_billing_probe_settings"

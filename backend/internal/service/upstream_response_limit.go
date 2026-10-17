@@ -7,7 +7,9 @@ import (
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 var ErrUpstreamResponseBodyTooLarge = errors.New("upstream response body too large")
@@ -47,8 +49,13 @@ type TooLargeWriter func(c *gin.Context)
 // ReadUpstreamResponseBody 读取上游非流式响应体。
 // 超限时自动记录 ops error 并调用 onTooLarge 向客户端写错误。
 func ReadUpstreamResponseBody(reader io.Reader, cfg *config.Config, c *gin.Context, onTooLarge TooLargeWriter) ([]byte, error) {
+	var phase *imagetiming.Span
+	if c != nil && c.Request != nil {
+		phase = imagetiming.Start(c.Request.Context(), "response_read")
+	}
 	maxBytes := resolveUpstreamResponseReadLimit(cfg)
 	body, err := readUpstreamResponseBodyLimited(reader, maxBytes)
+	phase.End(err, zap.Int("body_bytes", len(body)))
 	if err != nil {
 		if errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
 			setOpsUpstreamError(c, http.StatusBadGateway, "upstream response too large", "")
