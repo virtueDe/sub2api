@@ -20,6 +20,8 @@ func TestRuntimeDefaults(t *testing.T) {
 		{"group translations", group.DefaultI18n, domain.GroupI18n{}},
 		{"group status", group.DefaultStatus, domain.StatusActive},
 		{"paid entitlement", group.DefaultIsPaidEntitlement, false},
+		{"image count billing", group.DefaultImageCountBilling, false},
+		{"image rate multiplier", group.DefaultImageRateMultiplier, float64(1)},
 		{"messages dispatch", group.DefaultMessagesDispatchModelConfig, domain.OpenAIMessagesDispatchModelConfig{}},
 		{"model allowlist", group.DefaultModelAllowlist, domain.GroupModelAllowlist{}},
 		{"codex manifest", group.DefaultCodexModelsManifestConfig, domain.GroupCodexModelsManifestConfig{}},
