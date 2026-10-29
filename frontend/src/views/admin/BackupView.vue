@@ -129,6 +129,28 @@
         </div>
       </div>
 
+      <div class="card p-6" data-testid="image-payload-cleanup">
+        <h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ t('admin.backup.imagePayload.title') }}</h3>
+        <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.backup.imagePayload.description') }}</p>
+        <fieldset :disabled="!imagePayloadLoaded || savingImagePayload" class="mt-4 space-y-3">
+          <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+            <input v-model="imagePayloadForm.enabled" data-testid="image-payload-enabled" type="checkbox" />
+            {{ t('admin.backup.imagePayload.enabled') }}
+          </label>
+          <div>
+            <label for="image-payload-days" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imagePayload.retainDays') }}</label>
+            <input id="image-payload-days" v-model.number="imagePayloadForm.retain_days" type="number" min="1" max="365" step="1" class="input w-full md:max-w-xs" />
+          </div>
+          <p v-if="imagePayloadLoaded" class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.backup.imagePayload.schedule', { timezone: imagePayloadForm.timezone }) }}</p>
+          <p class="text-sm text-amber-700 dark:text-amber-400">{{ t('admin.backup.imagePayload.warning') }}</p>
+          <p v-if="!imagePayloadValid" role="alert" class="text-sm text-red-600">{{ t('admin.backup.imagePayload.invalidDays') }}</p>
+          <button type="button" class="btn btn-primary btn-sm" :disabled="!imagePayloadValid" @click="saveImagePayloadCleanup">
+            {{ savingImagePayload ? t('common.loading') : t('common.save') }}
+          </button>
+        </fieldset>
+        <button v-if="!imagePayloadLoaded" type="button" class="btn btn-secondary btn-sm mt-3" @click="loadImagePayloadCleanup">{{ t('admin.backup.imagePayload.reload') }}</button>
+      </div>
+
       <!-- Schedule Config -->
       <div class="card p-6" data-testid="backup-schedule">
         <div class="mb-4">
@@ -425,6 +447,7 @@ import type {
   BackupRecord,
   BackupDownloadPart,
   ImageStorageConfig,
+  ImagePayloadCleanupConfig,
 } from '@/api/admin/backup'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
@@ -443,6 +466,34 @@ function reportStepUpBlocked(error: unknown): boolean {
       : t('stepUp.notEnabled')
   )
   return true
+}
+
+const imagePayloadForm = ref<ImagePayloadCleanupConfig>({ enabled: false, retain_days: 3, timezone: '' })
+const imagePayloadLoaded = ref(false)
+const savingImagePayload = ref(false)
+const imagePayloadValid = computed(() => Number.isInteger(imagePayloadForm.value.retain_days)
+  && imagePayloadForm.value.retain_days >= 1 && imagePayloadForm.value.retain_days <= 365)
+
+async function loadImagePayloadCleanup() {
+  try {
+    imagePayloadForm.value = await adminAPI.backup.getImagePayloadCleanup()
+    imagePayloadLoaded.value = true
+  } catch (error) {
+    appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
+  }
+}
+
+async function saveImagePayloadCleanup() {
+  if (!imagePayloadLoaded.value || !imagePayloadValid.value) return
+  savingImagePayload.value = true
+  try {
+    imagePayloadForm.value = await adminAPI.backup.updateImagePayloadCleanup(imagePayloadForm.value)
+    appStore.showSuccess(t('admin.backup.imagePayload.saved'))
+  } catch (error) {
+    appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
+  } finally {
+    savingImagePayload.value = false
+  }
 }
 
 // S3 config
@@ -917,7 +968,7 @@ function formatDate(value?: string): string {
 
 onMounted(async () => {
   document.addEventListener('visibilitychange', handleVisibilityChange)
-  await Promise.all([loadS3Config(), loadImageStorageConfig(), loadSchedule(), loadBackups()])
+  await Promise.all([loadS3Config(), loadImageStorageConfig(), loadImagePayloadCleanup(), loadSchedule(), loadBackups()])
 
   // 如果有正在 running 的备份，恢复轮询
   const runningBackup = backups.value.find(r => r.status === 'running')

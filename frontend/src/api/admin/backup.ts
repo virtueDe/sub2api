@@ -140,6 +140,22 @@ export async function testImageStorageConnection(
   return data
 }
 
+export interface ImagePayloadCleanupConfig {
+  enabled: boolean
+  retain_days: number
+  timezone: string
+}
+
+export async function getImagePayloadCleanup(): Promise<ImagePayloadCleanupConfig> {
+  const { data } = await apiClient.get<ImagePayloadCleanupConfig>('/admin/backups/image-payload-cleanup')
+  return data
+}
+
+export async function updateImagePayloadCleanup(config: ImagePayloadCleanupConfig): Promise<ImagePayloadCleanupConfig> {
+  const { data } = await apiClient.put<ImagePayloadCleanupConfig>('/admin/backups/image-payload-cleanup', config)
+  return data
+}
+
 // Schedule
 export async function getSchedule(): Promise<BackupScheduleConfig> {
   const { data } = await apiClient.get<BackupScheduleConfig>('/admin/backups/schedule')
@@ -183,6 +199,8 @@ export async function restoreBackup(id: string, password: string): Promise<Backu
 }
 
 export const backupAPI = {
+  getImagePayloadCleanup,
+  updateImagePayloadCleanup,
   getS3Config,
   updateS3Config,
   testS3Connection,

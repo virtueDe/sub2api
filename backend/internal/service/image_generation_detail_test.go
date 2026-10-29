@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"mime/multipart"
 	"testing"
 
@@ -14,7 +15,7 @@ func TestImageGenerationCapturePreservesRequestAndRedactsCredentials(t *testing.
 	detail := capture.Snapshot()
 	require.Equal(t, "画一只猫", detail.Prompt)
 	require.Equal(t, "1024x1024", detail.RequestParams["size"])
-	require.Equal(t, float64(2), detail.RequestParams["n"])
+	require.Equal(t, json.Number("2"), detail.RequestParams["n"])
 	extra, ok := detail.RequestParams["extra"].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, "[REDACTED]", extra["api_key"])
@@ -113,4 +114,24 @@ func TestImageGenerationCapturePreservesIdenticalOutputs(t *testing.T) {
 	capture.ObserveResponse(response, false)
 	capture.ObserveResponse(response, false)
 	require.Len(t, capture.Snapshot().Images, 2)
+}
+
+func TestImageGenerationCaptureFiltersOnlyLogCopy(t *testing.T) {
+	body := []byte(`{"prompt":"参考 data:image/png;base64,aGVsbG8= 画猫","image":["data:image/png;base64,aGVsbG8="],"messages":[{"content":[{"image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}],"n":2}`)
+	original := append([]byte(nil), body...)
+	capture := NewImageGenerationCapture("application/json", body)
+	capture.ObserveResponse([]byte(`{"data":[{"b64_json":"keep-output"}]}`), false)
+	detail := capture.Snapshot()
+	require.Equal(t, original, body)
+	require.Equal(t, "参考 [IMAGE_DATA_OMITTED] 画猫", detail.Prompt)
+	require.NotContains(t, ImageGenerationDetailJSON(detail), "aGVsbG8=")
+	require.Contains(t, ImageGenerationDetailJSON(detail), "keep-output")
+	require.Equal(t, json.Number("2"), detail.RequestParams["n"])
+}
+
+func TestImageGenerationCapturePreservesLargeNumbers(t *testing.T) {
+	detail := NewImageGenerationCapture("application/json", []byte(`{"prompt":"cat","seed":9007199254740993,"strength":0.1234567890123456789}`)).Snapshot()
+	require.Equal(t, json.Number("9007199254740993"), detail.RequestParams["seed"])
+	require.Contains(t, ImageGenerationDetailJSON(detail), `"seed":9007199254740993`)
+	require.Contains(t, ImageGenerationDetailJSON(detail), `"strength":0.1234567890123456789`)
 }

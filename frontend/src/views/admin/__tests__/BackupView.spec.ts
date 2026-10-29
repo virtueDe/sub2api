@@ -6,6 +6,8 @@ import BackupView from '../BackupView.vue'
 const {
   getS3Config,
   getImageStorageConfig,
+  getImagePayloadCleanup,
+  updateImagePayloadCleanup,
   getSchedule,
   updateSchedule,
   deleteBackup,
@@ -14,6 +16,8 @@ const {
 } = vi.hoisted(() => ({
   getS3Config: vi.fn(),
   getImageStorageConfig: vi.fn(),
+  getImagePayloadCleanup: vi.fn(),
+  updateImagePayloadCleanup: vi.fn(),
   getSchedule: vi.fn(),
   updateSchedule: vi.fn(),
   deleteBackup: vi.fn(),
@@ -28,6 +32,8 @@ vi.mock('@/api', () => ({
       updateS3Config: vi.fn(),
       testS3Connection: vi.fn(),
       getImageStorageConfig,
+      getImagePayloadCleanup,
+      updateImagePayloadCleanup,
       updateImageStorageConfig: vi.fn(),
       testImageStorageConnection: vi.fn(),
       getSchedule,
@@ -92,6 +98,8 @@ function mountBackupView() {
 
 describe('admin BackupView', () => {
   beforeEach(() => {
+    getImagePayloadCleanup.mockReset().mockResolvedValue({ enabled: false, retain_days: 3, timezone: 'Asia/Shanghai' })
+    updateImagePayloadCleanup.mockReset().mockImplementation(async config => config)
     getS3Config.mockResolvedValue({})
     getImageStorageConfig.mockResolvedValue({ config: {}, secret_configured: false })
     getSchedule.mockResolvedValue({ enabled: false, cron_expr: '', retain_days: 14, retain_count: 10 })
@@ -106,6 +114,43 @@ describe('admin BackupView', () => {
     wrappers.splice(0).forEach(wrapper => wrapper.unmount())
     vi.restoreAllMocks()
     document.body.innerHTML = ''
+  })
+
+  it('saves independent image payload retention settings', async () => {
+    const wrapper = mountBackupView()
+    await flushPromises()
+    const card = wrapper.get('[data-testid="image-payload-cleanup"]')
+    expect((card.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+    expect((card.get('input[type="number"]').element as HTMLInputElement).value).toBe('3')
+    await card.get('input[type="checkbox"]').setValue(true)
+    await card.get('input[type="number"]').setValue(7)
+    await card.get('button').trigger('click')
+    await flushPromises()
+    expect(updateImagePayloadCleanup).toHaveBeenCalledWith({ enabled: true, retain_days: 7, timezone: 'Asia/Shanghai' })
+    expect(updateSchedule).not.toHaveBeenCalled()
+  })
+
+  it.each([0, -1, 1.5, 366])('rejects invalid image retention %s', async days => {
+    const wrapper = mountBackupView()
+    await flushPromises()
+    const card = wrapper.get('[data-testid="image-payload-cleanup"]')
+    await card.get('input[type="number"]').setValue(days)
+    expect(card.get('button').attributes('disabled')).toBeDefined()
+    await card.get('button').trigger('click')
+    expect(updateImagePayloadCleanup).not.toHaveBeenCalled()
+  })
+
+  it('does not allow overwriting settings after a load failure', async () => {
+    getImagePayloadCleanup.mockRejectedValueOnce(new Error('offline'))
+    const wrapper = mountBackupView()
+    await flushPromises()
+    const card = wrapper.get('[data-testid="image-payload-cleanup"]')
+    expect(card.get('fieldset').attributes('disabled')).toBeDefined()
+    await card.get('fieldset button').trigger('click')
+    expect(updateImagePayloadCleanup).not.toHaveBeenCalled()
+    await card.findAll('button')[1]!.trigger('click')
+    await flushPromises()
+    expect(card.get('fieldset').attributes('disabled')).toBeUndefined()
   })
 
   it.each(['backup', 'restore'])('does not resume %s polling after navigation during initial loading', async (operation) => {

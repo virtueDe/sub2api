@@ -661,6 +661,9 @@ func registerBackupRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAut
 		backup.PUT("/image-storage", gin.HandlerFunc(stepUpAuth), h.Admin.Backup.UpdateImageStorageConfig)
 		backup.POST("/image-storage/test", h.Admin.Backup.TestImageStorageConnection)
 
+		backup.GET("/image-payload-cleanup", h.Admin.Backup.GetImagePayloadCleanup)
+		backup.PUT("/image-payload-cleanup", h.Admin.Backup.UpdateImagePayloadCleanup)
+
 		// 定时备份配置
 		backup.GET("/schedule", h.Admin.Backup.GetSchedule)
 		backup.PUT("/schedule", h.Admin.Backup.UpdateSchedule)

@@ -103,6 +103,17 @@ export default {
         testFailed: 'S3 connection test failed',
         saved: 'S3 configuration saved'
       },
+      imagePayload: {
+        title: 'Image log payload cleanup',
+        description: 'Remove historical input image payloads and expired output Base64 from usage and error logs. Keep regular URLs, prompt text, business parameters, users, timestamps and billing. New input image payloads are always filtered, independently of this switch.',
+        enabled: 'Enable scheduled cleanup (off by default)',
+        retainDays: 'Output Base64 retention (1–365 days, default 3)',
+        schedule: 'Batched cleanup runs daily at 02:00 ({timezone}). Calendar days include today. Changes apply at the next scheduled run.',
+        warning: 'Expired images without a regular URL lose their preview. Disabling stops cleanup at the next batch. Log records are kept; disk files do not shrink immediately. Table and index maintenance must be scheduled separately.',
+        invalidDays: 'Enter an integer from 1 to 365.',
+        saved: 'Image log payload cleanup settings saved',
+        reload: 'Reload cleanup settings',
+      },
       imageStorage: {
         title: 'Async image object storage',
         description: 'Enables the asynchronous image endpoints and offloads generated images to object storage, keeping only short links in Redis. Shares the S3 client with backups and takes effect on save — no restart needed.',

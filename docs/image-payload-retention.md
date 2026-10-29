@@ -1,0 +1,50 @@
+# 图片日志载荷保留
+
+开发基线：`86dc26d91`（main / 0.2.19-custom.1），分支 `feature/image-payload-retention`。
+
+## 实施计划
+
+- [x] 找回暂停 worktree，保留过滤草稿并快进到最新 main。
+- [x] 统一输入载荷过滤，覆盖嵌套对象、数组和提示词中的图片 Data URI。
+- [x] 实现独立设置、每日调度、分批清理和可恢复进度。
+- [x] 接入系统设置的数据备份页，补齐中英文说明。
+- [x] 验证输入过滤、保留边界、字段保留、并发/取消和设置交互，检查构建及 diff。
+
+## 不变量与运行方式
+
+输入过滤只处理日志副本，不改变发往上游的请求或返回给用户的图片。正常 URL（包括长签名 URL）、提示词正文、业务参数保留。图片 Data URI 替换为 `[IMAGE_DATA_OMITTED]`；裸 Base64 必须位于图片相关路径且识别为图片，避免误删普通文本。
+
+清理默认关闭，输出保留天数默认 3，可设置 1～365 天。按服务端时区每日 02:00 执行，不在启动或保存设置时立即清理。保留自然日包含当天：10 月 28 日执行、保留 3 天时，清理 10 月 26 日 00:00 之前的输出载荷。历史输入载荷不受输出保留期限制。
+
+只修改 `usage_logs.image_generation` 和 `ops_error_logs.image_generation` 内的图片载荷路径；保留日志行、用户、计费、时间、URL、图片元数据和未知 JSON 字段。使用数据库互斥、短事务、批量间隔、超时及持久化游标控制负载；关闭开关在下一批生效，单批执行预算 30 秒。每批最多 20 个 ID，逐行读取图片，批间等待 100ms；每表最多运行 15 分钟，大量历史数据可能跨多个夜间窗口处理。任务中断后下次定时执行继续扫描；单行失败记错误并保存进度，后续记录可继续推进，失败行在下一轮完整扫描重试。任务的清理、设置读取及进度保存共用持锁连接，不在持锁期间额外申请连接，避免与其他定时任务形成连接池互等。
+
+没有普通 URL 的图片在输出 Base64 过期后无法预览。清理字节是内容减少量，不等于立即归还操作系统的磁盘空间。任务不执行 VACUUM FULL、REINDEX 或 DDL；缩表与索引维护必须另开维护窗口。
+
+## 验证
+
+过滤与历史 JSON 单元测试、捕获链路回归、设置/调度边界测试、SQL 事务与取消测试、PostgreSQL 集成测试（本地环境可用时）、前端设置交互与 i18n 检查、类型检查和构建。生产数据库不用于开发验证。
+
+
+已通过：图片载荷工具测试；后端图片捕获、清理设置、日期边界、SQL 事务回滚、互斥/单连接运行、游标恢复和服务关闭定向测试；前端备份页面与 i18n 共 20 个测试；修改文件 ESLint、前端生产构建（含类型检查）、后端构建、git diff --check。Wire 使用本机已安装的生成器完成生成，未变更 Go 或前端依赖声明/锁文件。
+
+2026-10-29 已在独立 PostgreSQL 18.1 临时容器中通过 6 组集成测试：
+
+- 两表、多批次、自然日边界、完整业务字段/未知字段/大整数保留、重复执行不再改写。
+- 并发持有行锁时跳过，解锁后重新扫描，保留并发编辑。
+- 单连接池，以及双连接池中另一连接被占用时均正常运行；其他实例持有互斥锁时不清理。
+- 单行更新异常回滚，保存游标并允许下次继续后续记录；另一张表继续清理。
+- 运行中关闭开关，在下一批停止。
+- 执行中取消任务后事务回滚，连接及互斥锁释放。
+
+现有仓储集成测试 `TestImageGenerationUsageDetailPersistence`、`TestImageGenerationErrorDetailPersistence` 同样通过（完整迁移后的 PostgreSQL 数据库）。后端构建及最终 diff 检查通过。
+
+新增回归还覆盖 MIME 声明输入和过期输出 URL 的换行 Data URI，以及新请求大整数参数的精度。集成测试使用独立容器内合成数据，不代表生产大表耗时或释放空间。未连接生产数据库、启用线上开关或执行物理维护。
+
+复验命令（backend 目录）：
+
+```text
+go test -tags=integration ./internal/service -run '^TestImagePayloadPostgres$' -count=1 -timeout=5m
+go test -tags=unit ./internal/pkg/imagepayload ./internal/service ./internal/handler ./cmd/server -run 'Test(Sanitize|CleanDetail|ImagePayload|ImageGeneration|ProvideCleanup)' -count=1
+```
+
+上线后先核对页面保留天数、服务端时区，再启用开关；下一次 02:00 后检查 `service.image_payload_cleanup` 日志的 scanned、updated、failed、cursor 与 upper。`content_bytes_removed` 是字符串内容减少量，不等于文件系统回收空间。发现性能异常可关闭开关，正在执行的批次结束后停止。

@@ -11,13 +11,15 @@ type BackupHandler struct {
 	backupService *service.BackupService
 	userService   *service.UserService
 	imageStorage  *service.ImageStorageSettingService
+	imagePayload  *service.ImagePayloadCleanupService
 }
 
-func NewBackupHandler(backupService *service.BackupService, userService *service.UserService, imageStorage *service.ImageStorageSettingService) *BackupHandler {
+func NewBackupHandler(backupService *service.BackupService, userService *service.UserService, imageStorage *service.ImageStorageSettingService, imagePayload *service.ImagePayloadCleanupService) *BackupHandler {
 	return &BackupHandler{
 		backupService: backupService,
 		userService:   userService,
 		imageStorage:  imageStorage,
+		imagePayload:  imagePayload,
 	}
 }
 
@@ -255,4 +257,27 @@ func (h *BackupHandler) TestImageStorageConnection(c *gin.Context) {
 		return
 	}
 	response.Success(c, gin.H{"ok": true, "message": "connection successful"})
+}
+
+func (h *BackupHandler) GetImagePayloadCleanup(c *gin.Context) {
+	cfg, err := h.imagePayload.GetSettings(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, cfg)
+}
+
+func (h *BackupHandler) UpdateImagePayloadCleanup(c *gin.Context) {
+	var req service.ImagePayloadCleanupSettings
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	cfg, err := h.imagePayload.UpdateSettings(c.Request.Context(), req)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, cfg)
 }

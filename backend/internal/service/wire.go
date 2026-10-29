@@ -766,6 +766,15 @@ func ProvideImageTaskService(store ImageTaskStore, settings *ImageStorageSetting
 	return NewImageTaskServiceWithResolver(store, settings.Resolver(), defaultImageTaskTTL, defaultImageTaskExecutionTimeout)
 }
 
+func ProvideImagePayloadCleanupService(settings SettingRepository, db *sql.DB, cfg *config.Config) (*ImagePayloadCleanupService, error) {
+	svc, err := NewImagePayloadCleanupService(settings, db, cfg)
+	if err != nil {
+		return nil, err
+	}
+	svc.Start()
+	return svc, nil
+}
+
 // ProvideBackupService creates and starts BackupService
 func ProvideBackupService(
 	settingRepo SettingRepository,
@@ -976,6 +985,7 @@ var ProviderSet = wire.NewSet(
 	ProvideSettingService,
 	NewDataManagementService,
 	ProvideBackupService,
+	ProvideImagePayloadCleanupService,
 	ProvideOpsSystemLogSink,
 	ProvideOpsService,
 	ProvideOpsIngressRejectAggregator,

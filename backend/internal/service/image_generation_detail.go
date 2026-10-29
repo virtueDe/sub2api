@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagepayload"
 )
 
 // ImageGenerationDetail is stored with its usage/error row, never in list responses.
@@ -105,7 +107,9 @@ func NewImageGenerationCapture(contentType string, body []byte) *ImageGeneration
 			_ = part.Close()
 		}
 	} else {
-		_ = json.Unmarshal(body, &params)
+		decoder := json.NewDecoder(bytes.NewReader(body))
+		decoder.UseNumber()
+		_ = decoder.Decode(&params)
 	}
 	if params == nil {
 		params = map[string]any{}
@@ -134,27 +138,7 @@ func appendImageRequestValue(previous any, next string) []any {
 }
 
 func redactImageRequestCredentials(value any) {
-	switch node := value.(type) {
-	case map[string]any:
-		for key, child := range node {
-			switch strings.ToLower(key) {
-			case "api_key", "apikey", "authorization", "access_token", "refresh_token", "password", "secret":
-				node[key] = "[REDACTED]"
-			case "b64_json", "base64", "image_base64", "image", "mask", "image_url", "data":
-				if text, ok := child.(string); ok && (strings.HasPrefix(strings.ToLower(text), "data:") || len(text) > 256) {
-					node[key] = "[IMAGE_DATA_OMITTED]"
-				} else {
-					redactImageRequestCredentials(child)
-				}
-			default:
-				redactImageRequestCredentials(child)
-			}
-		}
-	case []any:
-		for _, child := range node {
-			redactImageRequestCredentials(child)
-		}
-	}
+	imagepayload.SanitizeInput(value, true)
 }
 
 func collectImageRequestText(value any, texts *[]string) {
