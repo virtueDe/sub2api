@@ -141,9 +141,14 @@
             <label for="image-payload-days" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imagePayload.retainDays') }}</label>
             <input id="image-payload-days" v-model.number="imagePayloadForm.retain_days" type="number" min="1" max="365" step="1" class="input w-full md:max-w-xs" />
           </div>
-          <p v-if="imagePayloadLoaded" class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.backup.imagePayload.schedule', { timezone: imagePayloadForm.timezone }) }}</p>
+          <div>
+            <label for="image-payload-time" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imagePayload.dailyTime') }}</label>
+            <input id="image-payload-time" v-model="imagePayloadForm.daily_time" type="time" step="60" class="input w-full md:max-w-xs" />
+          </div>
+          <p v-if="imagePayloadLoaded" class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.backup.imagePayload.schedule', { time: imagePayloadForm.daily_time, timezone: imagePayloadForm.timezone }) }}</p>
           <p class="text-sm text-amber-700 dark:text-amber-400">{{ t('admin.backup.imagePayload.warning') }}</p>
-          <p v-if="!imagePayloadValid" role="alert" class="text-sm text-red-600">{{ t('admin.backup.imagePayload.invalidDays') }}</p>
+          <p v-if="!imagePayloadDaysValid" role="alert" class="text-sm text-red-600">{{ t('admin.backup.imagePayload.invalidDays') }}</p>
+          <p v-if="!imagePayloadTimeValid" role="alert" class="text-sm text-red-600">{{ t('admin.backup.imagePayload.invalidTime') }}</p>
           <button type="button" class="btn btn-primary btn-sm" :disabled="!imagePayloadValid" @click="saveImagePayloadCleanup">
             {{ savingImagePayload ? t('common.loading') : t('common.save') }}
           </button>
@@ -468,11 +473,13 @@ function reportStepUpBlocked(error: unknown): boolean {
   return true
 }
 
-const imagePayloadForm = ref<ImagePayloadCleanupConfig>({ enabled: false, retain_days: 3, timezone: '' })
+const imagePayloadForm = ref<ImagePayloadCleanupConfig>({ enabled: false, retain_days: 3, daily_time: '02:00', timezone: '' })
 const imagePayloadLoaded = ref(false)
 const savingImagePayload = ref(false)
-const imagePayloadValid = computed(() => Number.isInteger(imagePayloadForm.value.retain_days)
+const imagePayloadDaysValid = computed(() => Number.isInteger(imagePayloadForm.value.retain_days)
   && imagePayloadForm.value.retain_days >= 1 && imagePayloadForm.value.retain_days <= 365)
+const imagePayloadTimeValid = computed(() => /^([01]\d|2[0-3]):[0-5]\d$/.test(imagePayloadForm.value.daily_time))
+const imagePayloadValid = computed(() => imagePayloadDaysValid.value && imagePayloadTimeValid.value)
 
 async function loadImagePayloadCleanup() {
   try {

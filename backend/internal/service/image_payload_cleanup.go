@@ -16,11 +16,13 @@ import (
 )
 
 const imagePayloadSettingsKey = "image_payload_cleanup"
-const imagePayloadCron = "0 2 * * *"
+const imagePayloadDefaultTime = "02:00"
+const imagePayloadCron = "* * * * *"
 
 type ImagePayloadCleanupSettings struct {
-	Enabled    bool `json:"enabled"`
-	RetainDays int  `json:"retain_days"`
+	Enabled    bool   `json:"enabled"`
+	RetainDays int    `json:"retain_days"`
+	DailyTime  string `json:"daily_time"`
 	// Read-only: the same location is used by cron and the retention cutoff.
 	Timezone string `json:"timezone"`
 }
@@ -52,6 +54,9 @@ func validateImagePayloadSettings(cfg ImagePayloadCleanupSettings) error {
 	if cfg.RetainDays < 1 || cfg.RetainDays > 365 {
 		return infraerrors.BadRequest("INVALID_IMAGE_PAYLOAD_RETENTION", "image output retention must be between 1 and 365 days")
 	}
+	if _, err := time.Parse("15:04", cfg.DailyTime); err != nil || len(cfg.DailyTime) != 5 {
+		return infraerrors.BadRequest("INVALID_IMAGE_PAYLOAD_TIME", "image payload cleanup time must be HH:mm between 00:00 and 23:59")
+	}
 	return nil
 }
 
@@ -64,7 +69,7 @@ func (s *ImagePayloadCleanupService) GetSettings(ctx context.Context) (*ImagePay
 }
 
 func parseImagePayloadSettings(raw string, location *time.Location) (*ImagePayloadCleanupSettings, error) {
-	cfg := ImagePayloadCleanupSettings{RetainDays: 3}
+	cfg := ImagePayloadCleanupSettings{RetainDays: 3, DailyTime: imagePayloadDefaultTime}
 	if raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
 			return nil, fmt.Errorf("decode image payload settings: %w", err)
@@ -78,6 +83,10 @@ func parseImagePayloadSettings(raw string, location *time.Location) (*ImagePaylo
 }
 
 func (s *ImagePayloadCleanupService) UpdateSettings(ctx context.Context, cfg ImagePayloadCleanupSettings) (*ImagePayloadCleanupSettings, error) {
+	// Older clients omit daily_time; keep their original 02:00 schedule.
+	if cfg.DailyTime == "" {
+		cfg.DailyTime = imagePayloadDefaultTime
+	}
 	if err := validateImagePayloadSettings(cfg); err != nil {
 		return nil, err
 	}
@@ -99,10 +108,11 @@ func (s *ImagePayloadCleanupService) Start() {
 		return
 	}
 	s.scheduler = cron.New(cron.WithLocation(s.location), cron.WithChain(cron.SkipIfStillRunning(cron.DefaultLogger)))
-	// Fixed schedule: every instance reads the shared switch at run time. Saving
-	// settings never starts a destructive job, and no startup catch-up is run.
+	// Check shared settings every minute so all instances observe time changes
+	// without restarting. Only the configured daily minute starts cleanup;
+	// saving settings and startup never trigger a catch-up run.
 	_, err := s.scheduler.AddFunc(imagePayloadCron, func() {
-		if err := s.run(s.ctx, time.Now()); err != nil {
+		if err := s.runScheduled(s.ctx, time.Now()); err != nil {
 			logger.LegacyPrintf("service.image_payload_cleanup", "cleanup failed: %v", err)
 		}
 	})
@@ -110,6 +120,19 @@ func (s *ImagePayloadCleanupService) Start() {
 		panic(err)
 	} // compile-time constant schedule
 	s.scheduler.Start()
+}
+
+func (s *ImagePayloadCleanupService) runScheduled(ctx context.Context, now time.Time) error {
+	settingsCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	cfg, err := s.GetSettings(settingsCtx)
+	cancel()
+	if err != nil || !cfg.Enabled {
+		return err
+	}
+	if now.In(s.location).Format("15:04") != cfg.DailyTime {
+		return nil
+	}
+	return s.run(ctx, now)
 }
 
 func (s *ImagePayloadCleanupService) Stop() {

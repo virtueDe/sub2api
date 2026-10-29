@@ -143,6 +143,7 @@ export async function testImageStorageConnection(
 export interface ImagePayloadCleanupConfig {
   enabled: boolean
   retain_days: number
+  daily_time: string
   timezone: string
 }
 

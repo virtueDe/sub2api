@@ -66,7 +66,8 @@ vi.mock('@/composables/useStepUp', () => ({
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string, params?: Record<string, unknown>) =>
-      params?.index !== undefined ? `${key}:${params.index}` : params?.day !== undefined ? `${key}:${params.day}` : key,
+      params?.index !== undefined ? `${key}:${params.index}` : params?.day !== undefined ? `${key}:${params.day}`
+        : params?.time !== undefined ? `${key}:${params.time}:${params.timezone}` : key,
   }),
 }))
 
@@ -98,7 +99,7 @@ function mountBackupView() {
 
 describe('admin BackupView', () => {
   beforeEach(() => {
-    getImagePayloadCleanup.mockReset().mockResolvedValue({ enabled: false, retain_days: 3, timezone: 'Asia/Shanghai' })
+    getImagePayloadCleanup.mockReset().mockResolvedValue({ enabled: false, retain_days: 3, daily_time: '02:00', timezone: 'Asia/Shanghai' })
     updateImagePayloadCleanup.mockReset().mockImplementation(async config => config)
     getS3Config.mockResolvedValue({})
     getImageStorageConfig.mockResolvedValue({ config: {}, secret_configured: false })
@@ -122,12 +123,39 @@ describe('admin BackupView', () => {
     const card = wrapper.get('[data-testid="image-payload-cleanup"]')
     expect((card.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
     expect((card.get('input[type="number"]').element as HTMLInputElement).value).toBe('3')
+    expect((card.get('input[type="time"]').element as HTMLInputElement).value).toBe('02:00')
     await card.get('input[type="checkbox"]').setValue(true)
     await card.get('input[type="number"]').setValue(7)
+    await card.get('input[type="time"]').setValue('03:45')
     await card.get('button').trigger('click')
     await flushPromises()
-    expect(updateImagePayloadCleanup).toHaveBeenCalledWith({ enabled: true, retain_days: 7, timezone: 'Asia/Shanghai' })
+    expect(updateImagePayloadCleanup).toHaveBeenCalledWith({ enabled: true, retain_days: 7, daily_time: '03:45', timezone: 'Asia/Shanghai' })
+    expect((card.get('input[type="time"]').element as HTMLInputElement).value).toBe('03:45')
+    expect(card.text()).toContain('admin.backup.imagePayload.schedule:03:45:Asia/Shanghai')
     expect(updateSchedule).not.toHaveBeenCalled()
+  })
+
+  it.each(['00:00', '23:59'])('loads and saves a custom daily cleanup time %s', async dailyTime => {
+    getImagePayloadCleanup.mockResolvedValueOnce({ enabled: true, retain_days: 3, daily_time: dailyTime, timezone: 'Asia/Shanghai' })
+    const wrapper = mountBackupView()
+    await flushPromises()
+    const card = wrapper.get('[data-testid="image-payload-cleanup"]')
+    expect((card.get('input[type="time"]').element as HTMLInputElement).value).toBe(dailyTime)
+    expect(card.get('button').attributes('disabled')).toBeUndefined()
+    await card.get('button').trigger('click')
+    await flushPromises()
+    expect(updateImagePayloadCleanup).toHaveBeenCalledWith({ enabled: true, retain_days: 3, daily_time: dailyTime, timezone: 'Asia/Shanghai' })
+  })
+
+  it.each(['', '24:00', '02:60', '02:00:30'])('rejects invalid daily cleanup time %s', async dailyTime => {
+    const wrapper = mountBackupView()
+    await flushPromises()
+    const card = wrapper.get('[data-testid="image-payload-cleanup"]')
+    await card.get('input[type="time"]').setValue(dailyTime)
+    expect(card.get('button').attributes('disabled')).toBeDefined()
+    expect(card.get('[role="alert"]').text()).toBe('admin.backup.imagePayload.invalidTime')
+    await card.get('button').trigger('click')
+    expect(updateImagePayloadCleanup).not.toHaveBeenCalled()
   })
 
   it.each([0, -1, 1.5, 366])('rejects invalid image retention %s', async days => {

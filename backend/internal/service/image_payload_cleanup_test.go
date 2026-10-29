@@ -22,8 +22,14 @@ func TestImagePayloadSettingsAndSchedule(t *testing.T) {
 	ctx := context.Background()
 	cfg, err := svc.GetSettings(ctx)
 	require.NoError(t, err)
-	require.Equal(t, &ImagePayloadCleanupSettings{RetainDays: 3, Timezone: "Asia/Shanghai"}, cfg)
+	require.Equal(t, &ImagePayloadCleanupSettings{RetainDays: 3, DailyTime: "02:00", Timezone: "Asia/Shanghai"}, cfg)
 	require.NoError(t, svc.run(ctx, time.Now()), "disabled does not touch the database")
+	repo.data[imagePayloadSettingsKey] = `{"enabled":true,"retain_days":7}`
+	cfg, err = svc.GetSettings(ctx)
+	require.NoError(t, err)
+	require.True(t, cfg.Enabled)
+	require.Equal(t, 7, cfg.RetainDays)
+	require.Equal(t, "02:00", cfg.DailyTime, "existing settings keep their original schedule")
 	for _, days := range []int{-1, 0, 366} {
 		_, err := svc.UpdateSettings(ctx, ImagePayloadCleanupSettings{Enabled: true, RetainDays: days})
 		require.Error(t, err)
@@ -33,18 +39,78 @@ func TestImagePayloadSettingsAndSchedule(t *testing.T) {
 	cfg, err = svc.GetSettings(ctx)
 	require.NoError(t, err)
 	require.Equal(t, saved, cfg)
+	require.Equal(t, "02:00", cfg.DailyTime, "older clients can omit the time")
 	require.Equal(t, "Asia/Shanghai", cfg.Timezone)
 	require.ErrorContains(t, svc.run(ctx, time.Now()), "database unavailable")
 	schedule, err := cron.ParseStandard("CRON_TZ=Asia/Shanghai " + imagePayloadCron)
 	require.NoError(t, err)
 	now := time.Date(2026, 10, 28, 1, 0, 0, 0, svc.location)
-	require.Equal(t, now.Add(time.Hour), schedule.Next(now))
+	require.Equal(t, now.Add(time.Minute), schedule.Next(now), "each minute checks the current shared settings")
 	repo.data[imagePayloadSettingsKey] = "invalid"
 	_, err = svc.GetSettings(ctx)
 	require.Error(t, err)
 	repo.getValueErr = errors.New("offline")
 	_, err = svc.GetSettings(ctx)
 	require.ErrorContains(t, err, "offline")
+}
+
+func TestImagePayloadDailyTimeValidation(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc, err := NewImagePayloadCleanupService(repo, nil, &config.Config{Timezone: "UTC"})
+	require.NoError(t, err)
+	defer svc.Stop()
+	ctx := context.Background()
+	for _, dailyTime := range []string{"00:00", "02:00", "03:45", "23:59"} {
+		saved, err := svc.UpdateSettings(ctx, ImagePayloadCleanupSettings{RetainDays: 3, DailyTime: dailyTime})
+		require.NoError(t, err)
+		cfg, err := svc.GetSettings(ctx)
+		require.NoError(t, err)
+		require.Equal(t, dailyTime, cfg.DailyTime)
+		require.Equal(t, saved, cfg)
+	}
+	before, err := svc.GetSettings(ctx)
+	require.NoError(t, err)
+	for _, dailyTime := range []string{"24:00", "02:60", "2:00", "02:0", "02:00:00", " 02:00", "02:00 ", "-1:00", "abcde"} {
+		t.Run(dailyTime, func(t *testing.T) {
+			_, err := svc.UpdateSettings(ctx, ImagePayloadCleanupSettings{RetainDays: 3, DailyTime: dailyTime})
+			require.ErrorContains(t, err, "HH:mm")
+			after, err := svc.GetSettings(ctx)
+			require.NoError(t, err)
+			require.Equal(t, before, after, "invalid time must not overwrite saved settings")
+		})
+	}
+}
+
+func TestImagePayloadScheduledRun(t *testing.T) {
+	repo := newMockSettingRepo()
+	svc, err := NewImagePayloadCleanupService(repo, nil, &config.Config{Timezone: "Asia/Shanghai"})
+	require.NoError(t, err)
+	defer svc.Stop()
+	ctx := context.Background()
+	defaultTime := time.Date(2026, 10, 29, 2, 0, 0, 0, svc.location)
+	require.NoError(t, svc.runScheduled(ctx, defaultTime), "disabled never starts cleanup")
+	_, err = svc.UpdateSettings(ctx, ImagePayloadCleanupSettings{Enabled: true, RetainDays: 3})
+	require.NoError(t, err)
+	require.NoError(t, svc.runScheduled(ctx, defaultTime.Add(-time.Minute)))
+	require.ErrorContains(t, svc.runScheduled(ctx, defaultTime), "database unavailable", "default time starts cleanup")
+	require.NoError(t, svc.runScheduled(ctx, defaultTime.Add(time.Minute)), "do not catch up a missed run")
+
+	// A setting saved by another instance must affect the next scheduler tick.
+	other, err := NewImagePayloadCleanupService(repo, nil, &config.Config{Timezone: "Asia/Shanghai"})
+	require.NoError(t, err)
+	defer other.Stop()
+	_, err = other.UpdateSettings(ctx, ImagePayloadCleanupSettings{Enabled: true, RetainDays: 3, DailyTime: "03:45"})
+	require.NoError(t, err)
+	require.NoError(t, svc.runScheduled(ctx, defaultTime), "the old time no longer starts cleanup")
+	customTime := time.Date(2026, 10, 28, 19, 45, 0, 0, time.UTC)
+	require.NoError(t, svc.runScheduled(ctx, customTime.Add(-time.Minute)))
+	require.ErrorContains(t, svc.runScheduled(ctx, customTime), "database unavailable", "use the configured timezone, including across dates")
+	require.NoError(t, svc.runScheduled(ctx, customTime.Add(time.Minute)))
+	_, err = other.UpdateSettings(ctx, ImagePayloadCleanupSettings{RetainDays: 3, DailyTime: "03:45"})
+	require.NoError(t, err)
+	require.NoError(t, svc.runScheduled(ctx, customTime), "disabling also applies to the next tick")
+	repo.getValueErr = errors.New("offline")
+	require.ErrorContains(t, svc.runScheduled(ctx, customTime), "offline")
 }
 
 func TestImagePayloadCutoffCalendarDays(t *testing.T) {
