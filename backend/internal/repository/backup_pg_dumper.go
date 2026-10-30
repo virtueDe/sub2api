@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/backupdump"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -65,7 +66,8 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 	if commandContext == nil {
 		commandContext = exec.CommandContext
 	}
-	cmd := commandContext(ctx, "pg_dump", args...)
+	processCtx, cancel := context.WithCancel(ctx)
+	cmd := commandContext(processCtx, "pg_dump", args...)
 	if d.cfg.Password != "" {
 		cmd.Env = append(cmd.Environ(), "PGPASSWORD="+d.cfg.Password)
 	}
@@ -75,15 +77,27 @@ func (d *PgDumper) Dump(ctx context.Context) (io.ReadCloser, error) {
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
+		cancel()
 		return nil, errors.Join(fmt.Errorf("create stdout pipe: %w", err), releaseLock())
 	}
 
 	if err := cmd.Start(); err != nil {
+		cancel()
 		_ = stdout.Close()
 		return nil, errors.Join(fmt.Errorf("start pg_dump: %w", err), releaseLock())
 	}
 
-	return &cmdReadCloser{ReadCloser: stdout, cmd: cmd, release: releaseLock}, nil
+	raw := &cmdReadCloser{ReadCloser: stdout, cmd: cmd, release: releaseLock, cancel: cancel}
+	reader, writer := io.Pipe()
+	done := make(chan error, 1)
+	go func() {
+		err := backupdump.Filter(writer, stdout)
+		// Publish completion before exposing EOF to avoid cancelling a successful
+		// pg_dump when the consumer closes immediately after its final Read.
+		done <- err
+		_ = writer.CloseWithError(err)
+	}()
+	return &filteredDumpReader{PipeReader: reader, raw: raw, done: done}, nil
 }
 
 func releaseBackupMigrationLock(conn *sql.Conn) error {
@@ -113,9 +127,16 @@ func (d *PgDumper) Restore(ctx context.Context, data io.Reader) error {
 		"-U", d.cfg.User,
 		"-d", d.cfg.DBName,
 		"--single-transaction",
+		"--no-psqlrc",
+		"--set=ON_ERROR_STOP=1",
+		"--file=-",
 	}
 
-	cmd := exec.CommandContext(ctx, "psql", args...)
+	commandContext := d.commandContext
+	if commandContext == nil {
+		commandContext = exec.CommandContext
+	}
+	cmd := commandContext(ctx, "psql", args...)
 	if d.cfg.Password != "" {
 		cmd.Env = append(cmd.Environ(), "PGPASSWORD="+d.cfg.Password)
 	}
@@ -137,12 +158,16 @@ type cmdReadCloser struct {
 	io.ReadCloser
 	cmd       *exec.Cmd
 	release   func() error
+	cancel    context.CancelFunc
 	closeOnce sync.Once
 	closeErr  error
 }
 
 func (c *cmdReadCloser) Close() error {
 	c.closeOnce.Do(func() {
+		if c.cancel != nil {
+			defer c.cancel()
+		}
 		var closeErrs []error
 		if err := c.ReadCloser.Close(); err != nil {
 			closeErrs = append(closeErrs, fmt.Errorf("close pg_dump stdout: %w", err))
@@ -158,4 +183,32 @@ func (c *cmdReadCloser) Close() error {
 		c.closeErr = errors.Join(closeErrs...)
 	})
 	return c.closeErr
+}
+
+type filteredDumpReader struct {
+	*io.PipeReader
+	raw       *cmdReadCloser
+	done      <-chan error
+	closeOnce sync.Once
+	closeErr  error
+}
+
+func (r *filteredDumpReader) Close() error {
+	r.closeOnce.Do(func() {
+		_ = r.PipeReader.Close()
+		var filterErr error
+		select {
+		case filterErr = <-r.done:
+			if filterErr != nil {
+				r.raw.cancel()
+			}
+		default:
+			// Early Close must stop both a blocked pg_dump and the filter writer.
+			r.raw.cancel()
+			_ = r.raw.ReadCloser.Close()
+			filterErr = <-r.done
+		}
+		r.closeErr = errors.Join(filterErr, r.raw.Close())
+	})
+	return r.closeErr
 }

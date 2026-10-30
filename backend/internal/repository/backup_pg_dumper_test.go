@@ -6,7 +6,9 @@ import (
 	"io"
 	"os/exec"
 	"regexp"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -154,4 +156,104 @@ func TestPgDumperRejectsNilDatabase(t *testing.T) {
 	reader, err := dumper.Dump(context.Background())
 	require.Nil(t, reader)
 	require.ErrorContains(t, err, "nil sql db")
+}
+
+func TestPgDumperFiltersImagesBeforeReturningBackup(t *testing.T) {
+	dumper, mock := newTestPgDumper(t, func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", `printf 'COPY public.usage_logs (id, image_generation) FROM stdin;\n1\t{"prompt":"keep","images":[{"b64_json":"remove"}]}\n\\.\n'`)
+	})
+	expectBackupMigrationLock(mock)
+	reader, err := dumper.Dump(context.Background())
+	require.NoError(t, err)
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.NotContains(t, string(data), "remove")
+	require.Contains(t, string(data), "keep")
+	expectBackupMigrationUnlock(mock)
+	require.NoError(t, reader.Close())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPgDumperEarlyCloseCancelsProcessAndReleasesLock(t *testing.T) {
+	dumper, mock := newTestPgDumper(t, func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "exec sleep 30")
+	})
+	expectBackupMigrationLock(mock)
+	reader, err := dumper.Dump(context.Background())
+	require.NoError(t, err)
+	expectBackupMigrationUnlock(mock)
+	done := make(chan error, 1)
+	go func() { done <- reader.Close() }()
+	select {
+	case err := <-done:
+		require.Error(t, err)
+		require.Equal(t, err, reader.Close())
+	case <-time.After(5 * time.Second):
+		t.Fatal("early close did not stop pg_dump")
+	}
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPgDumperRestoreStopsOnSQLFailure(t *testing.T) {
+	dumper, _ := newTestPgDumper(t, func(ctx context.Context, name string, args ...string) *exec.Cmd {
+		require.Equal(t, "psql", name)
+		for _, required := range []string{"--single-transaction", "--file=-", "--set=ON_ERROR_STOP=1", "--no-psqlrc"} {
+			require.Contains(t, args, required)
+		}
+		return exec.CommandContext(ctx, "sh", "-c", "cat >/dev/null; exit 3")
+	})
+	require.Error(t, dumper.Restore(context.Background(), strings.NewReader("invalid SQL")))
+}
+
+func TestPgDumperFilterFailureReleasesLock(t *testing.T) {
+	dumper, mock := newTestPgDumper(t, func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", `printf 'COPY public.usage_logs (image_generation) FROM stdin;\nSECRET-invalid-json\n'; exec sleep 30`)
+	})
+	expectBackupMigrationLock(mock)
+	reader, err := dumper.Dump(context.Background())
+	require.NoError(t, err)
+	_, err = io.ReadAll(reader)
+	require.ErrorContains(t, err, "invalid image_generation JSON")
+	require.NotContains(t, err.Error(), "SECRET")
+	expectBackupMigrationUnlock(mock)
+	require.Error(t, reader.Close())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPgDumperContextCancellationReleasesLock(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dumper, mock := newTestPgDumper(t, func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", "exec sleep 30")
+	})
+	expectBackupMigrationLock(mock)
+	reader, err := dumper.Dump(ctx)
+	require.NoError(t, err)
+	cancel()
+	_, _ = io.ReadAll(reader)
+	expectBackupMigrationUnlock(mock)
+	require.Error(t, reader.Close())
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPgDumperCloseUnblocksFilterWriter(t *testing.T) {
+	dumper, mock := newTestPgDumper(t, func(ctx context.Context, _ string, _ ...string) *exec.Cmd {
+		return exec.CommandContext(ctx, "sh", "-c", `printf 'SELECT 1;\nSELECT 2;\n'; exec sleep 30`)
+	})
+	expectBackupMigrationLock(mock)
+	reader, err := dumper.Dump(context.Background())
+	require.NoError(t, err)
+	first := make([]byte, 1)
+	_, err = reader.Read(first)
+	require.NoError(t, err)
+	expectBackupMigrationUnlock(mock)
+	done := make(chan error, 1)
+	go func() { done <- reader.Close() }()
+	select {
+	case err := <-done:
+		require.Error(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("close left the filter writer blocked")
+	}
+	require.NoError(t, mock.ExpectationsWereMet())
 }

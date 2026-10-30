@@ -83,7 +83,7 @@ export default {
 
     backup: {
       title: 'Database Backup',
-      description: 'Full database backup to S3-compatible storage with scheduled backup and restore',
+      description: 'Database backups to S3-compatible storage, preserving business data and excluding Base64 payloads from image logs',
       s3: {
         title: 'S3 Storage Configuration',
         description: 'Configure S3-compatible storage (supports Cloudflare R2)',
@@ -131,7 +131,7 @@ export default {
       },
       schedule: {
         title: 'Scheduled Backup',
-        description: 'Configure automatic scheduled backups',
+        description: 'New backups exclude Base64 from image details in usage and error logs. Users, billing, prompts, business parameters and regular image URLs are retained. Excluded image content cannot be recovered from these backups.',
         enabled: 'Enable Scheduled Backup',
         cronExpr: 'Cron Expression',
         cronHint: 'e.g. "0 2 * * *" means every day at 2:00 AM',
@@ -175,7 +175,7 @@ export default {
       },
       operations: {
         title: 'Backup Records',
-        description: 'Create manual backups and manage existing backup records',
+        description: 'Create manual backups and manage existing records. New backups filter Base64 from image logs without changing live data. Existing backups remain unchanged.',
         createBackup: 'Create Backup',
         backing: 'Backing up...',
         backupCreated: 'Backup created successfully',

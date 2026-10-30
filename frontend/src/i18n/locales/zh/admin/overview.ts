@@ -83,7 +83,7 @@ export default {
 
     backup: {
       title: '数据库备份',
-      description: '全量数据库备份到 S3 兼容存储，支持定时备份与恢复',
+      description: '数据库备份到 S3 兼容存储，保留业务数据并排除图片日志中的 Base64 载荷',
       s3: {
         title: 'S3 存储配置',
         description: '配置 S3 兼容存储（支持 Cloudflare R2）',
@@ -131,7 +131,7 @@ export default {
       },
       schedule: {
         title: '定时备份',
-        description: '配置自动定时备份',
+        description: '新备份排除使用记录和错误日志图片详情中的 Base64，保留用户、计费、提示词、业务参数和普通图片 URL。恢复后无法找回被排除的图片内容。',
         enabled: '启用定时备份',
         cronExpr: 'Cron 表达式',
         cronHint: '例如 "0 2 * * *" 表示每天凌晨 2 点',
@@ -175,7 +175,7 @@ export default {
       },
       operations: {
         title: '备份记录',
-        description: '创建手动备份和管理已有备份记录',
+        description: '创建手动备份和管理已有备份记录。新备份过滤图片日志的 Base64，不会修改线上数据；已有备份保持原样。',
         createBackup: '创建备份',
         backing: '备份中...',
         backupCreated: '备份创建成功',
