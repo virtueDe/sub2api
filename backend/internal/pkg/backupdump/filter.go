@@ -286,10 +286,11 @@ func (s *sqlQuotes) feed(line []byte) {
 			i++
 			continue
 		}
-		if c == '\'' || c == '"' {
+		switch c {
+		case '\'', '"':
 			s.quote = c
 			s.escape = c == '\'' && i > 0 && (line[i-1] == 'E' || line[i-1] == 'e')
-		} else if c == '$' {
+		case '$':
 			j := i + 1
 			for j < len(line) && (line[j] == '_' || line[j] >= 'a' && line[j] <= 'z' || line[j] >= 'A' && line[j] <= 'Z' || j > i+1 && line[j] >= '0' && line[j] <= '9') {
 				j++

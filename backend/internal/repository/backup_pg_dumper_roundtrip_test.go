@@ -16,11 +16,12 @@ import (
 // Run only against an explicitly supplied, disposable local container. No
 // production DSN is accepted. This exercises real pg_dump, filtering and psql.
 func TestPgDumperPostgresRoundTrip(t *testing.T) {
-	container := os.Getenv("SUB2API_BACKUP_TEST_CONTAINER")
-	if container == "" {
-		t.Skip("set SUB2API_BACKUP_TEST_CONTAINER to a disposable sub2api-backup-test-* container")
+	const container = "sub2api-backup-test-roundtrip"
+	configured := os.Getenv("SUB2API_BACKUP_TEST_CONTAINER")
+	if configured == "" {
+		t.Skip("set SUB2API_BACKUP_TEST_CONTAINER=sub2api-backup-test-roundtrip to run the disposable database test")
 	}
-	require.True(t, strings.HasPrefix(container, "sub2api-backup-test-"), "only disposable backup test containers are accepted")
+	require.Equal(t, container, configured, "only the named disposable backup test container is accepted")
 	run := func(database, sql string) string {
 		t.Helper()
 		cmd := exec.Command("docker", "exec", "-i", container, "psql", "-X", "-qAt", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", database)
