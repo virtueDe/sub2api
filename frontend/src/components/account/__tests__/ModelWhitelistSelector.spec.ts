@@ -114,7 +114,7 @@ describe('ModelWhitelistSelector', () => {
     resetPlatformCatalog()
   })
 
-  it.each(['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'command_code', 'cline'])(
+  it.each(['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'command_code', 'cline', 'seedance', 'wan', 'kling', 'sora'])(
     'supports upstream sync for %s saved accounts and creation previews',
     (platform) => {
       const wrappers = [
@@ -127,6 +127,33 @@ describe('ModelWhitelistSelector', () => {
       }
     }
   )
+
+  it.each(['seedance', 'wan', 'kling', 'sora'])('syncs %s models for previews and saved accounts', async (platform) => {
+    const model = `${platform}-upstream-model`
+    const credentials = {
+      platform,
+      type: 'apikey',
+      base_url: 'https://video.example.com/v1',
+      api_key: 'video-key'
+    }
+    syncUpstreamModelsPreview.mockResolvedValue({ models: [model] })
+    const preview = mountSelector({ platform, syncCredentials: credentials, modelValue: ['existing-model'] })
+    await syncButton(preview).trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModelsPreview).toHaveBeenCalledWith(credentials)
+    expect(syncUpstreamModels).not.toHaveBeenCalled()
+    expect(preview.emitted('update:modelValue')).toEqual([[['existing-model', model]]])
+    expect(preview.emitted('upstream-synced')).toEqual([[]])
+    preview.unmount()
+
+    syncUpstreamModels.mockResolvedValue({ models: [model] })
+    const saved = mountSelector({ platform, accountId: 46, modelValue: ['existing-model'] })
+    await syncButton(saved).trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModels).toHaveBeenCalledWith(46)
+    expect(saved.emitted('update:modelValue')).toEqual([[['existing-model', model]]])
+    saved.unmount()
+  })
 
   it.each(['typesafe', 'unregistered'])(
     'hides upstream sync for unsupported %s saved accounts and creation previews',

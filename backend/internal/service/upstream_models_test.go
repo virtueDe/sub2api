@@ -379,6 +379,71 @@ func TestBuildUpstreamModelsRequestsForAPIKeyAccounts(t *testing.T) {
 	require.Equal(t, "antigravity-key", antigravityReq.Header.Get("x-api-key"))
 }
 
+func TestVideoUpstreamModelSyncUsesOpenAICompatibleAPI(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []struct {
+		platform  string
+		modelsURL string
+	}{
+		{PlatformSeedance, "https://ark.cn-beijing.volces.com/api/v3/models"},
+		{PlatformWan, "https://dashscope.aliyuncs.com/api/v1/models"},
+		{PlatformKling, "https://api.klingai.com/v1/models"},
+		{PlatformSora, "https://api.openai.com/v1/models"},
+	} {
+		t.Run(provider.platform, func(t *testing.T) {
+			t.Parallel()
+			for _, endpoint := range []struct {
+				base string
+				want string
+			}{
+				{"", provider.modelsURL},
+				{"https://video.example.com", "https://video.example.com/v1/models"},
+				{"https://video.example.com/compatible-mode/v1/", "https://video.example.com/compatible-mode/v1/models"},
+				{"https://video.example.com/api/v3", "https://video.example.com/api/v3/models"},
+			} {
+				t.Run(endpoint.want, func(t *testing.T) {
+					upstream := &httpUpstreamRecorder{resp: &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"application/json"}},
+						Body:       io.NopCloser(strings.NewReader(`{"object":"list","data":[{"id":"custom-video-model"},{"id":"custom-video-model"},{"id":"another-video-model"}]}`)),
+					}}
+					svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+					models, err := svc.FetchUpstreamSupportedModels(context.Background(), &Account{
+						Platform: provider.platform,
+						Type:     AccountTypeAPIKey,
+						Credentials: map[string]any{
+							"api_key":  " video-key ",
+							"base_url": endpoint.base,
+						},
+					})
+					require.NoError(t, err)
+					require.Equal(t, []string{"another-video-model", "custom-video-model"}, models)
+					require.Equal(t, http.MethodGet, upstream.lastReq.Method)
+					require.Equal(t, endpoint.want, upstream.lastReq.URL.String())
+					require.Equal(t, "Bearer video-key", upstream.lastReq.Header.Get("Authorization"))
+					require.Equal(t, "application/json", upstream.lastReq.Header.Get("Accept"))
+				})
+			}
+		})
+	}
+}
+
+func TestVideoUpstreamModelSyncRequiresCompatibleAPIKey(t *testing.T) {
+	t.Parallel()
+	svc := &AccountTestService{cfg: upstreamModelSyncTestConfig()}
+	_, err := svc.buildUpstreamModelsRequest(context.Background(), &Account{
+		Platform:    PlatformKling,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{"kling_access_key": "access-key", "kling_secret_key": "secret-key"},
+	})
+	var syncErr *UpstreamModelSyncError
+	require.ErrorAs(t, err, &syncErr)
+	require.Equal(t, UpstreamModelSyncErrorConfiguration, syncErr.Kind)
+	require.Contains(t, syncErr.SafeMessage(), "API key")
+	require.NotContains(t, syncErr.SafeMessage(), "secret-key")
+}
+
 func TestBuildUpstreamModelsRequestSupportsGrokOAuth(t *testing.T) {
 	t.Parallel()
 

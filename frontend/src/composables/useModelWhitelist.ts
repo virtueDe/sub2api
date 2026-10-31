@@ -1,4 +1,4 @@
-import { getProviderProfile } from '@/constants/platformCatalog'
+import { getProviderProfile, isVideoPlatform, videoPlatformModels } from '@/constants/platformCatalog'
 
 // =====================
 // 模型列表（硬编码，与 new-api 一致）
@@ -505,6 +505,7 @@ export const commonErrorCodes = [
 
 // 按平台获取模型
 export function getModelsByPlatform(platform: string): string[] {
+  if (isVideoPlatform(platform)) return videoPlatformModels(platform)
   switch (platform) {
     case 'openai': return openaiModels
     case 'anthropic':
@@ -550,6 +551,7 @@ export function getModelsByPlatform(platform: string): string[] {
 
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
+  if (isVideoPlatform(platform)) return []
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings

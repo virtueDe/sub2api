@@ -1198,6 +1198,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	// Fallback to default models
+	if service.IsVideoPlatform(platform) {
+		writeModelsList(c, platform, service.VideoPlatformModels(platform))
+		return
+	}
 	if platform == service.PlatformOpenAI {
 		writeModelsListResponse(c, openai.DefaultModels)
 		return
@@ -1480,6 +1484,9 @@ func defaultCodexModelIDsForPlatform(platform string) []string {
 }
 
 func defaultModelIDsForPlatform(platform string) []string {
+	if service.IsVideoPlatform(platform) {
+		return service.VideoPlatformModels(platform)
+	}
 	switch platform {
 	case service.PlatformOpenAI:
 		return openai.DefaultModelIDs()

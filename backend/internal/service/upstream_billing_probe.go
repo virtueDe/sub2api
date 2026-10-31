@@ -1047,6 +1047,9 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"typesafe.ai",
 	"commandcode.ai",
 	"cline.bot",
+	"volces.com",
+	"aliyuncs.com",
+	"klingai.com",
 }
 
 func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {

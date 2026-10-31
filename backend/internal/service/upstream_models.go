@@ -994,8 +994,8 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
-	case account.IsOpenAI() || account.IsMultiProtocolAPIKey():
-		// 多协议 API Key 供应商（国产厂商与聚合平台）复用 OpenAI /v1/models 探测。
+	case account.IsOpenAI() || account.IsMultiProtocolAPIKey() || IsVideoPlatform(account.Platform):
+		// 多协议供应商与视频平台复用 OpenAI 兼容的 /models 探测。
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
 	case account.IsGemini():
 		return s.buildGeminiUpstreamModelsRequest(ctx, account)
@@ -1216,14 +1216,18 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 			fmt.Sprintf("Unsupported OpenAI account type for upstream model sync: %s", account.Type), nil,
 		)
 	}
+	// 协议感知：Anthropic 协议账号的凭证 base_url 指向 /anthropic 端点，模型
+	// 列表同步需使用 OpenAI 格式 base（供应商 × 模式默认）。
 	apiKey := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
+	baseURL := account.GetOpenAIFormatBaseURL()
+	if IsVideoPlatform(account.Platform) {
+		// 只在模型发现中使用兼容接口，不改变视频生成的原生协议与鉴权。
+		apiKey = strings.TrimSpace(account.GetCredential("api_key"))
+		baseURL = videoAccountBaseURL(account)
+	}
 	if apiKey == "" {
 		return nil, newUpstreamModelSyncConfigError("No OpenAI API key is available", nil)
 	}
-
-	// 协议感知：Anthropic 协议账号的凭证 base_url 指向 /anthropic 端点，模型
-	// 列表同步需使用 OpenAI 格式 base（供应商 × 模式默认）。
-	baseURL := account.GetOpenAIFormatBaseURL()
 	if strings.TrimSpace(baseURL) == "" {
 		baseURL = "https://api.openai.com"
 	}

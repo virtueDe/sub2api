@@ -156,6 +156,8 @@ export default {
     lastUsedIP: '最近使用 IP',
     useKey: '使用密钥',
     useKeyModal: {
+      videoDescription: '使用 Videos API 提交视频任务，再查询状态和下载生成结果。示例可保存为 video.http，在 HTTP 客户端中执行。',
+      videoNote: '请按分组配置选择模型，并将 VIDEO_ID 替换为创建响应的完整 id。使用同一密钥在 24 小时内轮询到完成；completed 后下载视频。',
       title: '使用 API 密钥',
       description: '将以下环境变量添加到您的终端配置文件或直接在终端中运行。',
       copy: '复制',

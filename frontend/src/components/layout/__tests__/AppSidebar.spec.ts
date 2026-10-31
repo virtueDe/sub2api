@@ -29,6 +29,15 @@ describe('AppSidebar studio entry', () => {
   })
 })
 
+describe('AppSidebar AI creation studio entry', () => {
+  it('uses the AI Studio icon and the fixed external route before image generation', () => {
+    expect(componentSource).toContain("import aiStudioIcon from '@/assets/icons/aiStudio.svg?raw'")
+    expect(componentSource).toContain("path: '/duomi-studio/'")
+    expect(componentSource).toContain("t('nav.aiCreationStudio')")
+    expect(componentSource).toMatch(/path: '\/duomi-studio\/'[\s\S]*?path: '\/studio\/'/)
+  })
+})
+
 describe('AppSidebar scroll position persistence', () => {
   it('binds a template ref to the sidebar nav element', () => {
     expect(componentSource).toContain('ref="sidebarNavRef"')

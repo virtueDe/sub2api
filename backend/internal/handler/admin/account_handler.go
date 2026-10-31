@@ -2871,6 +2871,22 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 }
 
 func (h *AccountHandler) respondAvailableModels(c *gin.Context, account *service.Account) {
+	if service.IsVideoPlatform(account.Platform) {
+		ids := service.VideoPlatformModels(account.Platform)
+		if mapping := account.GetModelMapping(); len(mapping) > 0 {
+			ids = ids[:0]
+			for id := range mapping {
+				ids = append(ids, id)
+			}
+			sort.Strings(ids)
+		}
+		models := make([]map[string]string, 0, len(ids))
+		for _, id := range ids {
+			models = append(models, map[string]string{"id": id, "name": id, "display_name": id})
+		}
+		response.Success(c, models)
+		return
+	}
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
 		// Prefer the shared, account-keyed upstream catalog. If discovery fails,

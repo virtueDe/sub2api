@@ -219,6 +219,113 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it.each([
+    ['Seedance / Ark', 'seedance'], ['Wan / DashScope', 'wan'], ['Sora', 'sora'], ['Kling', 'kling']
+  ])('creates an independent %s API key account', async (label, platform) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, label)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue(`${platform} video`)
+    if (platform === 'kling') {
+      await wrapper.get('input[placeholder="Access Key"]').setValue('test-ak')
+      await wrapper.get('input[placeholder="Secret Key"]').setValue('test-sk')
+    } else {
+      await wrapper.get('form#create-account-form input[type="password"]').setValue('video-key')
+    }
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    const payload = createAccountMock.mock.calls[0]![0]
+    expect(payload).toMatchObject({ platform, type: 'apikey' })
+    expect(payload.credentials.base_url).toMatch(/^https:\/\//)
+    if (platform === 'kling') {
+      expect(payload.credentials).toMatchObject({ kling_access_key: 'test-ak', kling_secret_key: 'test-sk' })
+      expect(payload.credentials.api_key).toBeUndefined()
+    } else {
+      expect(payload.credentials.api_key).toBe('video-key')
+    }
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['Seedance / Ark', 'seedance'], ['Wan / DashScope', 'wan'], ['Sora', 'sora'], ['Kling', 'kling']
+  ])('passes %s API key credentials to model preview and account creation', async (label, platform) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, label)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue(`${platform} gateway`)
+    await wrapper.get('input[placeholder="API Key"]').setValue('compatible-video-key')
+    const selector = wrapper.getComponent(ModelWhitelistSelectorStub)
+    expect(selector.props('platform')).toBe(platform)
+    expect(selector.props('syncCredentials')).toMatchObject({
+      platform, type: 'apikey', api_key: 'compatible-video-key', base_url: expect.stringMatching(/^https:\/\//)
+    })
+    await selector.trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    const payload = createAccountMock.mock.calls[0]![0]
+    expect(payload).toMatchObject({ platform, credentials: { api_key: 'compatible-video-key', model_mapping: { 'public-glm': 'public-glm' } } })
+    expect(payload.credentials.kling_access_key).toBeUndefined()
+    expect(payload.credentials.kling_secret_key).toBeUndefined()
+    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+    wrapper.unmount()
+  })
+
+  it('retains the Kling sync API key alongside native credentials', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kling')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Kling with sync')
+    await wrapper.get('input[placeholder="Access Key"]').setValue('test-ak')
+    await wrapper.get('input[placeholder="Secret Key"]').setValue('test-sk')
+    await wrapper.get('input[placeholder="API Key"]').setValue('sync-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).toMatchObject({
+      api_key: 'sync-key', kling_access_key: 'test-ak', kling_secret_key: 'test-sk'
+    })
+    wrapper.unmount()
+  })
+
+  it.each(['Seedance / Ark', 'Wan / DashScope', 'Kling', 'Sora'])('creates resolution routes for %s through the form', async (label) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, label)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('video routes')
+    await wrapper.get('input[placeholder="API Key"]').setValue('key')
+    await wrapper.get('[data-testid="add-video-route"]').trigger('click')
+    await wrapper.get('[data-testid="video-route-model"]').setValue('sd-video')
+    const targets = wrapper.findAll('[data-testid="video-route-upstream"]')
+    await targets[0]!.setValue('sd-480p')
+    await targets[1]!.setValue('sd-720p')
+    await targets[2]!.setValue('sd-1080p')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials.video_model_routes).toEqual({
+      'sd-video': { default_resolution: '720p', resolutions: { '480p': 'sd-480p', '720p': 'sd-720p', '1080p': 'sd-1080p' } }
+    })
+    wrapper.unmount()
+  })
+
+  it('clears video routes on platform switch', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Wan / DashScope')
+    await wrapper.get('[data-testid="add-video-route"]').trigger('click')
+    await wrapper.get('[data-testid="video-route-model"]').setValue('wan-alias')
+    await selectButtonByText(wrapper, 'Sora')
+    expect(wrapper.findAll('[data-testid="video-route"]')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('rejects an incomplete Kling key pair even when a compatible API key is filled', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Kling')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Kling incomplete')
+    await wrapper.get('input[placeholder="Access Key"]').setValue('test-ak')
+    await wrapper.get('input[placeholder="API Key"]').setValue('sync-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-01-31T12:34:00'))
@@ -661,6 +768,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       wrapper.get(`[data-testid="${testid}"]`).findAll('button').map(button => button.text().trim())
     expect(labels('platform-row-cn')).toEqual(['Kimi', 'Zhipu GLM', 'DeepSeek', 'MiniMax'])
     expect(labels('platform-row-aggregators')).toEqual(['OpenCode', 'Command Code', 'Cline'])
+    expect(labels('platform-row-video')).toEqual(['Seedance / Ark', 'Wan / DashScope', 'Kling', 'Sora'])
   })
 
   it('creates a Cline account without an account type and with only the Chat Completions endpoint', async () => {

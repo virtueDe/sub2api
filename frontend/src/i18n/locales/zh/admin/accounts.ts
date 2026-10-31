@@ -745,6 +745,22 @@ export default {
       baseUrl: 'Base URL',
       baseUrlHint: '留空使用官方 Anthropic API',
       apiKeyRequired: 'API Key *',
+      klingApiKeyHint: '兼容渠道使用 API Key；Kling 原生接口使用 Access Key 和 Secret Key。同步上游模型需要 API Key，且渠道提供 OpenAI 兼容的 /models 接口。',
+      klingKeyPairRequired: 'Kling Access Key 和 Secret Key 必须同时填写',
+      videoRoutes: {
+        title: '按分辨率映射视频模型',
+        hint: '客户只需填写公开模型和 resolution（或 size）。系统按分辨率调用对应的上游模型；未传分辨率时使用默认档位，不支持的档位会报错。目标模型将从此账号的公开列表和直接调用入口隐藏。',
+        publicModel: '公开模型名称', upstreamModel: '上游模型名称', resolution: '分辨率',
+        defaultResolution: '默认分辨率', chooseDefault: '请选择',
+        addModel: '添加公开视频模型', addResolution: '添加分辨率', removeModel: '移除公开模型', removeResolution: '移除分辨率',
+        pricingHint: '不同清晰度按条收费：在分组或渠道的模型定价中配置公开模型，选择“按次”，层级标签填写 480p、720p、1080p，并分别设置单次价格。仅传 resolution 时默认横屏 16:9；需要其他比例请传 size。',
+        errors: {
+          invalidModel: '请填写公开模型名称，不支持通配符', duplicateModel: '公开模型名称不能重复',
+          invalidResolution: '请选择有效分辨率', duplicateResolution: '同一公开模型的分辨率不能重复',
+          missingTarget: '请填写完整的上游模型名称，不支持通配符', invalidDefault: '默认分辨率必须对应已配置的上游模型',
+          conflictingMapping: '该公开模型已存在普通模型映射，请先移除冲突映射', targetIsPublic: '上游目标不能同时作为公开分辨率模型名称'
+        }
+      },
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: '您的 Claude Console API Key',
       upstreamRequestIdHeader: '上游ID',

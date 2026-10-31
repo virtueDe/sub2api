@@ -411,6 +411,9 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if err := ValidateVideoAccount(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	if input.Platform == PlatformTypeSafe && input.Type != AccountTypeAPIKey {
 		return nil, errors.New("typesafe accounts only support apikey credentials")
 	}
@@ -579,6 +582,16 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	videoType, videoCredentials := account.Type, account.Credentials
+	if input.Type != "" {
+		videoType = input.Type
+	}
+	if input.Credentials != nil {
+		videoCredentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
+	}
+	if err := ValidateVideoAccount(account.Platform, videoType, videoCredentials); err != nil {
 		return nil, err
 	}
 	if account.Platform == PlatformTypeSafe && input.Type != "" && input.Type != AccountTypeAPIKey {
@@ -1026,6 +1039,25 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			return nil, err
 		}
 		result.LongContextInheritedCount = inheritedCount
+	}
+	_, changesRoutes := input.Credentials[VideoModelRoutesCredential]
+	_, changesMapping := input.Credentials["model_mapping"]
+	if changesRoutes || changesMapping {
+		for _, account := range cachedTargets {
+			if account == nil {
+				continue
+			}
+			merged := make(map[string]any, len(account.Credentials)+len(input.Credentials))
+			for key, value := range account.Credentials {
+				merged[key] = value
+			}
+			for key, value := range input.Credentials {
+				merged[key] = value
+			}
+			if err := validateVideoModelRoutes(account.Platform, merged); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if input.ProbeEnabled != nil {
 		for _, accountID := range input.AccountIDs {

@@ -156,6 +156,8 @@ export default {
     lastUsedIP: 'Last Used IP',
     useKey: 'Use Key',
     useKeyModal: {
+      videoDescription: 'Submit a video task with the Videos API, then check its status and download the result. Save this example as video.http to run it in an HTTP client.',
+      videoNote: 'Choose a model available in your group and replace VIDEO_ID with the full id from the create response. Poll with the same key within 24 hours and download after the status becomes completed.',
       title: 'Use API Key',
       description:
         'Add the following environment variables to your terminal profile or run directly in terminal to configure API access.',

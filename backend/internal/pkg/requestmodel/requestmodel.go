@@ -43,6 +43,16 @@ func IsLiveRequestRoute(routePath string) bool {
 // Live 入口取 session 候选（为空回落顶层候选），其余入口取顶层候选
 // （为空回落 session 候选）。候选包含重复键、大小写变体的全部出现。
 func FromBodyCandidates(routePath, contentType string, body []byte) []string {
+	if isKlingVideoRoute(routePath) {
+		var values []string
+		gjson.ParseBytes(body).ForEach(func(key, value gjson.Result) bool {
+			if strings.EqualFold(key.String(), "model_name") && value.Type == gjson.String && strings.TrimSpace(value.String()) != "" {
+				values = append(values, strings.TrimSpace(value.String()))
+			}
+			return true
+		})
+		return values
+	}
 	var topLevel, session []string
 	if isMultipartContentType(contentType) {
 		// 声明为 multipart 的请求体只做 multipart 解析——gjson 的部分扫描
@@ -99,10 +109,17 @@ func JSONModelPath(body []byte) (string, string) {
 // JSONModelPathForRoute 按入口返回合成路由改写应写入的模型路径：Live 入口
 // session.model 优先，其余入口顶层 model 优先。
 func JSONModelPathForRoute(routePath string, body []byte) (string, string) {
+	if isKlingVideoRoute(routePath) {
+		return jsonModelWithPaths(body, []string{"model_name"})
+	}
 	if IsLiveRequestRoute(routePath) {
 		return jsonModelWithPaths(body, []string{"session.model", "model"})
 	}
 	return jsonModelWithPaths(body, []string{"model", "session.model"})
+}
+
+func isKlingVideoRoute(path string) bool {
+	return path == "/v1/videos/text2video" || path == "/v1/videos/image2video"
 }
 
 func jsonModelWithPaths(body []byte, paths []string) (string, string) {

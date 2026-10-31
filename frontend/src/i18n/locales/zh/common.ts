@@ -166,6 +166,7 @@ export default {
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
+    aiCreationStudio: 'AI 创作站',
     imageGeneration: '图片生成',
     batchImage: '批量生图',
     usage: '使用记录',

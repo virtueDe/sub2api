@@ -278,6 +278,9 @@ func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*Composi
 }
 
 func defaultModelsListCandidateIDs(platform string) []string {
+	if IsVideoPlatform(platform) {
+		return VideoPlatformModels(platform)
+	}
 	switch platform {
 	case PlatformOpenAI:
 		return openai.DefaultModelIDs()
@@ -316,6 +319,9 @@ func defaultModelsListCandidateIDs(platform string) []string {
 // request does not turn it off. Composite defaults disabled because the same switch also
 // gates OpenAI image generation there.
 func DefaultAllowImageGenerationForPlatform(platform string) bool {
+	if IsVideoPlatform(platform) {
+		return true
+	}
 	switch platform {
 	case PlatformGrok, PlatformGemini, PlatformAntigravity:
 		return true

@@ -95,6 +95,11 @@ func DetectModelPlatform(model string) (string, bool) {
 	}
 
 	normalized = strings.TrimPrefix(normalized, "models/")
+	for _, platform := range []string{PlatformSeedance, PlatformWan, PlatformKling, PlatformSora} {
+		if strings.HasPrefix(normalized, platform+"/") || strings.HasPrefix(normalized, platform+"-") || (platform == PlatformWan && strings.HasPrefix(normalized, "wan2.")) || (platform == PlatformWan && strings.HasPrefix(normalized, "wan3")) || (platform == PlatformSeedance && strings.HasPrefix(normalized, "doubao-seedance-")) {
+			return platform, true
+		}
+	}
 	if slash := strings.IndexByte(normalized, '/'); slash > 0 {
 		provider := strings.TrimSpace(normalized[:slash])
 		rest := strings.TrimSpace(normalized[slash+1:])

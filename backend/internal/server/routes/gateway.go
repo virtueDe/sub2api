@@ -92,6 +92,10 @@ func RegisterGatewayRoutes(
 		}
 	}
 	videoGenerationHandler := func(c *gin.Context) {
+		if service.IsVideoPlatform(getGroupPlatform(c)) {
+			h.OpenAIGateway.ProviderVideos(c)
+			return
+		}
 		// Video status/content lookups below already allow Composite groups; keep
 		// task creation aligned so composite keys that route to Grok accounts can
 		// submit video generation jobs.
@@ -107,7 +111,15 @@ func RegisterGatewayRoutes(
 			},
 		})
 	}
+	isProviderVideoLookup := func(c *gin.Context) bool {
+		_, _, err := service.ParsePublicVideoTaskID(c.Param("request_id"))
+		return err == nil
+	}
 	videoStatusHandler := func(c *gin.Context) {
+		if service.IsVideoPlatform(getGroupPlatform(c)) || (getGroupPlatform(c) == service.PlatformComposite && isProviderVideoLookup(c)) {
+			h.OpenAIGateway.ProviderVideos(c)
+			return
+		}
 		// Video status requests do not carry a model, so composite groups cannot
 		// be resolved by compositeTargetPlatformMiddleware. Route them through
 		// the Grok handler and let scheduler/account selection enforce capacity.
@@ -124,6 +136,10 @@ func RegisterGatewayRoutes(
 		})
 	}
 	videoContentHandler := func(c *gin.Context) {
+		if service.IsVideoPlatform(getGroupPlatform(c)) || (getGroupPlatform(c) == service.PlatformComposite && isProviderVideoLookup(c)) {
+			h.OpenAIGateway.ProviderVideos(c)
+			return
+		}
 		// Video content requests do not carry a model, so composite groups cannot
 		// be resolved by compositeTargetPlatformMiddleware. Route them through
 		// the Grok handler just like video status lookups.
@@ -281,6 +297,7 @@ func RegisterGatewayRoutes(
 		gateway.GET("/videos/extensions/:request_id", videoStatusHandler)
 		gateway.GET("/videos/:request_id", videoStatusHandler)
 		gateway.GET("/videos/:request_id/content", videoContentHandler)
+		gateway.HEAD("/videos/:request_id/content", videoContentHandler)
 
 		// xAI Voice APIs (Grok platform only): HTTP TTS/STT + Realtime WS.
 		// Not part of the creation-center product surface — gateway relay only.
@@ -377,6 +394,14 @@ func RegisterGatewayRoutes(
 		rootRoute(http.MethodGet, prefix+"/contents/generations/tasks/:task_id", bodyLimit, h.OpenAIGateway.SeedanceTasks)
 		rootRoute(http.MethodDelete, prefix+"/contents/generations/tasks/:task_id", bodyLimit, h.OpenAIGateway.SeedanceTasks)
 	}
+	rootRoute(http.MethodPost, "/api/v1/services/aigc/video-generation/video-synthesis", bodyLimit, h.OpenAIGateway.NativeVideoTasks("wan_create"))
+	rootRoute(http.MethodPost, "/api/v1/services/aigc/image2video/video-synthesis", bodyLimit, h.OpenAIGateway.NativeVideoTasks("wan_image_create"))
+	rootRoute(http.MethodGet, "/api/v1/tasks/:request_id", bodyLimit, h.OpenAIGateway.NativeVideoTasks("wan_status"))
+	for _, action := range []string{"text", "image"} {
+		path := "/v1/videos/" + action + "2video"
+		rootRoute(http.MethodPost, path, bodyLimit, h.OpenAIGateway.NativeVideoTasks(service.GrokMediaEndpoint("kling_"+action+"_create")))
+		rootRoute(http.MethodGet, path+"/:request_id", bodyLimit, h.OpenAIGateway.NativeVideoTasks(service.GrokMediaEndpoint("kling_"+action+"_status")))
+	}
 	rootRoute(http.MethodPost, "/responses", bodyLimit, responsesHandler)
 	rootRoute(http.MethodPost, "/responses/*subpath", bodyLimit, guardResponsesSubpath(responsesHandler))
 	rootRoute(http.MethodPost, "/alpha/search", textBodyLimit, h.OpenAIGateway.AlphaSearch)
@@ -437,6 +462,7 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodGet, "/videos/extensions/:request_id", bodyLimit, videoStatusHandler)
 	rootRoute(http.MethodGet, "/videos/:request_id", bodyLimit, videoStatusHandler)
 	rootRoute(http.MethodGet, "/videos/:request_id/content", bodyLimit, videoContentHandler)
+	rootRoute(http.MethodHead, "/videos/:request_id/content", bodyLimit, videoContentHandler)
 
 	rootVoiceHandler := func(endpoint string) gin.HandlerFunc {
 		return func(c *gin.Context) {
@@ -610,7 +636,7 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			c.Next()
 			return
 		}
-		if c.Request == nil || c.Request.Method == http.MethodGet {
+		if c.Request == nil || c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead {
 			c.Next()
 			return
 		}
@@ -726,6 +752,8 @@ func compositeGeminiModelFromParams(c *gin.Context) string {
 
 func compositeRouteEndpointForPath(path string) string {
 	switch {
+	case strings.Contains(path, "/videos"), strings.Contains(path, "/video/"), strings.Contains(path, "/contents/generations/tasks"), strings.Contains(path, "/services/aigc/"):
+		return service.CompositeRouteEndpointAny
 	case strings.Contains(path, "/messages/count_tokens"):
 		return service.CompositeRouteEndpointCountTokens
 	case strings.Contains(path, "/messages"):

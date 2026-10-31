@@ -740,6 +740,13 @@ func (s *OpenAIGatewayService) isUpstreamModelRestrictedByChannel(ctx context.Co
 		requireCompact = compactForwardModel.useCompactModelMapping
 	}
 	upstreamModel := resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)
+	if resolution, present := ctx.Value(videoResolutionContextKey{}).(string); present && account != nil && IsVideoPlatform(account.Platform) {
+		var err error
+		upstreamModel, _, _, err = account.ResolveVideoModel(requestedModel, resolution)
+		if err != nil {
+			return true
+		}
+	}
 	if upstreamModel == "" {
 		return false
 	}

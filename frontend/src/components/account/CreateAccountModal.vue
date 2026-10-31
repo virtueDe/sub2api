@@ -266,6 +266,25 @@
         </div>
       </div>
 
+      <div class="flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-testid="platform-row-video">
+        <button
+          v-for="spec in videoPlatforms"
+          :key="spec.id"
+          type="button"
+          :data-testid="`platform-button-${spec.id}`"
+          @click="selectVideoPlatform(spec.id)"
+          :class="[
+            'flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+            form.platform === spec.id
+              ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400'
+              : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+          ]"
+        >
+          <PlatformIcon :platform="spec.id" size="sm" />
+          {{ spec.display_name }}
+        </button>
+      </div>
+
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -1550,12 +1569,18 @@
           :platform="form.platform"
           :plan="currentOpenCodeOrCNMode()"
         />
+        <div v-if="form.platform === 'kling'" class="space-y-3">
+          <label class="input-label">Kling Access Key</label>
+          <input v-model="klingAccessKey" type="password" autocomplete="new-password" class="input font-mono" placeholder="Access Key" />
+          <label class="input-label">Kling Secret Key</label>
+          <input v-model="klingSecretKey" type="password" autocomplete="new-password" class="input font-mono" placeholder="Secret Key" />
+        </div>
         <div>
-          <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
+          <label class="input-label">{{ t(form.platform === 'kling' ? 'admin.accounts.apiKey' : 'admin.accounts.apiKeyRequired') }}</label>
           <input
             v-model="apiKeyValue"
             type="password"
-            required
+            :required="form.platform !== 'kling' || !(klingAccessKey.trim() && klingSecretKey.trim())"
             class="input font-mono"
             :placeholder="apiKeyValuePlaceholder"
           />
@@ -1590,6 +1615,7 @@
         </div>
 
         <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
+        <VideoModelRoutesEditor v-if="isVideoPlatform(form.platform)" v-model="videoModelRoutes" />
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
@@ -4196,7 +4222,9 @@ import {
   type OpenCodeAccountMode,
   type OpenCodeGoProtocolRule
 } from '@/components/account/credentialsBuilder'
-import { listPlatforms } from '@/constants/platformCatalog'
+import { listPlatforms, isVideoPlatform, videoPlatformBaseUrl } from '@/constants/platformCatalog'
+import VideoModelRoutesEditor from './VideoModelRoutesEditor.vue'
+import { buildVideoModelRoutes, type VideoModelRouteRow } from './videoModelRoutes'
 import {
   formatDateTimeLocalInput,
   getBrowserTimeZone,
@@ -4254,6 +4282,7 @@ const withUpstreamRequestIdHeader = <T extends Record<string, unknown> | undefin
 }
 
 const baseUrlHint = computed(() => {
+  if (isVideoPlatform(form.platform)) return ''
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
@@ -4261,6 +4290,8 @@ const baseUrlHint = computed(() => {
 })
 
 const apiKeyHint = computed(() => {
+  if (form.platform === 'kling') return t('admin.accounts.klingApiKeyHint')
+  if (isVideoPlatform(form.platform)) return ''
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   // Grok 与多协议供应商没有对应的说明文案；通用文案指 Claude Console Key。
@@ -4270,6 +4301,7 @@ const apiKeyHint = computed(() => {
 
 // Base URL / API Key 占位符：国产供应商随账号类型变化。
 const apiKeyBaseUrlPlaceholder = computed(() => {
+  if (isVideoPlatform(form.platform)) return videoPlatformBaseUrl(form.platform)
   if (isMultiProtocolPlatform.value) {
     const mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
     return defaultCNBaseUrl(form.platform, mode, apiProtocol.value) || 'https://api.example.com'
@@ -4289,6 +4321,7 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
 })
 
 const apiKeyValuePlaceholder = computed(() => {
+  if (isVideoPlatform(form.platform)) return 'API Key'
   switch (form.platform) {
     case 'openai':
       return 'sk-proj-...'
@@ -4395,6 +4428,9 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const klingAccessKey = ref('')
+const klingSecretKey = ref('')
+const videoModelRoutes = ref<VideoModelRouteRow[]>([])
 const upstreamBillingAutoProbeEnabled = ref(true)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
@@ -4426,6 +4462,7 @@ const isGenericMultiProtocolPlatform = computed(
 const extraMultiProtocolPlatforms = computed(() =>
   listPlatforms().filter(spec => !!spec.multi_protocol && !isCNProviderPlatform(spec.id) && spec.id !== 'opencode_go')
 )
+const videoPlatforms = computed(() => listPlatforms().filter(spec => !!spec.video))
 const genericAccountModes = computed(() => providerAccountModes(form.platform))
 // 按模型分流的供应商（OpenCode 等）：adaptive 账号携带 protocol_rules。
 const routesByModel = computed(() => providerRoutesByModel(form.platform))
@@ -4538,6 +4575,12 @@ function selectGenericMultiProtocolPlatform(platform: string) {
   apiKeyBaseUrl.value = defaultCNBaseUrl(platform, accountMode.value, apiProtocol.value)
   resetAdaptiveBaseUrls(platform, accountMode.value)
   openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultProviderProtocolRules(platform, accountMode.value))
+}
+function selectVideoPlatform(platform: string) {
+  form.platform = platform
+  form.type = 'apikey'
+  accountCategory.value = 'apikey'
+  apiKeyBaseUrl.value = videoPlatformBaseUrl(platform)
 }
 // 账号类型 / 协议变更时同步默认 base url。
 watch(openCodeAccountMode, (mode, previousMode) => {
@@ -5110,6 +5153,7 @@ watch(
 watch(
   [accountCategory, addMethod, antigravityAccountType, () => form.platform],
   ([category, method, agType]) => {
+    if (isVideoPlatform(form.platform)) { form.type = 'apikey'; return }
     // Antigravity upstream 类型（实际创建为 apikey）
     if (form.platform === 'antigravity' && agType === 'upstream') {
       form.type = 'apikey'
@@ -5135,8 +5179,14 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    videoModelRoutes.value = []
     // Reset base URL based on platform
-    if (isMultiProtocolApiKeyPlatform(newPlatform)) {
+    if (isVideoPlatform(newPlatform)) {
+      accountCategory.value = 'apikey'
+      apiKeyBaseUrl.value = videoPlatformBaseUrl(newPlatform)
+      klingAccessKey.value = ''
+      klingSecretKey.value = ''
+    } else if (isMultiProtocolApiKeyPlatform(newPlatform)) {
       const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
     } else {
@@ -5631,6 +5681,9 @@ const resetForm = () => {
   adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  klingAccessKey.value = ''
+  klingSecretKey.value = ''
+  videoModelRoutes.value = []
   upstreamRequestIdHeader.value = ''
   upstreamBillingAutoProbeEnabled.value = true
   editQuotaLimit.value = null
@@ -6101,7 +6154,13 @@ const handleSubmit = async () => {
   }
 
   // For apikey type, create directly
-  if (!apiKeyValue.value.trim()) {
+  const hasKlingAccessKey = !!klingAccessKey.value.trim()
+  const hasKlingSecretKey = !!klingSecretKey.value.trim()
+  if (form.platform === 'kling' && hasKlingAccessKey !== hasKlingSecretKey) {
+    appStore.showError(t('admin.accounts.klingKeyPairRequired'))
+    return
+  }
+  if (!apiKeyValue.value.trim() && !(form.platform === 'kling' && hasKlingAccessKey && hasKlingSecretKey)) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
@@ -6120,8 +6179,20 @@ const handleSubmit = async () => {
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
-    base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
+    base_url: apiKeyBaseUrl.value.trim() || videoPlatformBaseUrl(form.platform) || defaultBaseUrl,
     api_key: apiKeyValue.value.trim()
+  }
+  if (isVideoPlatform(form.platform)) {
+    const result = buildVideoModelRoutes(videoModelRoutes.value, buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value))
+    if (result.error) { appStore.showError(t(`admin.accounts.videoRoutes.errors.${result.error}`)); return }
+    if (Object.keys(result.routes).length) credentials.video_model_routes = result.routes
+  }
+  if (form.platform === 'kling') {
+    if (!apiKeyValue.value.trim()) delete credentials.api_key
+    if (hasKlingAccessKey && hasKlingSecretKey) {
+      credentials.kling_access_key = klingAccessKey.value.trim()
+      credentials.kling_secret_key = klingSecretKey.value.trim()
+    }
   }
   if (form.platform === 'gemini' && isOfficialGeminiBaseUrl(apiKeyBaseUrl.value)) {
     credentials.tier_id = geminiTierAIStudio.value

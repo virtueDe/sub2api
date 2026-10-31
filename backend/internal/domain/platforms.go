@@ -30,7 +30,8 @@ type PlatformSpec struct {
 	// 供应商的余额 / Coding Plan 等能力。
 	CNProvider bool `json:"cn_provider"`
 	// LiteLLMProvider 是定价目录中的 provider 名；空表示不支持从定价目录同步模型。
-	LiteLLMProvider string `json:"litellm_provider,omitempty"`
+	LiteLLMProvider string             `json:"litellm_provider,omitempty"`
+	Video           *VideoProviderSpec `json:"video,omitempty"`
 }
 
 // platformList 的顺序即平台的展示顺序。
@@ -48,6 +49,10 @@ var platformList = []PlatformSpec{
 	{ID: PlatformTypeSafe, DisplayName: "TypeSafe / Jev", Gateway: PlatformGatewayAnthropic, LiteLLMProvider: "typesafe"},
 	{ID: PlatformCommandCode, DisplayName: "Command Code", Gateway: PlatformGatewayOpenAI},
 	{ID: PlatformCline, DisplayName: "Cline", Gateway: PlatformGatewayOpenAI},
+	{ID: PlatformSeedance, DisplayName: "Seedance / Ark", Gateway: PlatformGatewayOpenAI, Video: &VideoProviderSpec{BaseURL: "https://ark.cn-beijing.volces.com/api/v3", Models: []string{"doubao-seedance-1-5-pro-251215"}}},
+	{ID: PlatformWan, DisplayName: "Wan / DashScope", Gateway: PlatformGatewayOpenAI, Video: &VideoProviderSpec{BaseURL: "https://dashscope.aliyuncs.com/api/v1", Models: []string{"wan2.6-t2v", "wan2.6-i2v", "wan2.2-kf2v-flash"}}},
+	{ID: PlatformKling, DisplayName: "Kling", Gateway: PlatformGatewayOpenAI, Video: &VideoProviderSpec{BaseURL: "https://api.klingai.com/v1", Models: []string{"kling-v2-6", "kling-v2-5-turbo"}}},
+	{ID: PlatformSora, DisplayName: "Sora", Gateway: PlatformGatewayOpenAI, Video: &VideoProviderSpec{BaseURL: "https://api.openai.com/v1", Models: []string{"sora-2", "sora-2-pro"}}},
 }
 
 var platformIndex = func() map[string]int {
@@ -61,7 +66,9 @@ var platformIndex = func() map[string]int {
 // Platforms 返回全部具体平台（副本），按展示顺序。
 func Platforms() []PlatformSpec {
 	out := make([]PlatformSpec, len(platformList))
-	copy(out, platformList)
+	for i, spec := range platformList {
+		out[i] = clonePlatform(spec)
+	}
 	return out
 }
 
@@ -71,7 +78,16 @@ func LookupPlatform(id string) (PlatformSpec, bool) {
 	if !ok {
 		return PlatformSpec{}, false
 	}
-	return platformList[i], true
+	return clonePlatform(platformList[i]), true
+}
+
+func clonePlatform(spec PlatformSpec) PlatformSpec {
+	if spec.Video != nil {
+		video := *spec.Video
+		video.Models = append([]string(nil), video.Models...)
+		spec.Video = &video
+	}
+	return spec
 }
 
 // IsConcretePlatform 报告 id 是否为已登记的具体平台（不含 composite）。

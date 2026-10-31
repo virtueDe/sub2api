@@ -37,10 +37,21 @@ func ParseSeedanceRequest(body []byte) (GrokMediaRequestInfo, error) {
 		return info, fmt.Errorf("model is required")
 	}
 	content := gjson.GetBytes(body, "content")
+	for _, field := range []string{"callback_url", "draft_task_id"} {
+		if gjson.GetBytes(body, field).Exists() {
+			return info, fmt.Errorf("%s is not supported by this gateway", field)
+		}
+	}
 	if !content.IsArray() || len(content.Array()) == 0 {
 		return info, fmt.Errorf("content must be a non-empty array")
 	}
 	info.Model = strings.TrimSpace(model.String())
+	var err error
+	info.Resolution, err = videoResolutionFromFields(body, "resolution", "size")
+	if err != nil {
+		return info, err
+	}
+	info.DurationSeconds = int(gjson.GetBytes(body, "duration").Int())
 	var texts []string
 	for _, item := range content.Array() {
 		switch item.Get("type").String() {
@@ -74,9 +85,9 @@ func buildSeedanceURL(base string, endpoint GrokMediaEndpoint, taskID string) (s
 // future fields. Only model is rewritten using the account's configured mapping.
 func (s *OpenAIGatewayService) ForwardSeedance(ctx context.Context, c *gin.Context, account *Account, endpoint GrokMediaEndpoint, taskID string, body []byte) (*OpenAIForwardResult, error) {
 	if !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilitySeedance) || !endpoint.IsSeedance() {
-		return nil, fmt.Errorf("seedance requires an OpenAI API key account with a custom base URL")
+		return nil, fmt.Errorf("account does not support Seedance video tasks")
 	}
-	base, err := s.validateUpstreamBaseURL(account.GetCredential("base_url"))
+	base, err := s.validateUpstreamBaseURL(videoAccountBaseURL(account))
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +96,7 @@ func (s *OpenAIGatewayService) ForwardSeedance(ctx context.Context, c *gin.Conte
 		return nil, err
 	}
 	model, upstreamModel := "", ""
+	var videoInfo GrokMediaRequestInfo
 	method := http.MethodGet
 	switch endpoint {
 	case SeedanceEndpointCreate:
@@ -93,7 +105,11 @@ func (s *OpenAIGatewayService) ForwardSeedance(ctx context.Context, c *gin.Conte
 			return nil, parseErr
 		}
 		model = info.Model
-		upstreamModel = account.GetMappedModel(model)
+		_, body, _, upstreamModel, err = prepareVideoAccountModel(c, account, endpoint, &info, body, "application/json")
+		if err != nil {
+			return nil, err
+		}
+		videoInfo = info
 		body, err = sjson.SetBytes(body, "model", upstreamModel)
 		if err != nil {
 			return nil, err
@@ -107,7 +123,7 @@ func (s *OpenAIGatewayService) ForwardSeedance(ctx context.Context, c *gin.Conte
 		return nil, fmt.Errorf("seedance account missing api_key")
 	}
 	started := time.Now()
-	req, err := http.NewRequestWithContext(ctx, method, target, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(WithHTTPUpstreamRedirectsDisabled(ctx), method, target, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
@@ -136,6 +152,7 @@ func (s *OpenAIGatewayService) ForwardSeedance(ctx context.Context, c *gin.Conte
 		return nil, fmt.Errorf("seedance upstream status %d", resp.StatusCode)
 	}
 	result := &OpenAIForwardResult{Model: model, BillingModel: model, UpstreamModel: upstreamModel, Duration: time.Since(started), ResponseHeaders: resp.Header.Clone()}
+	result.VideoResolution, result.VideoDurationSeconds = videoInfo.Resolution, videoInfo.DurationSeconds
 	if endpoint == SeedanceEndpointCreate {
 		id := strings.TrimSpace(gjson.GetBytes(responseBody, "id").String())
 		if id == "" {
@@ -147,9 +164,14 @@ func (s *OpenAIGatewayService) ForwardSeedance(ctx context.Context, c *gin.Conte
 		result.ResponseID = taskID
 		result.UpstreamModel = gjson.GetBytes(responseBody, "model").String()
 		if gjson.GetBytes(responseBody, "status").String() == "succeeded" {
+			result.VideoCount = 1
 			result.Usage.OutputTokens = max(0, int(gjson.GetBytes(responseBody, "usage.completion_tokens").Int()))
+			if result.Usage.OutputTokens == 0 {
+				result.Usage.OutputTokens = max(0, int(gjson.GetBytes(responseBody, "usage.total_tokens").Int()))
+			}
 		}
 	}
-	writeGrokMediaResponse(c, resp, responseBody, s.responseHeaderFilter)
+	applyVideoPending(c, result)
+	writeProviderVideoResponse(c, resp, responseBody, result, endpoint, s.responseHeaderFilter)
 	return result, nil
 }

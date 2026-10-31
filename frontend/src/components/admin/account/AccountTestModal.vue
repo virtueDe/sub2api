@@ -365,6 +365,7 @@
 </template>
 
 <script setup lang="ts">
+import { isVideoPlatform } from '@/constants/platformCatalog'
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -424,6 +425,7 @@ const imageFileInput = ref<HTMLInputElement | null>(null)
 const audioFileInput = ref<HTMLInputElement | null>(null)
 const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
 const isGrokAccount = computed(() => props.account?.platform === 'grok')
+const isVideoAccount = computed(() => isVideoPlatform(props.account?.platform))
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
   { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
@@ -497,6 +499,7 @@ const modelOptionsForMode = computed(() => {
 })
 
 const supportsPromptInput = computed(() => {
+  if (isVideoAccount.value) return true
   if (!isGrokAccount.value) {
     return supportsImageTest.value
   }
@@ -597,6 +600,7 @@ const clearMediaUploads = () => {
 }
 
 const promptInputLabel = computed(() => {
+  if (isVideoAccount.value) return t('admin.accounts.videoPromptLabel')
   if (supportsGrokVideoTest.value || grokTestMode.value === 'video') {
     return t('admin.accounts.videoPromptLabel')
   }
@@ -613,6 +617,7 @@ const promptInputLabel = computed(() => {
 })
 
 const promptInputPlaceholder = computed(() => {
+  if (isVideoAccount.value) return t('admin.accounts.videoPromptPlaceholder')
   if (grokTestMode.value === 'video') {
     return t('admin.accounts.videoPromptPlaceholder')
   }
@@ -629,6 +634,7 @@ const promptInputPlaceholder = computed(() => {
 })
 
 const promptInputHint = computed(() => {
+  if (isVideoAccount.value) return t('admin.accounts.videoTestHint')
   if (grokTestMode.value === 'video') {
     return t('admin.accounts.videoTestHint')
   }
@@ -651,6 +657,7 @@ const promptInputHint = computed(() => {
 })
 
 const testModeSummary = computed(() => {
+  if (isVideoAccount.value) return t('admin.accounts.videoTestMode')
   if (isGrokAccount.value) {
     switch (grokTestMode.value) {
       case 'video':

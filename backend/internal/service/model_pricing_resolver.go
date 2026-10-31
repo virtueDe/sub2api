@@ -377,12 +377,25 @@ func intervalToModelPricing(iv *PricingInterval, base *ModelPricing, chPricing *
 
 // GetRequestTierPrice 根据层级标签获取按次价格
 func (r *ModelPricingResolver) GetRequestTierPrice(resolved *ResolvedPricing, tierLabel string) float64 {
+	price, _ := lookupRequestTierPrice(resolved, tierLabel)
+	return price
+}
+
+func lookupRequestTierPrice(resolved *ResolvedPricing, tierLabel string) (float64, bool) {
 	for _, tier := range resolved.RequestTiers {
 		if tier.TierLabel == tierLabel && tier.PerRequestPrice != nil {
-			return *tier.PerRequestPrice
+			return *tier.PerRequestPrice, true
 		}
 	}
-	return 0
+	if requested, ok := lookupProviderVideoResolution(tierLabel); ok {
+		for _, tier := range resolved.RequestTiers {
+			configured, valid := lookupProviderVideoResolution(tier.TierLabel)
+			if valid && configured == requested && tier.PerRequestPrice != nil {
+				return *tier.PerRequestPrice, true
+			}
+		}
+	}
+	return 0, false
 }
 
 // GetRequestTierPriceByContext 根据 context token 数获取按次价格

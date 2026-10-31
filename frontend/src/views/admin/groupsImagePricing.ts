@@ -1,3 +1,5 @@
+import { isVideoPlatform } from '@/constants/platformCatalog'
+
 export const imagePricingPlatforms = new Set([
   "antigravity",
   "composite",
@@ -13,7 +15,7 @@ export const supportsImagePricingPlatform = (platform: string): boolean =>
 const imageGenerationDefaultPlatforms = new Set(["antigravity", "gemini", "grok"]);
 
 export const defaultAllowImageGenerationForPlatform = (platform: string): boolean =>
-  imageGenerationDefaultPlatforms.has(platform);
+  imageGenerationDefaultPlatforms.has(platform) || isVideoPlatform(platform);
 
 export const supportsVideoPricingPlatform = (platform: string): boolean =>
   platform === "grok";

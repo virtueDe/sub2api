@@ -45,6 +45,7 @@ export interface PlatformSpec {
   cn_provider: boolean
   litellm_provider?: string
   multi_protocol?: ProviderProfileInfo
+  video?: { base_url: string; models: string[] }
 }
 
 export interface PlatformCatalog {
@@ -81,6 +82,18 @@ export function getPlatformSpec(platform: string | null | undefined): PlatformSp
   return catalogState.value.platforms.find(spec => spec.id === platform)
 }
 
+export function isVideoPlatform(platform: string | null | undefined): boolean {
+  return !!getPlatformSpec(platform)?.video
+}
+
+export function videoPlatformBaseUrl(platform: string | null | undefined): string {
+  return getPlatformSpec(platform)?.video?.base_url ?? ''
+}
+
+export function videoPlatformModels(platform: string | null | undefined): string[] {
+  return [...(getPlatformSpec(platform)?.video?.models ?? [])]
+}
+
 export function isKnownPlatform(platform: string | null | undefined): boolean {
   return !!getPlatformSpec(platform)
 }
@@ -89,7 +102,7 @@ export function isKnownPlatform(platform: string | null | undefined): boolean {
 export function supportsUpstreamModelSync(platform: string | null | undefined): boolean {
   const spec = getPlatformSpec(platform?.trim().toLowerCase())
   if (!spec) return false
-  return !!spec.multi_protocol || ['anthropic', 'openai', 'gemini', 'antigravity', 'grok'].includes(spec.id)
+  return !!spec.multi_protocol || !!spec.video || ['anthropic', 'openai', 'gemini', 'antigravity', 'grok'].includes(spec.id)
 }
 
 /** 清单中声明了定价目录 provider 的平台才支持同步定价模型。 */

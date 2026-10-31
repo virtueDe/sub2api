@@ -361,10 +361,12 @@ const (
 	InflightEstimateImage
 	// InflightEstimatePerRequest 按次类（独立搜索等）：仅按渠道/分组按次价与搜索附加费，不做 token 估算。
 	InflightEstimatePerRequest
-	// InflightEstimateVideo 视频生成：按秒 × 条数（分组/模型视频价）。
+	// InflightEstimateVideo 视频生成：按次或按秒 × 条数。
 	InflightEstimateVideo
 	// InflightEstimateAudio 语音（tts/stt/realtime）：按 AudioMode/AudioUnits 计。
 	InflightEstimateAudio
+	// InflightEstimateTokenVideo 视频生成：支持按次；其他情况保留原生 token 估算。
+	InflightEstimateTokenVideo
 )
 
 // InflightEstimateRequest 单请求估算输入。
@@ -488,7 +490,7 @@ func inflightBillingModelCandidates(ctx context.Context, deps inflightEstimateDe
 	return primary, fallbacks, upstreamInput
 }
 
-func (d inflightEstimateDeps) rates(ctx context.Context, apiKey *APIKey) (text, image float64) {
+func (d inflightEstimateDeps) rates(ctx context.Context, apiKey *APIKey) (text, image, video float64) {
 	rate := 1.0
 	if d.cfg != nil && d.cfg.Default.RateMultiplier > 0 {
 		rate = d.cfg.Default.RateMultiplier
@@ -499,7 +501,8 @@ func (d inflightEstimateDeps) rates(ctx context.Context, apiKey *APIKey) (text, 
 			rate = d.userGroupRate(ctx, apiKey.User.ID, *apiKey.GroupID, rate)
 		}
 	}
-	return computePeakAwareMultipliers(apiKey, rate, timezone.Now())
+	text, image = computePeakAwareMultipliers(apiKey, rate, timezone.Now())
+	return text, image, resolveVideoRateMultiplier(apiKey, rate)
 }
 
 func tokenCounts(cfg config.InflightReservationConfig, bodyBytes, maxTokens int) (int, int) {
@@ -539,7 +542,7 @@ func maxPerRequestPrice(resolved *ResolvedPricing) float64 {
 func validCost(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) }
 
 // estimateOne 估算单个候选计费模型（未乘倍率的 token 部分与按次部分分开返回，便于套用不同倍率）。
-func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, model string, req InflightEstimateRequest, textRate, imageRate float64) float64 {
+func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, model string, req InflightEstimateRequest, textRate, imageRate, videoRate float64) (float64, bool) {
 	cfg := inflightReservationCfg(d.cfg)
 	units := req.Units
 	if units <= 0 {
@@ -571,6 +574,7 @@ func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, m
 	}
 
 	var cost float64
+	videoPriced := false
 	perRequestMode := resolved != nil && (resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage || resolved.Mode == BillingModeVideo)
 	switch req.Kind {
 	case InflightEstimateImage:
@@ -588,13 +592,24 @@ func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, m
 		if cost <= 0 {
 			cost = tokenCost()
 		}
-	case InflightEstimateVideo:
-		if perRequestMode {
-			cost = maxPerRequestPrice(resolved) * float64(units) * math.Max(textRate, imageRate)
+	case InflightEstimateVideo, InflightEstimateTokenVideo:
+		videoPriced = perRequestMode
+		if resolved != nil && resolved.Mode == BillingModeVideo {
+			cost = maxPerRequestPrice(resolved) * float64(units) * float64(max(1, req.VideoDurationSeconds)) * videoRate
+		} else if perRequestMode {
+			cost = maxPerRequestPrice(resolved) * float64(units) * videoRate
+		} else if req.Kind == InflightEstimateTokenVideo {
+			cost = tokenCost()
 		}
-		if d.billing != nil {
-			if b := d.billing.CalculateVideoCost(model, req.VideoResolution, units, req.VideoDurationSeconds, videoPriceConfigFromAPIKey(apiKey), math.Max(textRate, imageRate)); b != nil && b.ActualCost > cost {
-				cost = b.ActualCost
+		// Grok still gives its group seconds tariff priority over channel per-request
+		// prices. Independent providers use only their explicit model tariff.
+		legacyVideo := req.Kind == InflightEstimateVideo && !IsVideoPlatform(QuotaPlatform(ctx, apiKey))
+		if d.billing != nil && legacyVideo && (resolved == nil || resolved.Mode != BillingModeVideo) {
+			if b := d.billing.CalculateVideoCost(model, req.VideoResolution, units, req.VideoDurationSeconds, videoPriceConfigFromAPIKey(apiKey), videoRate); b != nil {
+				videoPriced = true
+				if b.ActualCost > cost {
+					cost = b.ActualCost
+				}
 			}
 		}
 	case InflightEstimateAudio:
@@ -629,9 +644,12 @@ func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, m
 		}
 	}
 	if !validCost(cost) {
-		return 0
+		// An explicit free video tariff/multiplier is priced, not an unknown
+		// model. Do not reject it under fail_closed_on_unpriced or use a fallback.
+		freeVideo := cost == 0 && videoPriced
+		return 0, freeVideo
 	}
-	return cost
+	return cost, true
 }
 
 // estimate 返回保守的单请求费用（USD，已乘倍率）；无法定价返回 (0,false)。
@@ -643,16 +661,20 @@ func (d inflightEstimateDeps) estimate(ctx context.Context, apiKey *APIKey, req 
 		// 非计量请求（媒体状态查询、custom-voices 等）：无需预留，也不算「无法定价」。
 		return 0, true
 	}
-	textRate, imageRate := d.rates(ctx, apiKey)
-	if textRate <= 0 && imageRate <= 0 {
+	textRate, imageRate, videoRate := d.rates(ctx, apiKey)
+	videoRequest := req.Kind == InflightEstimateVideo || req.Kind == InflightEstimateTokenVideo
+	if textRate <= 0 && imageRate <= 0 && (!videoRequest || videoRate <= 0) {
 		// 免费分组：不计费，也无需预留。
 		return 0, true
 	}
 	primary, fallbacks, upstreamInput := inflightBillingModelCandidates(ctx, d, apiKey, req.Model)
+	priced := false
 	bestOf := func(models []string) float64 {
 		best := 0.0
 		for _, m := range models {
-			if c := d.estimateOne(ctx, apiKey, m, req, textRate, imageRate); c > best {
+			c, ok := d.estimateOne(ctx, apiKey, m, req, textRate, imageRate, videoRate)
+			priced = priced || ok
+			if c > best {
 				best = c
 			}
 		}
@@ -662,19 +684,19 @@ func (d inflightEstimateDeps) estimate(ctx context.Context, apiKey *APIKey, req 
 	// composite 分组：计费侧除非别名有显式渠道价，否则按实际转发的具体模型计费；
 	// 别名本身可能命中家族模糊价（低估），因此与候选具体模型一起取最高。
 	composite := apiKey.Group != nil && apiKey.Group.Platform == PlatformComposite
-	if best <= 0 || composite {
+	if !priced || composite {
 		// 与 billableModelWithFallback 同口径：首选模型无价时回退到实际转发模型。
 		if c := bestOf(fallbacks); c > best {
 			best = c
 		}
 		// 账号级映射候选（读调度器快照）仅在仍无法定价或 composite 时才查，已定价模型不触发。
-		if (best <= 0 || composite) && d.accountMappedModels != nil {
+		if (!priced || composite) && d.accountMappedModels != nil {
 			if c := bestOf(d.accountMappedModels(ctx, apiKey, upstreamInput)); c > best {
 				best = c
 			}
 		}
 	}
-	if best <= 0 {
+	if !priced {
 		logInflightUnpriced(req.Model, apiKey.GroupID)
 		return 0, false
 	}

@@ -278,6 +278,58 @@
           }
         ]
       }
+    },
+    {
+      "id": "seedance",
+      "display_name": "Seedance / Ark",
+      "gateway": "openai",
+      "cn_provider": false,
+      "video": {
+        "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+        "models": [
+          "doubao-seedance-1-5-pro-251215"
+        ]
+      }
+    },
+    {
+      "id": "wan",
+      "display_name": "Wan / DashScope",
+      "gateway": "openai",
+      "cn_provider": false,
+      "video": {
+        "base_url": "https://dashscope.aliyuncs.com/api/v1",
+        "models": [
+          "wan2.6-t2v",
+          "wan2.6-i2v",
+          "wan2.2-kf2v-flash"
+        ]
+      }
+    },
+    {
+      "id": "kling",
+      "display_name": "Kling",
+      "gateway": "openai",
+      "cn_provider": false,
+      "video": {
+        "base_url": "https://api.klingai.com/v1",
+        "models": [
+          "kling-v2-6",
+          "kling-v2-5-turbo"
+        ]
+      }
+    },
+    {
+      "id": "sora",
+      "display_name": "Sora",
+      "gateway": "openai",
+      "cn_provider": false,
+      "video": {
+        "base_url": "https://api.openai.com/v1",
+        "models": [
+          "sora-2",
+          "sora-2-pro"
+        ]
+      }
     }
   ],
   "composite_precedence": [
@@ -293,6 +345,10 @@
     "opencode_go",
     "typesafe",
     "command_code",
-    "cline"
+    "cline",
+    "seedance",
+    "wan",
+    "kling",
+    "sora"
   ]
 }

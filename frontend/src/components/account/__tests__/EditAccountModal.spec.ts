@@ -336,6 +336,76 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('preserves redacted Kling credentials and submits only rotated values', async () => {
+    const account = { ...buildAccount(), platform: 'kling', credentials: {}, credentials_status: { has_kling_access_key: true, has_kling_secret_key: true } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLInputElement>('input[placeholder="Secret Key"]').element.value).toBe('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).toHaveBeenCalledOnce()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.kling_secret_key).toBeUndefined()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.kling_access_key).toBeUndefined()
+    await wrapper.get('input[placeholder="Secret Key"]').setValue('rotated-secret')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials?.kling_secret_key).toBe('rotated-secret')
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials?.kling_access_key).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it.each([true, false])('adds or rotates a Kling compatible API key (native credentials: %s)', async (nativeCredentials) => {
+    const account = {
+      ...buildAccount(), platform: 'kling', credentials: {},
+      credentials_status: nativeCredentials
+        ? { has_kling_access_key: true, has_kling_secret_key: true }
+        : { has_api_key: true }
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLInputElement>('input[placeholder="API Key"]').element.value).toBe('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).toHaveBeenCalledOnce()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.api_key).toBeUndefined()
+    await wrapper.get('input[placeholder="API Key"]').setValue('new-compatible-key')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials?.api_key).toBe('new-compatible-key')
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials?.kling_access_key).toBeUndefined()
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials?.kling_secret_key).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('rejects adding only one native Kling key to a compatible account', async () => {
+    const account = { ...buildAccount(), platform: 'kling', credentials: {}, credentials_status: { has_api_key: true } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await wrapper.get('input[placeholder="Access Key"]').setValue('test-ak')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('loads, edits and clears resolution routes without losing other credentials', async () => {
+    const account = { ...buildAccount(), platform: 'wan', credentials: {
+      base_url: 'https://video.example/v1',
+      video_model_routes: { 'sd-video': { default_resolution: '720p', resolutions: { '720p': 'sd-720p' } } }
+    }, credentials_status: { has_api_key: true } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLInputElement>('[data-testid="video-route-model"]').element.value).toBe('sd-video')
+    await wrapper.get('[data-testid="video-route-upstream"]').setValue('sd-720p-new')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.video_model_routes['sd-video'].resolutions['720p']).toBe('sd-720p-new')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.base_url).toBe('https://video.example/v1')
+    await wrapper.get('[aria-label="admin.accounts.videoRoutes.removeModel"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials.video_model_routes).toBeUndefined()
+    expect(account.credentials.video_model_routes['sd-video'].resolutions['720p']).toBe('sd-720p')
+    wrapper.unmount()
+  })
+
   it('passes existing non-identity mappings to the whitelist selector and preserves them on save', async () => {
     const account = buildAccount()
     account.credentials.model_mapping = { 'gpt-5.2': 'gpt-5.2', 'gpt-latest': 'deepseek-chat' }

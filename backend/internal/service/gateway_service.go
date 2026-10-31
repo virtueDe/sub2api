@@ -1555,7 +1555,11 @@ func explicitModelMappingClaims(account Account, model string) bool {
 	if account.Credentials == nil || model == "" {
 		return false
 	}
-	mapped, ok := stringMappingFromRaw(account.Credentials["model_mapping"])[model]
+	mapping := stringMappingFromRaw(account.Credentials["model_mapping"])
+	if IsVideoPlatform(account.Platform) {
+		mapping = account.GetModelMapping()
+	}
+	mapped, ok := mapping[model]
 	return ok && strings.TrimSpace(mapped) != ""
 }
 

@@ -624,6 +624,11 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
+	if IsVideoPlatform(a.Platform) {
+		if routes, err := a.VideoModelRoutes(); err == nil && len(routes) > 0 {
+			return videoRouteModelMapping(routes, stringMappingFromRaw(a.Credentials["model_mapping"]))
+		}
+	}
 	runtimeVersion := xai.RuntimeModelMappingVersion()
 	credentialsPtr := mapPtr(a.Credentials)
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
@@ -966,6 +971,11 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 }
 
 func (a *Account) isModelMappingSupported(requestedModel string) bool {
+	if IsVideoPlatform(a.Platform) {
+		if routes, err := a.VideoModelRoutes(); err != nil || videoRoutesHideModel(routes, requestedModel) {
+			return false
+		}
+	}
 	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
 	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
 	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
@@ -1916,6 +1926,9 @@ func (a *Account) GetOpenAISessionID() string {
 func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapability) bool {
 	if a == nil {
 		return false
+	}
+	if domain.IsVideoPlatform(a.Platform) {
+		return a.Type == AccountTypeAPIKey && (capability == "" || string(capability) == a.Platform)
 	}
 	if capability == OpenAIEndpointCapabilitySeedance {
 		configured, _ := a.openAIEndpointCapabilitySet()

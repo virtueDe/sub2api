@@ -267,6 +267,7 @@
 </template>
 
 <script setup lang="ts">
+import { isVideoPlatform, videoPlatformModels } from '@/constants/platformCatalog'
 import { ref, computed, h, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
@@ -356,6 +357,7 @@ const codexManifestContext = computed(() => {
 
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {
+  if (isVideoPlatform(props.platform)) return 'video'
   if (props.claudeCodeOnly) return 'claude'
   switch (props.platform) {
     case 'openai':
@@ -463,6 +465,7 @@ const SparkleIcon = {
 
 const clientTabs = computed((): TabConfig[] => {
   if (!props.platform) return []
+  if (isVideoPlatform(props.platform)) return [{ id: 'video', label: 'Videos API', icon: TerminalIcon }]
   if (props.claudeCodeOnly) {
     return [{ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon }]
   }
@@ -532,7 +535,7 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
-const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
+const showShellTabs = computed(() => activeClientTab.value !== 'opencode' && !isVideoPlatform(props.platform))
 
 const showCodexAuthMode = computed(() =>
   props.platform === 'openai' &&
@@ -548,6 +551,7 @@ const currentTabs = computed(() => {
 })
 
 const platformDescription = computed(() => {
+  if (isVideoPlatform(props.platform)) return t('keys.useKeyModal.videoDescription')
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -594,6 +598,7 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (isVideoPlatform(props.platform)) return t('keys.useKeyModal.videoNote')
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -744,6 +749,27 @@ const currentFiles = computed((): FileConfig[] => {
     return trimmed.endsWith('/v1') ? trimmed : `${trimmed}/v1`
   }
   const apiBase = ensureV1(baseRoot)
+  if (isVideoPlatform(props.platform)) {
+    const payload = JSON.stringify({
+      model: videoPlatformModels(props.platform)[0] || 'YOUR_MODEL',
+      prompt: 'Ocean waves gently reaching a sandy beach.',
+      seconds: props.platform === 'sora' ? 4 : 5,
+      size: '1280x720'
+    }, null, 2)
+    return [{ path: 'video.http', content: `POST ${apiBase}/videos
+Authorization: Bearer ${apiKey}
+Content-Type: application/json
+
+${payload}
+
+###
+GET ${apiBase}/videos/VIDEO_ID
+Authorization: Bearer ${apiKey}
+
+###
+GET ${apiBase}/videos/VIDEO_ID/content
+Authorization: Bearer ${apiKey}` }]
+  }
   const antigravityBase = ensureV1(`${baseRoot}/antigravity`)
   const antigravityGeminiBase = (() => {
     const trimmed = `${baseRoot}/antigravity`.replace(/\/+$/, '')
@@ -1337,6 +1363,10 @@ function generateRoutedCodexFiles(
     typesafe: 'TypeSafe / Jev',
     command_code: 'Command Code',
     cline: 'Cline',
+    seedance: 'Seedance / Ark',
+    wan: 'Wan / DashScope',
+    kling: 'Kling',
+    sora: 'Sora',
     composite: 'Composite'
   }
   const label = labels[platform]

@@ -195,6 +195,7 @@ import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'v
 import { checkinAPI } from '@/api/checkin'
 import signInIcon from '@/assets/icons/sign-in.svg?raw'
 import rankingIcon from '@/assets/icons/ranking.svg?raw'
+import aiStudioIcon from '@/assets/icons/aiStudio.svg?raw'
 import studioIcon from '@/assets/icons/studio.svg?raw'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -753,6 +754,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/duomi-studio/', label: t('nav.aiCreationStudio'), icon: null, iconSvg: aiStudioIcon, external: true },
     { path: '/studio/', label: t('nav.imageGeneration'), icon: null, iconSvg: studioIcon, external: true },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
@@ -879,6 +881,7 @@ const adminNavItems = computed((): NavItem[] => {
   if (authStore.isSimpleMode) {
     const filtered = visible.filter(item => !item.hideInSimpleMode)
     filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
+    filtered.push({ path: '/duomi-studio/', label: t('nav.aiCreationStudio'), icon: null, iconSvg: aiStudioIcon, external: true })
     filtered.push({ path: '/studio/', label: t('nav.imageGeneration'), icon: null, iconSvg: studioIcon, external: true })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
     for (const cm of customMenuItemsForAdmin.value) {

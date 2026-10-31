@@ -415,8 +415,8 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
-		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionOrDefault(result.VideoResolution))
-		videoDurationSeconds := NormalizeVideoBillingDurationSecondsOrDefault(result.VideoDurationSeconds)
+		usageLog.VideoResolution = optionalTrimmedStringPtr(videoTaskResolution(result.ResponseID, result.VideoResolution))
+		videoDurationSeconds := videoUsageDuration(result)
 		usageLog.VideoDurationSeconds = &videoDurationSeconds
 	}
 	if cost != nil {
@@ -592,6 +592,30 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	pricingAt time.Time,
 ) (*CostBreakdown, error) {
 	billingModel := firstUsageBillingModel(billingModels)
+	seedanceTask := result != nil && strings.HasPrefix(result.ResponseID, "seedance:")
+	if result != nil && result.VideoCount > 0 && IsProviderVideoTask(result.ResponseID) {
+		resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
+		if resolved != nil && (resolved.Mode == BillingModePerRequest || (!seedanceTask && resolved.Mode == BillingModeVideo)) {
+			units := float64(result.VideoCount)
+			if resolved.Mode == BillingModeVideo {
+				if result.VideoDurationSeconds <= 0 || result.VideoResolution == "" {
+					return nil, fmt.Errorf("video duration and resolution are required for %s", billingModel)
+				}
+				units *= float64(result.VideoDurationSeconds)
+			}
+			gid := apiKey.Group.ID
+			return s.billingService.CalculateCostUnified(CostInput{
+				Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
+				RequestCount: result.VideoCount, UsageUnits: units, SizeTier: result.VideoResolution,
+				RateMultiplier: videoMultiplier, Resolver: s.resolver, Resolved: resolved,
+			})
+		}
+		// Ark's native token tariff remains available. Completed video count also
+		// identifies no-usage successes, but must not select Grok's seconds tariff.
+		if !seedanceTask || (resolved != nil && resolved.Mode != BillingModeToken) {
+			return nil, fmt.Errorf("video pricing is unavailable for %s", billingModel)
+		}
+	}
 	if result != nil && result.WebSearchCalls > 0 {
 		// Codex alpha/search 网页搜索按次计费：上游不返回 usage/token 字段，单价只取
 		// 分组覆盖价（nil 时默认 0.01 = 官方 $10/1000 次），不参与渠道级模型定价。
@@ -599,7 +623,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 		//（用户专属 > 分组 rate_multiplier > 系统默认），与分组表单的价格预览承诺一致。
 		return s.billingService.CalculateWebSearchCost(result.WebSearchCalls, webSearchPricePerCallFromAPIKey(apiKey), webSearchMultiplier), nil
 	}
-	if isGrokVideoUsageResult(result, billingModels) {
+	if !seedanceTask && isGrokVideoUsageResult(result, billingModels) {
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
 			return s.calculateOpenAIVideoCost(ctx, billingModel, apiKey, result, videoMultiplier), nil
 		}

@@ -35,6 +35,20 @@ function readBlobAsText(blob: Blob): Promise<string> {
 }
 
 describe('UseKeyModal', () => {
+  it.each(['seedance', 'wan', 'kling', 'sora'] as const)('shows video requests for a %s group', async (platform) => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'video-client-key', baseUrl: 'https://example.com/v1', platform },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } }
+    })
+    await nextTick()
+    expect(wrapper.find('nav[aria-label="Client"]').text()).toBe('Videos API')
+    const content = wrapper.find('pre code').text()
+    expect(content).toContain('POST https://example.com/v1/videos')
+    expect(content).toContain('GET https://example.com/v1/videos/VIDEO_ID/content')
+    expect(content).toContain('Authorization: Bearer video-client-key')
+    expect(content).not.toContain('ANTHROPIC_BASE_URL')
+    wrapper.unmount()
+  })
   afterEach(() => {
     vi.unstubAllGlobals()
     saveAsMock.mockClear()

@@ -45,10 +45,16 @@ func (e GrokMediaEndpoint) RequiresRequestBody() bool {
 }
 
 func (e GrokMediaEndpoint) IsVideoLookupRequest() bool {
+	if e.VideoProvider() != "" {
+		return !e.IsProviderVideoCreate()
+	}
 	return e == GrokMediaEndpointVideoStatus || e == GrokMediaEndpointVideoContent || e == SeedanceEndpointStatus || e == SeedanceEndpointDelete
 }
 
 func (e GrokMediaEndpoint) IsGenerationRequest() bool {
+	if e.IsProviderVideoCreate() {
+		return true
+	}
 	if e == SeedanceEndpointCreate {
 		return true
 	}
@@ -464,9 +470,9 @@ func (s *OpenAIGatewayService) StoreGrokVideoPendingBilling(
 	pending.UpstreamModel = strings.TrimSpace(pending.UpstreamModel)
 	pending.OriginalModel = strings.TrimSpace(pending.OriginalModel)
 	if pending.VideoResolution != "" {
-		pending.VideoResolution = NormalizeVideoBillingResolutionOrDefault(pending.VideoResolution)
+		pending.VideoResolution = videoTaskResolution(requestID, pending.VideoResolution)
 	}
-	if pending.VideoDurationSeconds > 0 {
+	if pending.VideoDurationSeconds > 0 && !IsProviderVideoTask(requestID) {
 		pending.VideoDurationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(pending.VideoDurationSeconds)
 	}
 	// Always stamp create-accept time when missing so deferred duration_ms is E2E.

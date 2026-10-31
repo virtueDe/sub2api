@@ -680,6 +680,9 @@ func validateDataProxy(item DataProxy) error {
 }
 
 func validateDataAccount(item DataAccount) error {
+	if err := service.ValidateVideoAccount(item.Platform, item.Type, item.Credentials); err != nil {
+		return err
+	}
 	if strings.TrimSpace(item.Name) == "" {
 		return errors.New("account name is required")
 	}

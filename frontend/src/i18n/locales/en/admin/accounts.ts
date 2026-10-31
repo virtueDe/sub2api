@@ -627,6 +627,22 @@ export default {
       baseUrl: 'Base URL',
       baseUrlHint: 'Leave default for official Anthropic API',
       apiKeyRequired: 'API Key *',
+      klingApiKeyHint: 'Use an API Key for compatible gateways, or Access Key and Secret Key for the native Kling API. Model sync requires an API Key and an OpenAI-compatible /models endpoint.',
+      klingKeyPairRequired: 'Kling Access Key and Secret Key must be provided together',
+      videoRoutes: {
+        title: 'Route video models by resolution',
+        hint: 'Clients send a public model and resolution (or size). Each resolution selects its upstream model; omitted resolution uses the default and unsupported tiers are rejected. Targets are hidden from this account’s public catalog and direct requests.',
+        publicModel: 'Public model', upstreamModel: 'Upstream model', resolution: 'Resolution',
+        defaultResolution: 'Default resolution', chooseDefault: 'Select a default',
+        addModel: 'Add public video model', addResolution: 'Add resolution', removeModel: 'Remove public model', removeResolution: 'Remove resolution',
+        pricingHint: 'To charge per video at different resolutions, price the public model in the group or channel using Per request, then add tier labels such as 480p, 720p and 1080p with their prices. Resolution alone uses landscape 16:9; send size for another aspect ratio.',
+        errors: {
+          invalidModel: 'Enter an exact public model name without wildcards', duplicateModel: 'Public model names must be unique',
+          invalidResolution: 'Select a supported resolution', duplicateResolution: 'Each public model must have unique resolutions',
+          missingTarget: 'Enter an exact upstream model name without wildcards', invalidDefault: 'The default resolution must have an upstream target',
+          conflictingMapping: 'Remove the conflicting ordinary mapping for this public model', targetIsPublic: 'An upstream target cannot also be a public resolution route name'
+        }
+      },
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
       upstreamRequestIdHeader: 'Upstream ID',

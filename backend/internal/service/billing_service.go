@@ -1830,18 +1830,20 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 	}
 
 	var unitPrice float64
+	tierMatched := false
 
 	if input.SizeTier != "" {
-		unitPrice = input.Resolver.GetRequestTierPrice(resolved, input.SizeTier)
+		unitPrice, tierMatched = lookupRequestTierPrice(resolved, input.SizeTier)
 	}
 
-	if unitPrice == 0 {
+	_, resolutionTier := lookupProviderVideoResolution(input.SizeTier)
+	if !tierMatched && unitPrice == 0 && !resolutionTier {
 		totalContext := input.Tokens.InputTokens + input.Tokens.CacheCreationTokens + input.Tokens.CacheReadTokens
 		unitPrice = input.Resolver.GetRequestTierPriceByContext(resolved, totalContext)
 	}
 
 	// 回退到默认按次价格
-	if unitPrice == 0 {
+	if !tierMatched && unitPrice == 0 {
 		unitPrice = resolved.DefaultPerRequestPrice
 	}
 

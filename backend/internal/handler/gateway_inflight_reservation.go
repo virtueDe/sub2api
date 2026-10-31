@@ -100,6 +100,9 @@ func grokMediaInflightEstimate(endpoint service.GrokMediaEndpoint, model string,
 	if !endpoint.IsGenerationRequest() {
 		return service.InflightEstimateRequest{}
 	}
+	if endpoint.IsSeedance() {
+		return service.InflightEstimateRequest{Model: model, BodyBytes: len(body), Kind: service.InflightEstimateTokenVideo, Units: 1, VideoResolution: info.Resolution, VideoDurationSeconds: info.DurationSeconds}
+	}
 	switch endpoint {
 	case service.GrokMediaEndpointImagesGenerations, service.GrokMediaEndpointImagesEdits:
 		return service.InflightEstimateRequest{Model: model, BodyBytes: len(body), Kind: service.InflightEstimateImage, Units: info.N}

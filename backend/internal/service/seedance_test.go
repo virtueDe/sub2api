@@ -55,10 +55,11 @@ func TestSeedanceStatusAndDelete(t *testing.T) {
 			require.Equal(t, "/api/v3/contents/generations/tasks/task-1", upstream.request.URL.Path)
 			if status == "succeeded" {
 				require.Equal(t, 12345, result.Usage.OutputTokens)
+				require.Equal(t, 1, result.VideoCount)
 			} else {
 				require.Zero(t, result.Usage.OutputTokens)
+				require.Zero(t, result.VideoCount)
 			}
-			require.Zero(t, result.VideoCount, "must use token billing, not Grok seconds")
 		})
 	}
 	upstream := &grokMediaContentUpstreamStub{response: grokMediaContentStatusResponse("")}
@@ -69,6 +70,18 @@ func TestSeedanceStatusAndDelete(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.MethodDelete, upstream.request.Method)
 	require.Equal(t, http.StatusNoContent, w.Code)
+}
+
+func TestSeedanceSuccessWithoutTokenUsage(t *testing.T) {
+	for _, usage := range []string{`{}`, `{"completion_tokens":0}`, `{"total_tokens":120}`} {
+		upstream := &grokMediaContentUpstreamStub{response: grokMediaContentStatusResponse(`{"id":"task-1","status":"succeeded","usage":` + usage + `}`)}
+		svc := &OpenAIGatewayService{httpUpstream: upstream}
+		c, _ := grokMediaContentTestContext(http.MethodGet, "/api/v3/contents/generations/tasks/task-1", nil)
+		result, err := svc.ForwardSeedance(context.Background(), c, seedanceTestAccount(), SeedanceEndpointStatus, "seedance:task-1", nil)
+		require.NoError(t, err)
+		require.Equal(t, 1, result.VideoCount)
+		require.Equal(t, int(gjson.Get(usage, "total_tokens").Int()), result.Usage.OutputTokens)
+	}
 }
 
 func TestSeedanceValidationAndCapability(t *testing.T) {
