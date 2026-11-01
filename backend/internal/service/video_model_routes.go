@@ -318,7 +318,10 @@ func prepareVideoAccountModel(c *gin.Context, account *Account, endpoint GrokMed
 		info.Resolution = resolved
 	}
 	if original, exists := c.Get(videoUnifiedInputKey); exists {
-		input := original.(unifiedVideoInput)
+		input, ok := original.(unifiedVideoInput)
+		if !ok {
+			return endpoint, nil, "", "", fmt.Errorf("invalid unified video input")
+		}
 		updates := map[string]string{"model": upstream}
 		if routed && resolution == "" {
 			updates["resolution"] = resolved

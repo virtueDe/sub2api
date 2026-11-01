@@ -361,7 +361,11 @@ func writeProviderVideoResponse(c *gin.Context, resp *http.Response, data []byte
 
 func (s *OpenAIGatewayService) FlushVideoResponse(c *gin.Context) {
 	if value, exists := c.Get(videoCapturedResponseKey); exists {
-		pending := value.(capturedVideoResponse)
+		pending, ok := value.(capturedVideoResponse)
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "internal_error", "message": "video response is invalid"}})
+			return
+		}
 		writeGrokMediaResponse(c, pending.response, pending.body, s.responseHeaderFilter)
 	}
 }
