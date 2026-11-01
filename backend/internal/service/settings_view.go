@@ -227,6 +227,7 @@ type SystemSettings struct {
 	ModelPlazaEnabled       bool   `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth   bool   `json:"model_plaza_require_auth"`
 	ModelPlazaDescription   string `json:"model_plaza_description"`
+	AICreationStudioEnabled bool   `json:"ai_creation_studio_enabled"`
 	PluginManagementEnabled bool   `json:"plugin_management_enabled"`
 
 	// Claude Code version check
@@ -433,6 +434,7 @@ type PublicSettings struct {
 	// Model Plaza feature (public group/model pricing showcase)
 	ModelPlazaEnabled       bool `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth   bool `json:"model_plaza_require_auth"`
+	AICreationStudioEnabled bool `json:"ai_creation_studio_enabled"`
 	PluginManagementEnabled bool `json:"plugin_management_enabled"`
 
 	// Affiliate (邀请返利) feature toggle

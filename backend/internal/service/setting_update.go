@@ -443,6 +443,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyModelPlazaEnabled] = strconv.FormatBool(settings.ModelPlazaEnabled)
 	updates[SettingKeyModelPlazaRequireAuth] = strconv.FormatBool(settings.ModelPlazaRequireAuth)
 	updates[SettingKeyModelPlazaDescription] = settings.ModelPlazaDescription
+	updates[SettingKeyAICreationStudioEnabled] = strconv.FormatBool(settings.AICreationStudioEnabled)
 	updates[SettingKeyPluginManagementEnabled] = strconv.FormatBool(settings.PluginManagementEnabled)
 	updates[SettingKeyOpenAIImagesAspectRatioPromptEnabled] = strconv.FormatBool(settings.OpenAIImagesAspectRatioPromptEnabled)
 	groupIDsJSON, err := json.Marshal(settings.OpenAIImagesAspectRatioPromptGroupIDs)

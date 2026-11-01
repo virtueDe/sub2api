@@ -240,6 +240,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeySubscriptionEnabled,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
+		SettingKeyAICreationStudioEnabled,
 		SettingKeyPluginManagementEnabled,
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
@@ -374,6 +375,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 
 		ModelPlazaEnabled:       settings[SettingKeyModelPlazaEnabled] == "true",
 		ModelPlazaRequireAuth:   settings[SettingKeyModelPlazaRequireAuth] == "true",
+		AICreationStudioEnabled: settings[SettingKeyAICreationStudioEnabled] == "true",
 		PluginManagementEnabled: settings[SettingKeyPluginManagementEnabled] == "true",
 
 		AffiliateEnabled: settings[SettingKeyAffiliateEnabled] == "true",
@@ -690,6 +692,7 @@ type PublicSettingsInjectionPayload struct {
 	SubscriptionEnabled           bool `json:"subscription_enabled"`
 	ModelPlazaEnabled             bool `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth         bool `json:"model_plaza_require_auth"`
+	AICreationStudioEnabled       bool `json:"ai_creation_studio_enabled"`
 	PluginManagementEnabled       bool `json:"plugin_management_enabled"`
 	AffiliateEnabled              bool `json:"affiliate_enabled"`
 	RiskControlEnabled            bool `json:"risk_control_enabled"`
@@ -776,6 +779,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		SubscriptionEnabled:                  settings.SubscriptionEnabled,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                settings.ModelPlazaRequireAuth,
+		AICreationStudioEnabled:              settings.AICreationStudioEnabled,
 		PluginManagementEnabled:              settings.PluginManagementEnabled,
 		AffiliateEnabled:                     settings.AffiliateEnabled,
 		RiskControlEnabled:                   settings.RiskControlEnabled,

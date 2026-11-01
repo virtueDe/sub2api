@@ -360,9 +360,10 @@ type UpdateSettingsRequest struct {
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
 
 	// Model Plaza feature switches + description
-	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth *bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription *string `json:"model_plaza_description"`
+	ModelPlazaEnabled       *bool   `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth   *bool   `json:"model_plaza_require_auth"`
+	ModelPlazaDescription   *string `json:"model_plaza_description"`
+	AICreationStudioEnabled *bool   `json:"ai_creation_studio_enabled"`
 
 	// Plugin management menu visibility switch; plugin runtime is unaffected.
 	PluginManagementEnabled *bool `json:"plugin_management_enabled"`
@@ -2047,6 +2048,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ModelPlazaDescription
 		}(),
+		AICreationStudioEnabled: func() bool {
+			if req.AICreationStudioEnabled != nil {
+				return *req.AICreationStudioEnabled
+			}
+			return previousSettings.AICreationStudioEnabled
+		}(),
 		PluginManagementEnabled: func() bool {
 			if req.PluginManagementEnabled != nil {
 				return *req.PluginManagementEnabled
@@ -2580,6 +2587,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,
 		ModelPlazaDescription:   updatedSettings.ModelPlazaDescription,
+		AICreationStudioEnabled: updatedSettings.AICreationStudioEnabled,
 		PluginManagementEnabled: updatedSettings.PluginManagementEnabled,
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,

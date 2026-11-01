@@ -94,6 +94,12 @@ export default {
           priceDescription: '价格说明（Markdown）',
           priceDescriptionHint: '展示在模型广场页面顶部，可用于说明计费规则、汇率、优惠活动等。',
         },
+        aiCreationStudio: {
+          title: 'AI 创作站',
+          description: '控制侧边栏是否显示 AI 创作站入口。功能尚未开放，默认关闭。',
+          enabled: '显示 AI 创作站菜单',
+          enabledHint: '开启后用户和管理员个人区的侧边栏会显示 AI 创作站入口；关闭后隐藏入口。',
+        },
         pluginManagement: {
           title: '插件管理',
           description: '控制管理员侧边栏是否显示插件管理入口。此开关不控制插件运行状态。',

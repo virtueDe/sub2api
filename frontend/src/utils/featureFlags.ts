@@ -119,6 +119,11 @@ export const FeatureFlags = {
     mode: 'opt-in',
     label: 'Model Plaza',
   }),
+  aiCreationStudio: defineFlag({
+    key: 'ai_creation_studio_enabled',
+    mode: 'opt-in',
+    label: 'AI Creation Studio',
+  }),
   pluginManagement: defineFlag({
     key: 'plugin_management_enabled',
     mode: 'opt-in',

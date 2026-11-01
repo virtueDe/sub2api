@@ -94,6 +94,12 @@ export default {
           priceDescription: 'Pricing notes (Markdown)',
           priceDescriptionHint: 'Rendered at the top of the plaza page. Use it for billing rules, exchange rates, promotions, etc.',
         },
+        aiCreationStudio: {
+          title: 'AI Creation Studio',
+          description: 'Controls whether the AI Creation Studio entry appears in the sidebar. Disabled by default until the studio is ready.',
+          enabled: 'Show AI Creation Studio',
+          enabledHint: 'When enabled, the entry appears in user and admin personal sidebars; when disabled, it is hidden.',
+        },
         pluginManagement: {
           title: 'Plugin Management',
           description: 'Controls whether the plugin management entry appears in the admin sidebar. This switch does not control plugin runtime state.',

@@ -735,6 +735,7 @@ const purchaseNavLabel = computed(() => {
 })
 const flagAffiliate = makeSidebarFlag(FeatureFlags.affiliate)
 const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
+const flagAiCreationStudio = makeSidebarFlag(FeatureFlags.aiCreationStudio)
 const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
 const flagAdminPayment = () => adminSettingsStore.paymentEnabled
@@ -754,7 +755,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
-    { path: '/duomi-studio/', label: t('nav.aiCreationStudio'), icon: null, iconSvg: aiStudioIcon, external: true },
+    { path: '/duomi-studio/', label: t('nav.aiCreationStudio'), icon: null, iconSvg: aiStudioIcon, external: true, featureFlag: flagAiCreationStudio },
     { path: '/studio/', label: t('nav.imageGeneration'), icon: null, iconSvg: studioIcon, external: true },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
@@ -881,7 +882,14 @@ const adminNavItems = computed((): NavItem[] => {
   if (authStore.isSimpleMode) {
     const filtered = visible.filter(item => !item.hideInSimpleMode)
     filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
-    filtered.push({ path: '/duomi-studio/', label: t('nav.aiCreationStudio'), icon: null, iconSvg: aiStudioIcon, external: true })
+    filtered.push(...applyFeatureFlags([{
+      path: '/duomi-studio/',
+      label: t('nav.aiCreationStudio'),
+      icon: null,
+      iconSvg: aiStudioIcon,
+      external: true,
+      featureFlag: flagAiCreationStudio,
+    }]))
     filtered.push({ path: '/studio/', label: t('nav.imageGeneration'), icon: null, iconSvg: studioIcon, external: true })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
     for (const cm of customMenuItemsForAdmin.value) {

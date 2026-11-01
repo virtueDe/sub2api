@@ -238,6 +238,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyModelPlazaEnabled:                     "false",
 		SettingKeyModelPlazaRequireAuth:                 "false",
 		SettingKeyModelPlazaDescription:                 "",
+		SettingKeyAICreationStudioEnabled:               "false",
 		SettingKeyPluginManagementEnabled:               "false",
 		SettingKeyOpenAIImagesAspectRatioPromptEnabled:  "false",
 		SettingKeyOpenAIImagesAspectRatioPromptGroupIDs: "[]",
@@ -882,6 +883,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"
 	result.ModelPlazaRequireAuth = settings[SettingKeyModelPlazaRequireAuth] == "true"
 	result.ModelPlazaDescription = settings[SettingKeyModelPlazaDescription]
+	result.AICreationStudioEnabled = settings[SettingKeyAICreationStudioEnabled] == "true"
 	result.PluginManagementEnabled = settings[SettingKeyPluginManagementEnabled] == "true"
 	result.OpenAIImagesAspectRatioPromptEnabled = settings[SettingKeyOpenAIImagesAspectRatioPromptEnabled] == "true"
 	result.OpenAIImagesAspectRatioPromptGroupIDs = parseOpenAIImagesAspectRatioPromptGroupIDs(settings[SettingKeyOpenAIImagesAspectRatioPromptGroupIDs])

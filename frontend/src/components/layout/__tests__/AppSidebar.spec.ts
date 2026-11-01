@@ -34,6 +34,8 @@ describe('AppSidebar AI creation studio entry', () => {
     expect(componentSource).toContain("import aiStudioIcon from '@/assets/icons/aiStudio.svg?raw'")
     expect(componentSource).toContain("path: '/duomi-studio/'")
     expect(componentSource).toContain("t('nav.aiCreationStudio')")
+    expect(componentSource).toContain('const flagAiCreationStudio = makeSidebarFlag(FeatureFlags.aiCreationStudio)')
+    expect(componentSource).toContain('featureFlag: flagAiCreationStudio')
     expect(componentSource).toMatch(/path: '\/duomi-studio\/'[\s\S]*?path: '\/studio\/'/)
   })
 })
