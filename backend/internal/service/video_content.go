@@ -33,7 +33,11 @@ func (s *OpenAIGatewayService) ForwardProviderVideoContent(ctx context.Context, 
 	if !ok {
 		return nil, fmt.Errorf("video status response is unavailable")
 	}
-	data := value.(capturedVideoResponse).body
+	response, ok := value.(capturedVideoResponse)
+	if !ok {
+		return nil, fmt.Errorf("video status response is invalid")
+	}
+	data := response.body
 	provider := endpoint.VideoProvider()
 	if endpoint.IsSeedance() {
 		provider = PlatformSeedance

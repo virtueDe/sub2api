@@ -77,7 +77,7 @@ func ValidateVideoAccount(platform, accountType string, credentials map[string]a
 	a := &Account{Credentials: credentials}
 	if platform == PlatformKling && (a.GetCredential("kling_access_key") != "" || a.GetCredential("kling_secret_key") != "") {
 		if strings.TrimSpace(a.GetCredential("kling_access_key")) == "" || strings.TrimSpace(a.GetCredential("kling_secret_key")) == "" {
-			return fmt.Errorf("Kling requires both Access Key and Secret Key")
+			return fmt.Errorf("kling requires both access key and secret key")
 		}
 		return nil
 	}

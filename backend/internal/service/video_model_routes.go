@@ -225,7 +225,10 @@ func videoResolutionFromFields(fields []byte, resolutionPath, sizePath string) (
 func RequestVideoResolution(c *gin.Context, endpoint GrokMediaEndpoint, body []byte, contentType string) (string, error) {
 	unified := false
 	if value, exists := c.Get(videoUnifiedInputKey); exists {
-		input := value.(unifiedVideoInput)
+		input, ok := value.(unifiedVideoInput)
+		if !ok {
+			return "", fmt.Errorf("invalid unified video input")
+		}
 		body, contentType, unified = input.body, input.contentType, true
 	}
 	fields, err := videoRequestFields(body, contentType)

@@ -291,7 +291,7 @@ func videoProviderToken(account *Account, provider string, now time.Time) (strin
 	}
 	parts := strings.Split(key, "|")
 	if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
-		return "", fmt.Errorf("Kling credentials must be access_key|secret_key")
+		return "", fmt.Errorf("kling credentials must be access_key|secret_key")
 	}
 	claims, err := json.Marshal(map[string]any{"iss": strings.TrimSpace(parts[0]), "exp": now.Add(30 * time.Minute).Unix(), "nbf": now.Add(-5 * time.Second).Unix()})
 	if err != nil {

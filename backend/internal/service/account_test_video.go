@@ -78,7 +78,11 @@ func (s *AccountTestService) testVideoProviderAccount(c *gin.Context, a *Account
 		if !ok {
 			return nil, nil, fmt.Errorf("missing video response")
 		}
-		return result, value.(capturedVideoResponse).body, nil
+		response, ok := value.(capturedVideoResponse)
+		if !ok {
+			return nil, nil, fmt.Errorf("invalid video response")
+		}
+		return result, response.body, nil
 	}
 	created, _, err := forward(endpoint, "", body)
 	if err != nil {
