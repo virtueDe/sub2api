@@ -68,7 +68,12 @@ func TestImageGenerationCaptureResponseFormats(t *testing.T) {
 			detail := capture.Snapshot()
 			require.Len(t, detail.Images, 1)
 			image := detail.Images[0]
-			require.Equal(t, tt.image, image.URL+image.B64JSON)
+			require.Empty(t, image.B64JSON)
+			if !tt.stream && (tt.name == "openai JSON" || tt.name == "markdown") {
+				require.Equal(t, tt.image, image.URL)
+			} else {
+				require.Empty(t, image.URL)
+			}
 			require.Equal(t, tt.mime, image.MimeType)
 			require.Equal(t, tt.partial, image.Partial)
 		})
@@ -80,10 +85,11 @@ func TestImageGenerationCaptureFinalReplacesPartialAndDeduplicates(t *testing.T)
 	capture.ObserveResponse([]byte("data: {\"type\":\"response.image_generation_call.partial_image\",\"output_index\":0,\"partial_image_b64\":\"partial\"}\n\n"), true)
 	first := capture.Snapshot()
 	capture.ObserveResponse([]byte("data: {\"type\":\"response.image_generation_call.completed\",\"output_index\":0,\"result\":\"final\"}\n\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"final\"}}\n\n"), true)
-	require.Equal(t, "partial", first.Images[0].B64JSON)
+	require.Empty(t, first.Images[0].B64JSON)
+	require.True(t, first.Images[0].Partial)
 	final := capture.Snapshot()
 	require.Len(t, final.Images, 1)
-	require.Equal(t, "final", final.Images[0].B64JSON)
+	require.Empty(t, final.Images[0].B64JSON)
 	require.False(t, final.Images[0].Partial)
 }
 
@@ -125,7 +131,7 @@ func TestImageGenerationCaptureFiltersOnlyLogCopy(t *testing.T) {
 	require.Equal(t, original, body)
 	require.Equal(t, "参考 [IMAGE_DATA_OMITTED] 画猫", detail.Prompt)
 	require.NotContains(t, ImageGenerationDetailJSON(detail), "aGVsbG8=")
-	require.Contains(t, ImageGenerationDetailJSON(detail), "keep-output")
+	require.NotContains(t, ImageGenerationDetailJSON(detail), "keep-output")
 	require.Equal(t, json.Number("2"), detail.RequestParams["n"])
 }
 
@@ -134,4 +140,20 @@ func TestImageGenerationCapturePreservesLargeNumbers(t *testing.T) {
 	require.Equal(t, json.Number("9007199254740993"), detail.RequestParams["seed"])
 	require.Contains(t, ImageGenerationDetailJSON(detail), `"seed":9007199254740993`)
 	require.Contains(t, ImageGenerationDetailJSON(detail), `"strength":0.1234567890123456789`)
+}
+
+func TestImageGenerationPersistenceFiltersDirectDetailsWithoutMutating(t *testing.T) {
+	detail := &ImageGenerationDetail{
+		Prompt: "draw a cat", RequestParams: map[string]any{"seed": json.Number("9007199254740993"), "quality": "high", "image": "data:image/png;base64,aGVsbG8="},
+		Images: []GeneratedImage{{B64JSON: "output-bytes", URL: "https://cdn.test/cat.png", MimeType: "image/png", RevisedPrompt: "a cat", Partial: true}},
+	}
+	stored := ImageGenerationDetailJSON(detail).(string)
+	require.NotContains(t, stored, "output-bytes")
+	require.NotContains(t, stored, "aGVsbG8=")
+	require.Contains(t, stored, `"seed":9007199254740993`)
+	require.Contains(t, stored, `"quality":"high"`)
+	require.Contains(t, stored, `"url":"https://cdn.test/cat.png"`)
+	require.Contains(t, stored, `"partial":true`)
+	require.Equal(t, "output-bytes", detail.Images[0].B64JSON)
+	require.Equal(t, "data:image/png;base64,aGVsbG8=", detail.RequestParams["image"])
 }

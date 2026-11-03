@@ -24,7 +24,7 @@ func TestSanitizeInputNestedImagesPreservesBusinessData(t *testing.T) {
 	SanitizeInput(params, true)
 	require.Equal(t, []any{Omitted, Omitted, url}, params["image"])
 	require.Equal(t, "参考 "+Omitted+"，画猫", params["prompt"])
-	require.Equal(t, png, params["text"], "bare Base64 in prose must not be guessed away")
+	require.Equal(t, Omitted, params["text"], "a complete encoded image must not be retained under an arbitrary field")
 	require.Equal(t, url, params["image_url"])
 	require.Equal(t, strings.Repeat("普通业务文本", 256), params["data"])
 	require.Equal(t, json.Number("9007199254740993"), params["seed"])
@@ -139,4 +139,106 @@ func TestCleanDetailWrappedMIMEInputAndOutputURL(t *testing.T) {
 			require.Equal(t, "data:image/png;base64,iVBORw0KGgoA\nAAAA", output["url"])
 		}
 	}
+}
+
+func TestSanitizeJSONRemovesOutputImagesAndPreservesParameters(t *testing.T) {
+	raw := []byte(`{"seed":9007199254740993,"quality":"high","url":"https://cdn.test/img.png","data":[{"b64_json":"invalid-but-image-payload","revised_prompt":"cat"}],"output":[{"type":"image_generation_call","result":"YWJj"}],"inlineData":{"mimeType":"image/png","data":"aW1hZ2U="},"metadata":{"base64":"dGV4dA=="}}`)
+	clean, err := SanitizeJSON(raw)
+	require.NoError(t, err)
+	for _, payload := range []string{"invalid-but-image-payload", "YWJj", "aW1hZ2U="} {
+		require.NotContains(t, string(clean), payload)
+	}
+	for _, value := range []string{`"seed":9007199254740993`, `"quality":"high"`, `https://cdn.test/img.png`, `"revised_prompt":"cat"`, `dGV4dA==`} {
+		require.Contains(t, string(clean), value)
+	}
+	require.Contains(t, string(raw), "invalid-but-image-payload")
+	twice, err := SanitizeJSON(clean)
+	require.NoError(t, err)
+	require.Equal(t, clean, twice)
+}
+
+func TestSanitizeTextRemovesImagesBeforeTruncation(t *testing.T) {
+	for _, text := range []string{
+		`data: {"b64_json":"` + strings.Repeat("a", 2000) + `","quality":"high"}`,
+		`broken {"b64_json":"` + strings.Repeat("a", 2000),
+		`upstream failed on data:image/png;base64,` + strings.Repeat("a", 2000) + ` request`,
+	} {
+		clean := SanitizeText(text)
+		require.NotContains(t, clean, strings.Repeat("a", 32))
+		require.Contains(t, clean, Omitted)
+	}
+}
+
+func TestSanitizeTextSSEAndNestedJSON(t *testing.T) {
+	png := base64.StdEncoding.EncodeToString(append([]byte("\x89PNG\r\n\x1a\n"), make([]byte, 256)...))
+	wrappedURI := "data:image/png;base64," + png[:76] + "\n" + png[76:]
+	body, err := json.Marshal(map[string]any{
+		"type": "image_generation_call", "result": png,
+		"inlineData":  map[string]any{"mimeType": "image/svg+xml", "data": "PHN2Zy8+"},
+		"input_image": wrappedURI, "seed": json.Number("9007199254740993"),
+		"prompt": "cat", "url": "https://cdn.test/cat.png",
+	})
+	require.NoError(t, err)
+	nested, err := json.Marshal(map[string]any{"upstream_response_body": string(body), "status": 500})
+	require.NoError(t, err)
+	for _, input := range []string{
+		"data: " + string(body) + "\n\ndata: [DONE]\n",
+		"upstream failed: " + string(body) + " after retry",
+		string(nested),
+	} {
+		clean := SanitizeText(input)
+		for _, payload := range []string{png[:64], png[76:], "PHN2Zy8+"} {
+			require.NotContains(t, clean, payload)
+		}
+		for _, retained := range []string{"cat", "https://cdn.test/cat.png", "9007199254740993"} {
+			require.Contains(t, clean, retained)
+		}
+		require.Equal(t, clean, SanitizeText(clean))
+	}
+}
+
+func TestSanitizeTextMalformedWrappedImagePreservesOtherFields(t *testing.T) {
+	for _, body := range []string{
+		"broken {\"b64_json\":\"" + strings.Repeat("a", 300) + "\n" + strings.Repeat("b", 300),
+		"broken {\"b64_json\":\"" + strings.Repeat("a", 300) + "\n" + strings.Repeat("b", 300) + "\",\"prompt\":\"cat\",\"n\":2}",
+	} {
+		clean := SanitizeText(body)
+		require.NotContains(t, clean, strings.Repeat("a", 16))
+		require.NotContains(t, clean, strings.Repeat("b", 16))
+		require.Contains(t, clean, Omitted)
+		if strings.Contains(body, "cat") {
+			require.Contains(t, clean, `"prompt":"cat","n":2`)
+		}
+	}
+}
+
+func TestSanitizeTextIncompleteImageContextAndNeighbouringParameters(t *testing.T) {
+	for _, body := range []string{
+		`{"type":"image_generation_call","result":"PHN2Zy8+`,
+		`{"inlineData":{"mimeType":"image/svg+xml","data":"PHN2Zy8+`,
+		`{"inlineData":{"mimeType":"image/png","data":"iVBORw0KGgoAA`,
+		`{"inlineData":{"data":"PHN2Zy8+","mimeType":"image/svg+xml"`,
+	} {
+		clean := SanitizeText(body)
+		require.NotContains(t, clean, "PHN2Zy8+")
+		require.NotContains(t, clean, "iVBORw0KGgoAA")
+		require.Contains(t, clean, Omitted)
+	}
+	body := `broken {"image":{"mimeType":"image/png","data":"aW1hZ2U="},"meta":{"data":"dGV4dA=="},"prompt":"cat"}`
+	clean := SanitizeText(body)
+	require.NotContains(t, clean, "aW1hZ2U=")
+	require.Contains(t, clean, "dGV4dA==")
+	require.Contains(t, clean, `"prompt":"cat"`)
+}
+
+func TestSanitizeImageDoesNotSwallowPromptFollowingLine(t *testing.T) {
+	raw := []byte(`{"prompt":"data:image/png;base64,aGVsbG8\ncat","image":"data:image/png;base64,aGVs\nbG8="}`)
+	clean, err := SanitizeJSON(raw)
+	require.NoError(t, err)
+	var got map[string]any
+	require.NoError(t, json.Unmarshal(clean, &got))
+	require.Equal(t, Omitted+"\ncat", got["prompt"])
+	require.Equal(t, Omitted, got["image"])
+	require.Equal(t, Omitted+"\ncat", SanitizeField("prompt", "data:image/png;base64,aGVsbG8\ncat"))
+	require.Equal(t, Omitted, SanitizeField("image", "data:image/png;base64,aGVs\nbG8="))
 }

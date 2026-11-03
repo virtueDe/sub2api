@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -60,6 +61,7 @@ type UsageService struct {
 	userRepo             UserRepository
 	entClient            *dbent.Client
 	authCacheInvalidator APIKeyAuthCacheInvalidator
+	statsCache           usageStatsCache
 }
 
 // NewUsageService 创建使用统计服务实例
@@ -300,11 +302,18 @@ func (s *UsageService) GetUserDashboardStats(ctx context.Context, userID int64) 
 
 // GetAPIKeyDashboardStats returns dashboard summary stats filtered by API Key.
 func (s *UsageService) GetAPIKeyDashboardStats(ctx context.Context, apiKeyID int64) (*usagestats.UserDashboardStats, error) {
-	stats, err := s.usageRepo.GetAPIKeyDashboardStats(ctx, apiKeyID)
+	stats, err := loadUsageStats(ctx, &s.statsCache, usageSummaryKey(apiKeyID), func(loadCtx context.Context) (*usagestats.UserDashboardStats, error) {
+		return s.usageRepo.GetAPIKeyDashboardStats(loadCtx, apiKeyID)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get api key dashboard stats: %w", err)
 	}
-	return stats, nil
+	if stats == nil {
+		return nil, nil
+	}
+	copy := *stats
+	copy.ByPlatform = slices.Clone(stats.ByPlatform)
+	return &copy, nil
 }
 
 // GetUserUsageTrendByUserID returns per-user usage trend.
@@ -395,16 +404,22 @@ func (s *UsageService) GetGroupStatsWithFilters(ctx context.Context, startTime, 
 
 // GetAPIKeyModelStats returns per-model usage stats for a specific API Key.
 func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
-	stats, err := s.usageRepo.GetModelStatsWithFilters(ctx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil)
+	key := fmt.Sprintf("model:%d:%d:%d", apiKeyID, startTime.UnixNano(), endTime.UnixNano())
+	stats, err := loadUsageStats(ctx, &s.statsCache, key, func(loadCtx context.Context) ([]usagestats.ModelStat, error) {
+		return s.usageRepo.GetModelStatsWithFilters(loadCtx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get api key model stats: %w", err)
 	}
-	return stats, nil
+	return slices.Clone(stats), nil
 }
 
 // GetAPIKeyDailyUsage returns daily usage stats for a user's API key.
 func (s *UsageService) GetAPIKeyDailyUsage(ctx context.Context, userID, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.APIKeyDailyUsagePoint, error) {
-	trend, err := s.usageRepo.GetUsageTrendWithFilters(ctx, startTime, endTime, "day", userID, apiKeyID, 0, 0, "", nil, nil, nil)
+	key := fmt.Sprintf("daily:%d:%d:%d:%d", userID, apiKeyID, startTime.UnixNano(), endTime.UnixNano())
+	trend, err := loadUsageStats(ctx, &s.statsCache, key, func(loadCtx context.Context) ([]usagestats.TrendDataPoint, error) {
+		return s.usageRepo.GetUsageTrendWithFilters(loadCtx, startTime, endTime, "day", userID, apiKeyID, 0, 0, "", nil, nil, nil)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("get api key daily usage: %w", err)
 	}

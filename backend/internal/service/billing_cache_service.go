@@ -122,6 +122,8 @@ type BillingCacheService struct {
 	cacheWriteMu       sync.RWMutex
 	stopped            atomic.Bool
 	balanceLoadSF      singleflight.Group
+	subscriptionLoadSF singleflight.Group
+	loadMetrics        billingLoadMetrics
 	quotaLoadSF        singleflight.Group
 	// 丢弃日志节流计数器（减少高负载下日志噪音）
 	cacheWriteDropFullCount     uint64
@@ -311,52 +313,42 @@ func (s *BillingCacheService) logCacheWriteDrop(task cacheWriteTask, reason stri
 
 // GetUserBalance 获取用户余额（优先从缓存读取）
 func (s *BillingCacheService) GetUserBalance(ctx context.Context, userID int64) (float64, error) {
-	if s.cache == nil {
-		// Redis不可用，直接查询数据库
-		return s.getUserBalanceFromDB(ctx, userID)
+	if err := ctx.Err(); err != nil {
+		return 0, err
 	}
-
-	// 尝试从缓存读取
-	balance, err := s.cache.GetUserBalance(ctx, userID)
-	if err == nil {
-		return balance, nil
+	if s.cache != nil {
+		if balance, err := s.cache.GetUserBalance(ctx, userID); err == nil {
+			s.loadMetrics.cacheHits.Add(1)
+			s.logBillingLoads()
+			return balance, nil
+		}
 	}
-
-	// 缓存未命中：singleflight 合并同一 userID 的并发回源请求。
-	value, err, _ := s.balanceLoadSF.Do(strconv.FormatInt(userID, 10), func() (any, error) {
-		loadCtx, cancel := context.WithTimeout(context.Background(), balanceLoadTimeout)
-		defer cancel()
-
+	s.loadMetrics.cacheMisses.Add(1)
+	value, err := s.loadBillingData(ctx, &s.balanceLoadSF, strconv.FormatInt(userID, 10), func(loadCtx context.Context) (any, error) {
 		balance, err := s.getUserBalanceFromDB(loadCtx, userID)
 		if err != nil {
 			return nil, err
 		}
-
-		// 异步建立缓存
-		_ = s.enqueueCacheWrite(cacheWriteTask{
-			kind:    cacheWriteSetBalance,
-			userID:  userID,
-			balance: balance,
-		})
+		_ = s.enqueueCacheWrite(cacheWriteTask{kind: cacheWriteSetBalance, userID: userID, balance: balance})
 		return balance, nil
 	})
 	if err != nil {
 		return 0, err
 	}
-	balance, ok := value.(float64)
-	if !ok {
-		return 0, fmt.Errorf("unexpected balance type: %T", value)
-	}
-	return balance, nil
+	return value.(float64), nil
 }
 
-// getUserBalanceFromDB 从数据库获取用户余额
+// getUserBalanceFromDB reads only the authoritative balance, not user/group metadata.
 func (s *BillingCacheService) getUserBalanceFromDB(ctx context.Context, userID int64) (float64, error) {
-	user, err := s.userRepo.GetByID(ctx, userID)
+	reader, ok := s.userRepo.(BillingBalanceReader)
+	if !ok {
+		return 0, fmt.Errorf("billing balance reader is unavailable")
+	}
+	balance, err := reader.GetBalance(ctx, userID)
 	if err != nil {
 		return 0, fmt.Errorf("get user balance: %w", err)
 	}
-	return user.Balance, nil
+	return balance, nil
 }
 
 // setBalanceCache 设置余额缓存
@@ -415,31 +407,32 @@ func (s *BillingCacheService) InvalidateUserBalance(ctx context.Context, userID 
 
 // GetSubscriptionStatus 获取订阅状态（优先从缓存读取）
 func (s *BillingCacheService) GetSubscriptionStatus(ctx context.Context, userID, groupID int64) (*subscriptionCacheData, error) {
-	if s.cache == nil {
-		return s.getSubscriptionFromDB(ctx, userID, groupID)
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-
-	// 尝试从缓存读取
-	cacheData, err := s.cache.GetSubscriptionCache(ctx, userID, groupID)
-	if err == nil && cacheData != nil {
-		return s.convertFromPortsData(cacheData), nil
+	if s.cache != nil {
+		if data, err := s.cache.GetSubscriptionCache(ctx, userID, groupID); err == nil && data != nil {
+			s.loadMetrics.cacheHits.Add(1)
+			s.logBillingLoads()
+			return s.convertFromPortsData(data), nil
+		}
 	}
-
-	// 缓存未命中，从数据库读取
-	data, err := s.getSubscriptionFromDB(ctx, userID, groupID)
+	s.loadMetrics.cacheMisses.Add(1)
+	key := fmt.Sprintf("%d:%d", userID, groupID)
+	value, err := s.loadBillingData(ctx, &s.subscriptionLoadSF, key, func(loadCtx context.Context) (any, error) {
+		data, err := s.getSubscriptionFromDB(loadCtx, userID, groupID)
+		if err != nil {
+			return nil, err
+		}
+		_ = s.enqueueCacheWrite(cacheWriteTask{kind: cacheWriteSetSubscription, userID: userID, groupID: groupID, subscriptionData: data})
+		return data, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	// 异步建立缓存
-	_ = s.enqueueCacheWrite(cacheWriteTask{
-		kind:             cacheWriteSetSubscription,
-		userID:           userID,
-		groupID:          groupID,
-		subscriptionData: data,
-	})
-
-	return data, nil
+	// Callers must not mutate the shared singleflight result/cache write task.
+	data := *value.(*subscriptionCacheData)
+	return &data, nil
 }
 
 func (s *BillingCacheService) convertFromPortsData(data *SubscriptionCacheData) *subscriptionCacheData {
@@ -754,9 +747,6 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 		}
 		return nil
 	}
-	if s.circuitBreaker != nil && !s.circuitBreaker.Allow() {
-		return ErrBillingServiceUnavailable
-	}
 
 	// 判断计费模式
 	isSubscriptionMode := group != nil && group.IsSubscriptionType() && subscription != nil
@@ -1028,14 +1018,8 @@ func (s *BillingCacheService) balanceBelowEligibilityThreshold(balance float64) 
 func (s *BillingCacheService) checkBalanceEligibility(ctx context.Context, userID int64) error {
 	balance, err := s.GetUserBalance(ctx, userID)
 	if err != nil {
-		if s.circuitBreaker != nil {
-			s.circuitBreaker.OnFailure(err)
-		}
 		logger.LegacyPrintf("service.billing_cache", "ALERT: billing balance check failed for user %d: %v", userID, err)
 		return ErrBillingServiceUnavailable.WithCause(err)
-	}
-	if s.circuitBreaker != nil {
-		s.circuitBreaker.OnSuccess()
 	}
 
 	if s.balanceBelowEligibilityThreshold(balance) {
@@ -1050,14 +1034,8 @@ func (s *BillingCacheService) checkSubscriptionEligibility(ctx context.Context, 
 	// 获取订阅缓存数据
 	subData, err := s.GetSubscriptionStatus(ctx, userID, group.ID)
 	if err != nil {
-		if s.circuitBreaker != nil {
-			s.circuitBreaker.OnFailure(err)
-		}
 		logger.LegacyPrintf("service.billing_cache", "ALERT: billing subscription check failed for user %d group %d: %v", userID, group.ID, err)
 		return ErrBillingServiceUnavailable.WithCause(err)
-	}
-	if s.circuitBreaker != nil {
-		s.circuitBreaker.OnSuccess()
 	}
 
 	// 检查订阅状态

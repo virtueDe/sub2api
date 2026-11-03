@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagepayload"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 )
@@ -298,6 +299,15 @@ func (s *OpsSystemLogSink) flushBatch(baseCtx context.Context, batch []*logger.L
 		message := logredact.RedactText(strings.TrimSpace(event.Message))
 		redactedExtra := logredact.RedactMap(fields)
 		extraJSONBytes, _ := json.Marshal(redactedExtra)
+		// Serialization can expose image bytes in typed structs or []byte
+		// fields, which cannot be traversed as map[string]any beforehand.
+		if len(extraJSONBytes) > 0 {
+			clean, err := imagepayload.SanitizeJSON(extraJSONBytes)
+			if err != nil {
+				return 0, fmt.Errorf("sanitize system log image payload: %w", err)
+			}
+			extraJSONBytes = clean
+		}
 		extraJSON := string(extraJSONBytes)
 		if strings.TrimSpace(extraJSON) == "" {
 			extraJSON = "{}"

@@ -98,3 +98,15 @@ func TestLogRequestBodyParseFailure_NilLoggerNoPanic(t *testing.T) {
 		logRequestBodyParseFailure(nil, []byte(`{`), nil)
 	})
 }
+
+func TestLogRequestBodyParseFailureOmitsTruncatedImageBytes(t *testing.T) {
+	log, logs := newObservedLogger(t)
+	body := []byte(`{"model":"image-model","b64_json":"` + strings.Repeat("a", 5000) + "\n" + strings.Repeat("a", 5000))
+	logRequestBodyParseFailure(log, body, nil)
+	fields := loggedFields(t, logs)
+	require.Equal(t, len(body), fields["body_len"])
+	require.Contains(t, fields["body_head"], "image-model")
+	require.Contains(t, fields["body_head"], "[IMAGE_DATA_OMITTED]")
+	require.NotContains(t, fields["body_head"], strings.Repeat("a", 16))
+	require.NotContains(t, fields, "body_tail")
+}

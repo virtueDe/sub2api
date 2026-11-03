@@ -105,7 +105,7 @@ export default {
       },
       imagePayload: {
         title: 'Image log payload cleanup',
-        description: 'Remove historical input image payloads and expired output Base64 from usage and error logs. Keep regular URLs, prompt text, business parameters, users, timestamps and billing. New input image payloads are always filtered, independently of this switch.',
+        description: 'Remove historical input image payloads and expired output Base64 from usage and error logs. Keep regular URLs, prompt text, business parameters, users, timestamps and billing. New input and output image Base64 is never recorded in logs, independently of this switch. Image generation and retrieval are unchanged.',
         enabled: 'Enable scheduled cleanup (off by default)',
         retainDays: 'Output Base64 retention (1–365 days, default 3)',
         dailyTime: 'Daily execution time (default 02:00)',

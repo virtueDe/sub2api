@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagepayload"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/google/uuid"
@@ -987,10 +988,10 @@ func truncateForLog(b []byte, maxBytes int) string {
 	if maxBytes <= 0 {
 		maxBytes = 2048
 	}
-	if len(b) > maxBytes {
-		b = b[:maxBytes]
+	s := imagepayload.SanitizeText(string(b))
+	if len(s) > maxBytes {
+		s = s[:maxBytes]
 	}
-	s := string(b)
 	// 保持一行，避免污染日志格式
 	s = strings.ReplaceAll(s, "\n", "\\n")
 	s = strings.ReplaceAll(s, "\r", "\\r")

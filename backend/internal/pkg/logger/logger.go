@@ -298,6 +298,11 @@ func buildLogger(options InitOptions) (*zap.Logger, zap.AtomicLevel, error) {
 		cores = append(cores, zapcore.NewCore(enc, zapcore.Lock(os.Stdout), atomic))
 	}
 
+	// Wrap each output independently so the tee still applies stdout/stderr
+	// level filters before registering writes with CheckedEntry.
+	for i := range cores {
+		cores[i] = imagePayloadCore{cores[i]}
+	}
 	core := zapcore.NewTee(cores...)
 	if options.Sampling.Enabled {
 		core = zapcore.NewSamplerWithOptions(core, samplingTick(), options.Sampling.Initial, options.Sampling.Thereafter)

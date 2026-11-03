@@ -23,7 +23,7 @@ func TestImageGenerationCaptureSurvivesDetachedBillingAndFreezesAtSubmission(t *
 	task(context.Background())
 	require.NotNil(t, saved)
 	require.Len(t, saved.Images, 1)
-	require.Equal(t, "first", saved.Images[0].B64JSON)
+	require.Empty(t, saved.Images[0].B64JSON)
 }
 
 func TestBeginImageGenerationCaptureMappedGeminiModel(t *testing.T) {
@@ -79,8 +79,8 @@ func TestImageGenerationUsageQueueFreezesAllGeminiOutputsWithoutDeadlockingSyncB
 	require.Len(t, records, 2)
 	for _, detail := range records {
 		require.Len(t, detail.Images, 2)
-		require.Equal(t, "first", detail.Images[0].B64JSON)
-		require.Equal(t, "second", detail.Images[1].B64JSON)
+		require.Empty(t, detail.Images[0].B64JSON)
+		require.Empty(t, detail.Images[1].B64JSON)
 	}
 }
 

@@ -48,6 +48,17 @@ type mockUserRepo struct {
 
 type mockUserRepoTxKey struct{}
 
+func (m *mockUserRepo) GetBalance(ctx context.Context, id int64) (float64, error) {
+	user, err := m.GetByID(ctx, id)
+	if err != nil {
+		return 0, err
+	}
+	if user == nil {
+		return 0, ErrUserNotFound
+	}
+	return user.Balance, nil
+}
+
 type mockUserRepoTxState struct {
 	getByIDUser      *User
 	upsertAvatarArgs []UpsertUserAvatarInput

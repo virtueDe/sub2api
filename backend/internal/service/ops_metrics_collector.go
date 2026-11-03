@@ -16,10 +16,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/mem"
+	"go.uber.org/zap"
 )
 
 const (
@@ -62,8 +64,10 @@ type OpsMetricsCollector struct {
 	startOnce sync.Once
 	stopOnce  sync.Once
 
-	skipLogMu sync.Mutex
-	skipLogAt time.Time
+	skipLogMu     sync.Mutex
+	skipLogAt     time.Time
+	poolStatsMu   sync.Mutex
+	lastPoolStats sql.DBStats
 }
 
 func NewOpsMetricsCollector(
@@ -172,6 +176,9 @@ func (c *OpsMetricsCollector) collectOnce() {
 	if c.db == nil {
 		return
 	}
+	// DBStats is local and needs no SQL/leader lock. Observe pressure even when
+	// the following settings/metrics queries cannot obtain a connection.
+	c.logDatabasePoolStats()
 
 	ctx, cancel := context.WithTimeout(context.Background(), opsMetricsCollectorTimeout)
 	defer cancel()
@@ -221,6 +228,27 @@ func (c *OpsMetricsCollector) collectOnce() {
 		LastSuccessAt:  &successAt,
 		LastDurationMs: &dur,
 	})
+}
+
+func (c *OpsMetricsCollector) logDatabasePoolStats() {
+	stats := c.db.Stats()
+	c.poolStatsMu.Lock()
+	previous := c.lastPoolStats
+	c.lastPoolStats = stats
+	c.poolStatsMu.Unlock()
+	waits := stats.WaitCount - previous.WaitCount
+	waitTime := stats.WaitDuration - previous.WaitDuration
+	if waits < 0 {
+		waits = 0
+	}
+	if waitTime < 0 {
+		waitTime = 0
+	}
+	logger.L().Info("database.pool_stats",
+		zap.Int("in_use", stats.InUse), zap.Int("idle", stats.Idle), zap.Int("max_open", stats.MaxOpenConnections),
+		zap.Int64("wait_count_total", stats.WaitCount), zap.Int64("wait_duration_ms_total", stats.WaitDuration.Milliseconds()),
+		zap.Int64("wait_count_delta", waits), zap.Int64("wait_duration_ms_delta", waitTime.Milliseconds()),
+		zap.Bool(logger.OpsSystemLogSkipField, true))
 }
 
 func (c *OpsMetricsCollector) isMonitoringEnabled(ctx context.Context) bool {

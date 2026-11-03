@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"mime"
@@ -36,7 +37,8 @@ type imageGenerationDetailContextKey struct{}
 var generatedImageMarkdown = regexp.MustCompile(`!\[[^\]]*\]\(([^\s)]+)\)`)
 
 type generatedImageIdentity struct {
-	index, url, base64 string
+	index, url string
+	digest     [32]byte
 }
 
 // ImageGenerationCapture is shared by detached billing contexts and Gemini child
@@ -234,11 +236,15 @@ func (c *ImageGenerationCapture) collectImages(value any, partial bool, index st
 			image.MimeType = "image/png"
 		}
 		if image.URL != "" || image.B64JSON != "" {
+			identity := generatedImageIdentity{index: index, url: image.URL, digest: sha256.Sum256([]byte(image.B64JSON))}
+			// Capture is exclusively for logs. Keep image metadata/counts, never
+			// retain output bytes in the asynchronous billing queue.
+			image.B64JSON = ""
+			image.RevisedPrompt = imagepayload.SanitizeText(image.RevisedPrompt)
 			if image.Partial {
 				c.partial[index] = image
 			} else {
 				delete(c.partial, index)
-				identity := generatedImageIdentity{index: index, url: image.URL, base64: image.B64JSON}
 				_, duplicate := c.seen[identity]
 				// SSE can repeat a completed output in later lifecycle frames. JSON
 				// responses (including separate Gemini children) each contain new outputs.
@@ -312,8 +318,21 @@ func ImageGenerationDetailJSON(detail *ImageGenerationDetail) any {
 	if detail == nil {
 		return nil
 	}
-	data, _ := json.Marshal(detail)
-	return string(data)
+	// Enforce the policy again for callers which construct details directly.
+	copy := *detail
+	copy.Images = append([]GeneratedImage{}, detail.Images...)
+	for i := range copy.Images {
+		copy.Images[i].B64JSON = ""
+	}
+	data, err := json.Marshal(copy)
+	if err != nil {
+		return nil
+	}
+	clean, _, _, err := imagepayload.CleanDetail(data, true)
+	if err != nil {
+		return nil
+	}
+	return string(clean)
 }
 
 func ParseImageGenerationDetail(data string) (*ImageGenerationDetail, error) {

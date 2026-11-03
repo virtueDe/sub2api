@@ -1,11 +1,14 @@
 package logredact
 
 import (
+	"bytes"
 	"encoding/json"
 	"regexp"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagepayload"
 )
 
 // maxRedactDepth 限制递归深度以防止栈溢出
@@ -58,6 +61,7 @@ func RedactMap(input map[string]any, extraKeys ...string) map[string]any {
 	if !ok {
 		return map[string]any{}
 	}
+	imagepayload.SanitizeInput(redacted, false)
 	return redacted
 }
 
@@ -66,11 +70,14 @@ func RedactJSON(raw []byte, extraKeys ...string) string {
 		return ""
 	}
 	var value any
-	if err := json.Unmarshal(raw, &value); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil || !json.Valid(raw) {
 		return "<non-json payload redacted>"
 	}
 	keys := buildKeySet(extraKeys)
 	redacted := redactValueWithDepth(value, keys, 0)
+	redacted = imagepayload.SanitizeInput(redacted, false)
 	encoded, err := json.Marshal(redacted)
 	if err != nil {
 		return "<redacted>"
@@ -105,7 +112,7 @@ func RedactText(input string, extraKeys ...string) string {
 	out = patterns.reJSONLike.ReplaceAllString(out, `$1***$3`)
 	out = patterns.reQueryLike.ReplaceAllString(out, `$1=***`)
 	out = patterns.rePlain.ReplaceAllString(out, `$1$2***`)
-	return out
+	return imagepayload.SanitizeText(out)
 }
 
 func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagepayload"
 )
 
 var ErrOpsDisabled = infraerrors.NotFound("OPS_DISABLED", "Ops monitoring is disabled")
@@ -512,6 +514,7 @@ func (s *OpsService) prepareErrorLogInput(ctx context.Context, entry *OpsInsertE
 	}
 
 	// Sanitize + truncate error_body to avoid storing sensitive data.
+	entry.ErrorMessage = imagepayload.SanitizeText(entry.ErrorMessage)
 	if strings.TrimSpace(entry.ErrorBody) != "" {
 		sanitized, _ := sanitizeErrorBodyForStorage(entry.ErrorBody, opsMaxStoredErrorBodyBytes)
 		entry.ErrorBody = sanitized
@@ -523,7 +526,7 @@ func (s *OpsService) prepareErrorLogInput(ctx context.Context, entry *OpsInsertE
 	}
 	if entry.UpstreamErrorMessage != nil {
 		msg := strings.TrimSpace(*entry.UpstreamErrorMessage)
-		msg = sanitizeUpstreamErrorMessage(msg)
+		msg = imagepayload.SanitizeText(sanitizeUpstreamErrorMessage(msg))
 		msg = truncateString(msg, 2048)
 		if strings.TrimSpace(msg) == "" {
 			entry.UpstreamErrorMessage = nil
@@ -567,7 +570,18 @@ const (
 )
 
 func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
-	if entry == nil || len(entry.UpstreamErrors) == 0 {
+	if entry == nil {
+		return nil
+	}
+	if len(entry.UpstreamErrors) == 0 {
+		if entry.UpstreamErrorsJSON != nil && strings.TrimSpace(*entry.UpstreamErrorsJSON) != "" {
+			clean, err := imagepayload.SanitizeJSON([]byte(*entry.UpstreamErrorsJSON))
+			if err != nil {
+				return err
+			}
+			value := string(clean)
+			entry.UpstreamErrorsJSON = &value
+		}
 		return nil
 	}
 
@@ -619,7 +633,7 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 			out.AtUnixMs = 0
 		}
 
-		msg := sanitizeUpstreamErrorMessage(strings.TrimSpace(out.Message))
+		msg := imagepayload.SanitizeText(sanitizeUpstreamErrorMessage(strings.TrimSpace(out.Message)))
 		msg = truncateString(msg, messageMaxLen)
 		out.Message = msg
 
@@ -816,12 +830,15 @@ func sanitizeAndTrimJSONPayload(raw []byte, maxBytes int) (jsonString string, tr
 	}
 
 	var decoded any
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil || !json.Valid(raw) {
 		// If it is not valid JSON, fall back to the caller's non-JSON handling.
 		return "", false, bytesLen
 	}
 
 	decoded = redactSensitiveJSON(decoded)
+	decoded = imagepayload.SanitizeInput(decoded, false)
 
 	encoded, err := json.Marshal(decoded)
 	if err != nil {
@@ -1124,7 +1141,8 @@ func sanitizeErrorBodyForStorage(raw string, maxBytes int) (sanitized string, tr
 		return out, trunc
 	}
 
-	// Non-JSON: best-effort truncate.
+	// Remove image bytes before truncation loses the field/URI context.
+	raw = imagepayload.SanitizeText(raw)
 	if maxBytes > 0 && len(raw) > maxBytes {
 		return truncateString(raw, maxBytes), true
 	}

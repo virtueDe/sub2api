@@ -102,16 +102,16 @@ type balanceLoadUserRepoStub struct {
 	balance float64
 }
 
-func (s *balanceLoadUserRepoStub) GetByID(ctx context.Context, id int64) (*User, error) {
+func (s *balanceLoadUserRepoStub) GetBalance(ctx context.Context, id int64) (float64, error) {
 	s.calls.Add(1)
 	if s.delay > 0 {
 		select {
 		case <-time.After(s.delay):
 		case <-ctx.Done():
-			return nil, ctx.Err()
+			return 0, ctx.Err()
 		}
 	}
-	return &User{ID: id, Balance: s.balance}, nil
+	return s.balance, nil
 }
 
 func (s *balanceLoadUserRepoStub) ListUserAuthIdentities(context.Context, int64) ([]UserAuthIdentityRecord, error) {

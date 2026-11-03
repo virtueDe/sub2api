@@ -3,6 +3,8 @@ package handler
 import (
 	"strconv"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagepayload"
+
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"go.uber.org/zap"
 )
@@ -29,11 +31,12 @@ func logRequestBodyParseFailure(reqLog *zap.Logger, body []byte, err error) {
 		err = service.DescribeInvalidJSON(body)
 	}
 
-	head := body
+	clean := []byte(imagepayload.SanitizeText(string(body)))
+	head := clean
 	var tail []byte
-	if len(body) > parseFailureSnippetLen {
-		head = body[:parseFailureSnippetLen]
-		tail = body[len(body)-parseFailureSnippetLen:]
+	if len(clean) > parseFailureSnippetLen {
+		head = clean[:parseFailureSnippetLen]
+		tail = clean[len(clean)-parseFailureSnippetLen:]
 	}
 
 	fields := []zap.Field{

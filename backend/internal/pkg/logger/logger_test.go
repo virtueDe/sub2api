@@ -80,6 +80,9 @@ func TestInit_DualOutput(t *testing.T) {
 	if !strings.Contains(stderrText, "dual-output-warn") {
 		t.Fatalf("stderr missing warn log: %s", stderrText)
 	}
+	if strings.Contains(stdoutText, "dual-output-warn") || strings.Contains(stderrText, "dual-output-info") {
+		t.Fatalf("log levels crossed output streams: stdout=%s stderr=%s", stdoutText, stderrText)
+	}
 
 	fileBytes, err := os.ReadFile(logPath)
 	if err != nil {

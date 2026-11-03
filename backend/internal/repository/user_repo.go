@@ -33,6 +33,7 @@ type userRepository struct {
 }
 
 var _ service.RedeemUserAdjustmentRepository = (*userRepository)(nil)
+var _ service.BillingBalanceReader = (*userRepository)(nil)
 
 func NewUserRepository(client *dbent.Client, sqlDB *sql.DB) service.UserRepository {
 	return newUserRepositoryWithSQL(client, sqlDB)
@@ -993,6 +994,11 @@ func (r *userRepository) SetBalance(ctx context.Context, id int64, value float64
 		return service.BalanceChange{}, service.ErrUserNotFound
 	}
 	return change, nil
+}
+
+// GetBalance is the lightweight billing read; currentBalance enforces soft deletion.
+func (r *userRepository) GetBalance(ctx context.Context, id int64) (float64, error) {
+	return r.currentBalance(ctx, id)
 }
 
 // currentBalance 读取用户当前余额，用户不存在时返回 ErrUserNotFound。
