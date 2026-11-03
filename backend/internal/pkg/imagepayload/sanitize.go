@@ -145,24 +145,27 @@ func cleanValueAt(value any, key string, redact bool, embeddedDepth int) (any, i
 			v[i], removed, changed = clean, removed+n, changed || modified
 		}
 	case string:
-		switch strings.ToLower(key) {
-		case "b64_json", "partial_image_b64", "image_base64":
-			clean, n := cleanString(v, key)
-			return clean, n, clean != v
-		}
-		// Only explicit image fields may treat a following Base64-like line as
-		// image continuation. In prose that line may be an ordinary word.
-		if strings.HasPrefix(strings.ToLower(v), "data:image/") && (imageKey(key) || key == "declared_image_data") {
-			if clean, n := cleanString(v, key); clean == Omitted {
-				return clean, n, true
-			}
-		}
-		embedded := sanitizeTextAt(v, embeddedDepth)
-		clean, n := cleanString(embedded, key)
-		n += max(0, int64(len(v)-len(embedded)))
+		clean, n := cleanLogString(v, key, embeddedDepth)
 		return clean, n, clean != v
 	}
 	return value, removed, changed
+}
+
+func cleanLogString(text, key string, embeddedDepth int) (string, int64) {
+	switch strings.ToLower(key) {
+	case "b64_json", "partial_image_b64", "image_base64":
+		return cleanString(text, key)
+	}
+	// Only explicit image fields may treat a following Base64-like line as
+	// image continuation. In prose that line may be an ordinary word.
+	if strings.HasPrefix(strings.ToLower(text), "data:image/") && (imageKey(key) || key == "declared_image_data") {
+		if clean, n := cleanString(text, key); clean == Omitted {
+			return clean, n
+		}
+	}
+	embedded := sanitizeTextAt(text, embeddedDepth)
+	clean, n := cleanString(embedded, key)
+	return clean, n + max(0, int64(len(text)-len(embedded)))
 }
 
 // SanitizeJSON removes image payloads from a persistence copy. Numbers retain
@@ -237,8 +240,8 @@ func sanitizeTextAt(text string, embeddedDepth int) string {
 				nesting--
 				if nesting == 0 {
 					if clean, err := sanitizeJSONAt([]byte(text[start:i+1]), embeddedDepth+1); err == nil && string(clean) != text[start:i+1] {
-						out.WriteString(text[last:start])
-						out.Write(clean)
+						_, _ = out.WriteString(text[last:start])
+						_, _ = out.Write(clean)
 						last = i + 1
 					}
 					start = -1
@@ -246,7 +249,7 @@ func sanitizeTextAt(text string, embeddedDepth int) string {
 			}
 		}
 		if last > 0 {
-			out.WriteString(text[last:])
+			_, _ = out.WriteString(text[last:])
 			text = out.String()
 		}
 	}
@@ -331,21 +334,21 @@ func sanitizeJSONFragments(text string) string {
 			continue
 		}
 		encoded, _ := json.Marshal(clean)
-		out.WriteString(text[last:f.start])
-		out.Write(encoded[1 : len(encoded)-1])
+		_, _ = out.WriteString(text[last:f.start])
+		_, _ = out.Write(encoded[1 : len(encoded)-1])
 		last = f.end
 	}
 	if last == 0 {
 		return text
 	}
-	out.WriteString(text[last:])
+	_, _ = out.WriteString(text[last:])
 	return out.String()
 }
 
 // SanitizeField applies field context before inspecting embedded log text.
 func SanitizeField(key, text string) string {
-	clean, _, _ := cleanValue(text, key, false)
-	return clean.(string)
+	clean, _ := cleanLogString(text, key, 0)
+	return clean
 }
 
 // CleanDetail preserves unknown fields, array order and exact JSON numbers.

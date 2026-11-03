@@ -335,7 +335,11 @@ func (s *BillingCacheService) GetUserBalance(ctx context.Context, userID int64) 
 	if err != nil {
 		return 0, err
 	}
-	return value.(float64), nil
+	balance, ok := value.(float64)
+	if !ok {
+		return 0, fmt.Errorf("unexpected billing balance type: %T", value)
+	}
+	return balance, nil
 }
 
 // getUserBalanceFromDB reads only the authoritative balance, not user/group metadata.
@@ -431,7 +435,11 @@ func (s *BillingCacheService) GetSubscriptionStatus(ctx context.Context, userID,
 		return nil, err
 	}
 	// Callers must not mutate the shared singleflight result/cache write task.
-	data := *value.(*subscriptionCacheData)
+	shared, ok := value.(*subscriptionCacheData)
+	if !ok || shared == nil {
+		return nil, fmt.Errorf("unexpected billing subscription result: %T", value)
+	}
+	data := *shared
 	return &data, nil
 }
 
