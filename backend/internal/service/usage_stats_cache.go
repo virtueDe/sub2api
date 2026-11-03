@@ -64,7 +64,11 @@ func loadUsageStats[T any](ctx context.Context, c *usageStatsCache, key string, 
 		c.gate = make(chan struct{}, usageStatsConcurrency)
 	})
 	if value, ok := c.get(key); ok {
-		return value.(T), nil
+		stats, valid := value.(T)
+		if !valid {
+			return zero, fmt.Errorf("unexpected cached usage statistics type: %T", value)
+		}
+		return stats, nil
 	}
 	ch := c.flights.DoChan(key, func() (any, error) {
 		if value, ok := c.get(key); ok {
@@ -104,7 +108,11 @@ func loadUsageStats[T any](ctx context.Context, c *usageStatsCache, key string, 
 		if result.Err != nil {
 			return zero, result.Err
 		}
-		return result.Val.(T), nil
+		stats, valid := result.Val.(T)
+		if !valid {
+			return zero, fmt.Errorf("unexpected loaded usage statistics type: %T", result.Val)
+		}
+		return stats, nil
 	case <-ctx.Done():
 		return zero, ctx.Err()
 	}

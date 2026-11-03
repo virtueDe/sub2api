@@ -147,7 +147,8 @@ func TestImageGenerationPersistenceFiltersDirectDetailsWithoutMutating(t *testin
 		Prompt: "draw a cat", RequestParams: map[string]any{"seed": json.Number("9007199254740993"), "quality": "high", "image": "data:image/png;base64,aGVsbG8="},
 		Images: []GeneratedImage{{B64JSON: "output-bytes", URL: "https://cdn.test/cat.png", MimeType: "image/png", RevisedPrompt: "a cat", Partial: true}},
 	}
-	stored := ImageGenerationDetailJSON(detail).(string)
+	stored, ok := ImageGenerationDetailJSON(detail).(string)
+	require.True(t, ok)
 	require.NotContains(t, stored, "output-bytes")
 	require.NotContains(t, stored, "aGVsbG8=")
 	require.Contains(t, stored, `"seed":9007199254740993`)
