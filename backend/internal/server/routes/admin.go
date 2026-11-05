@@ -576,6 +576,12 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpA
 	{
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
+		adminSettings.GET("/model-plaza-display", h.ModelPlaza.GetDisplayConfig)
+		adminSettings.PUT("/model-plaza-display", h.ModelPlaza.UpdateDisplayConfig)
+		adminSettings.GET("/paid-redeem-discount", h.Admin.Setting.GetPaidRedeemDiscount)
+		adminSettings.PUT("/paid-redeem-discount", h.Admin.Setting.UpdatePaidRedeemDiscount)
+		adminSettings.POST("/paid-redeem-discount/preview", h.Admin.Setting.PreviewPaidRedeemDiscount)
+		adminSettings.POST("/paid-redeem-discount/backfill", h.Admin.Setting.BackfillPaidRedeemDiscount)
 		checkIn := admin.Group("/check-in")
 		{
 			checkIn.GET("/config", h.Admin.Setting.GetCheckInConfig)

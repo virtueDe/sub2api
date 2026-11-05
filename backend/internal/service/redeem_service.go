@@ -148,6 +148,11 @@ type RedeemService struct {
 	entClient            *dbent.Client
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	affiliateService     *AffiliateService
+	paidDiscountService  *PaidRedeemDiscountService
+}
+
+func (s *RedeemService) SetPaidRedeemDiscountService(discount *PaidRedeemDiscountService) {
+	s.paidDiscountService = discount
 }
 
 // NewRedeemService 创建兑换码服务实例
@@ -543,6 +548,11 @@ func (s *RedeemService) redeem(ctx context.Context, userID int64, code string, r
 				if err := s.userRepo.AddGroupToAllowedGroups(txCtx, userID, groupID); err != nil {
 					return nil, fmt.Errorf("grant entitlement group %d: %w", groupID, err)
 				}
+			}
+		}
+		if s.paidDiscountService != nil {
+			if err := s.paidDiscountService.ApplyRedeem(txCtx, tx.Client(), userID, redeemCode); err != nil {
+				return nil, fmt.Errorf("apply paid redeem discount: %w", err)
 			}
 		}
 

@@ -115,6 +115,8 @@ func ProvideGatewayHandler(
 	coordinator *securityaudit.Coordinator,
 	geminiCachedContentService *service.GeminiCachedContentService,
 ) *GatewayHandler {
+	apiKeyService.AddAuthCacheInvalidationListener(gatewayService.InvalidateUserGroupRates)
+	apiKeyService.AddAuthCacheInvalidationListener(openAIGatewayService.InvalidateUserGroupRates)
 	h := NewGatewayHandler(gatewayService, openAIGatewayService, geminiCompatService, antigravityGatewayService,
 		userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool,
 		errorPassthroughService, contentModerationService, userMsgQueueService, cfg, settingService)
@@ -192,9 +194,10 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 	return h
 }
 
-func ProvideAdminSettingHandlerWithCheckIn(settingService *service.SettingService, emailService *service.EmailService, turnstileService *service.TurnstileService, aliyunCaptchaService *service.AliyunCaptchaService, opsService *service.OpsService, paymentConfigService *service.PaymentConfigService, paymentService *service.PaymentService, userAttributeService *service.UserAttributeService, notificationEmailService *service.NotificationEmailService, totpService *service.TotpService, userService *service.UserService, checkInService *service.CheckInService) *admin.SettingHandler {
+func ProvideAdminSettingHandlerWithCheckIn(settingService *service.SettingService, emailService *service.EmailService, turnstileService *service.TurnstileService, aliyunCaptchaService *service.AliyunCaptchaService, opsService *service.OpsService, paymentConfigService *service.PaymentConfigService, paymentService *service.PaymentService, userAttributeService *service.UserAttributeService, notificationEmailService *service.NotificationEmailService, totpService *service.TotpService, userService *service.UserService, checkInService *service.CheckInService, discount *service.PaidRedeemDiscountService) *admin.SettingHandler {
 	h := ProvideAdminSettingHandler(settingService, emailService, turnstileService, aliyunCaptchaService, opsService, paymentConfigService, paymentService, userAttributeService, notificationEmailService, totpService, userService)
 	h.SetCheckInService(checkInService)
+	h.SetPaidRedeemDiscountService(discount)
 	return h
 }
 

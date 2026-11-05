@@ -6,10 +6,37 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAPIKeyCacheSubscriber_ReconnectInvalidatesRelatedCaches(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	svc := service.NewAPIKeyService(nil, nil, nil, nil, nil, NewAPIKeyCache(client), nil)
+	t.Cleanup(svc.StopAuthCacheInvalidationSubscriber)
+	invalidated := make(chan struct{}, 8)
+	svc.AddAuthCacheInvalidationListener(func() { invalidated <- struct{}{} })
+	awaitInvalidation := func() {
+		t.Helper()
+		select {
+		case <-invalidated:
+		case <-time.After(5 * time.Second):
+			t.Fatal("cache was not invalidated on subscription readiness")
+		}
+	}
+	awaitInvalidation()
+	server.Close()
+	require.NoError(t, server.Restart())
+	// No message is published after restart: the subscription event itself must
+	// flush stale values from the time the connection was down.
+	awaitInvalidation()
+	require.NoError(t, client.Publish(context.Background(), authCacheInvalidateChannel, "hash").Err())
+	awaitInvalidation()
+}
 
 func TestAPIKeyCacheSubscriber_BlocksUntilContextCancellation(t *testing.T) {
 	server := miniredis.RunT(t)

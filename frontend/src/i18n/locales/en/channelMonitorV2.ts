@@ -105,6 +105,7 @@ export default {
       badgeAllModels: 'All models',
       badgeOther: '+ Other',
       groupsTitle: 'Monitored groups',
+      groupsHint: 'Choose groups independently of channel associations. No selection means all groups; users are also filtered by group permissions. Metrics come from actual requests, with no data shown when there is no traffic. This selection is separate from Model Plaza.',
       groupsSelected: '{count} groups selected',
       groupsAll: 'All groups',
       groupsEmpty: 'No groups available',

@@ -913,6 +913,12 @@ func ProvideAPIKeyService(
 	return svc
 }
 
+func ProvideRedeemService(redeemRepo RedeemCodeRepository, userRepo UserRepository, subscriptions *SubscriptionService, cache RedeemCache, billing *BillingCacheService, client *dbent.Client, invalidator APIKeyAuthCacheInvalidator, affiliate *AffiliateService, discount *PaidRedeemDiscountService) *RedeemService {
+	svc := NewRedeemService(redeemRepo, userRepo, subscriptions, cache, billing, client, invalidator, affiliate)
+	svc.SetPaidRedeemDiscountService(discount)
+	return svc
+}
+
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	// Core services
@@ -927,7 +933,8 @@ var ProviderSet = wire.NewSet(
 	NewCompositeRouteResolver,
 	NewAccountService,
 	NewProxyService,
-	NewRedeemService,
+	ProvideRedeemService,
+	NewPaidRedeemDiscountService,
 	NewPromoService,
 	NewUsageService,
 	ProvideDailyTokenRankingRepository,

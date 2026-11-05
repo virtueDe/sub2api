@@ -132,7 +132,7 @@ func (c *apiKeyCache) SubscribeAuthCacheInvalidation(ctx context.Context, handle
 	}()
 	service.NotifyAuthCacheSubscriptionReady(ctx)
 
-	ch := pubsub.Channel()
+	ch := pubsub.ChannelWithSubscriptions()
 	for {
 		select {
 		case <-ctx.Done():
@@ -141,8 +141,15 @@ func (c *apiKeyCache) SubscribeAuthCacheInvalidation(ctx context.Context, handle
 			if !ok {
 				return errors.New("auth cache invalidation pubsub channel closed")
 			}
-			if msg != nil {
-				handler(msg.Payload)
+			switch event := msg.(type) {
+			case *redis.Message:
+				handler(event.Payload)
+			case *redis.Subscription:
+				// go-redis reconnects internally; the outer subscriber loop does not
+				// restart. Flush caches on resubscription to cover missed messages.
+				if event.Kind == "subscribe" && event.Channel == authCacheInvalidateChannel {
+					service.NotifyAuthCacheSubscriptionReady(ctx)
+				}
 			}
 		}
 	}

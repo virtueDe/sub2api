@@ -5,6 +5,7 @@ import UsageView from '../UsageView.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import UsageTable from '@/components/admin/usage/UsageTable.vue'
+import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
 
 const {
   query,
@@ -160,7 +161,7 @@ function mountUsageView() {
         Icon: true,
         UsageStatsCards: chartStub,
         UsageTable: { ...chartStub, props: ['columns'] },
-        UserErrorRequestsTable: chartStub,
+        UserErrorRequestsTable: { ...chartStub, props: ['visibleColumnKeys'] },
         ModelDistributionChart: chartStub,
         GroupDistributionChart: chartStub,
         EndpointDistributionChart: chartStub,
@@ -220,7 +221,9 @@ describe('user UsageView', () => {
     const wrapper = mountUsageView()
     await flushPromises()
 
-    expect(wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)).toContain('latency')
+    expect(wrapper.findComponent(UsageTable).props('columns').map((column: { key: string }) => column.key)).toEqual(
+      expect.arrayContaining(['latency', 'request_id'])
+    )
     expect(query).toHaveBeenCalled()
     expect(getStats).toHaveBeenCalled()
     expect(getDashboardModels).toHaveBeenCalled()
@@ -232,6 +235,10 @@ describe('user UsageView', () => {
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(1, 100)
     expect(getAvailable).toHaveBeenCalled()
+
+    await wrapper.findAll('button').find((button) => button.text() === 'Error records')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(UserErrorRequestsTable).props('visibleColumnKeys')).toContain('request_id')
   })
 
   it('includes API keys after the first page in both record filters and queries by the selected key', async () => {

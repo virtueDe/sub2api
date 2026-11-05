@@ -124,7 +124,12 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		return
 	}
 
-	groups, err := h.plazaService.ListGroups(c.Request.Context())
+	display, err := h.settingService.GetModelPlazaDisplay(c.Request.Context())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	groups, err := h.plazaService.ListDisplayGroups(c.Request.Context(), display)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

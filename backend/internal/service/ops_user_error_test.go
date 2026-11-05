@@ -68,6 +68,8 @@ func TestCategoryToFilter(t *testing.T) {
 func TestToUserErrorRequest_RedactsSensitiveFields(t *testing.T) {
 	src := &OpsErrorLog{
 		ID:              123,
+		RequestID:       "req-error-list",
+		ClientRequestID: "client-supplied-id",
 		CreatedAt:       time.Unix(0, 0).UTC(),
 		Model:           "m",
 		RequestedModel:  "rm",
@@ -83,6 +85,9 @@ func TestToUserErrorRequest_RedactsSensitiveFields(t *testing.T) {
 	out := ToUserErrorRequest(src)
 	if out.ID != 123 {
 		t.Errorf("want ID=123, got %d", out.ID)
+	}
+	if out.RequestID != "req-error-list" {
+		t.Errorf("want request_id=req-error-list, got %q", out.RequestID)
 	}
 	if out.Model != "rm" {
 		t.Errorf("want requested_model preferred, got %q", out.Model)
@@ -110,6 +115,7 @@ func TestToUserErrorRequestDetail_WhitelistAndRedacts(t *testing.T) {
 	src := &OpsErrorLogDetail{
 		OpsErrorLog: OpsErrorLog{
 			ID:               999,
+			RequestID:        "req-error-detail",
 			CreatedAt:        time.Unix(1000, 0).UTC(),
 			Model:            "gpt-4",
 			RequestedModel:   "gpt-4-turbo",
@@ -170,7 +176,10 @@ func TestToUserErrorRequestDetail_WhitelistAndRedacts(t *testing.T) {
 		t.Fatalf("json.Marshal failed: %v", err)
 	}
 	raw := string(b)
-	for _, forbidden := range []string{"user_email", "upstream_endpoint"} {
+	if !strings.Contains(raw, `"request_id":"req-error-detail"`) {
+		t.Errorf("request_id missing from JSON output: %s", raw)
+	}
+	for _, forbidden := range []string{"user_email", "upstream_endpoint", "account_id", "account_name", "api_key_prefix", "client_request_id"} {
 		if strings.Contains(raw, forbidden) {
 			t.Errorf("sensitive field %q leaked in JSON output: %s", forbidden, raw)
 		}

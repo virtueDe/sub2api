@@ -103,6 +103,7 @@ export default {
       badgeAllModels: '全部模型',
       badgeOther: '+ 其他',
       groupsTitle: '监控分组',
+      groupsHint: '独立选择监控展示的分组，无需绑定渠道。未勾选表示全部分组；用户端还会按分组权限过滤。统计来自这些分组的真实请求，无流量时显示无数据。此设置与模型广场的展示名单相互独立。',
       groupsSelected: '已选择 {count} 个分组',
       groupsAll: '全部分组',
       groupsEmpty: '没有可选择的分组',

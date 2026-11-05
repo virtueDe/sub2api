@@ -739,6 +739,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'cost', label: t('usage.cost'), sortable: false },
   { key: 'latency', label: t('usage.latency'), sortable: false },
   { key: 'created_at', label: t('usage.time'), sortable: true },
+  { key: 'request_id', label: t('admin.usage.requestId'), sortable: false },
   { key: 'user_agent', label: t('usage.userAgent'), sortable: false },
 ])
 
@@ -781,6 +782,7 @@ const errAllColumns = computed<Column[]>(() => [
   { key: 'status', label: t('usage.errors.status') },
   { key: 'message', label: t('usage.errors.message') },
   { key: 'created_at', label: t('usage.errors.time') },
+  { key: 'request_id', label: t('admin.usage.requestId') },
   { key: 'user_agent', label: t('usage.userAgent') },
 ])
 

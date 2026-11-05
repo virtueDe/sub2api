@@ -75,6 +75,21 @@ beforeEach(() => {
 })
 
 describe('MonitorSettingsPanel platform configuration', () => {
+  it('saves selected group IDs independently of channels and preserves other configuration', async () => {
+    mocks.groups.mockResolvedValue([{ id: 21, name: 'Image group', platform: 'openai' }, { id: 42, name: 'Paid group', platform: 'openai' }])
+    const original = config()
+    const wrapper = await panel(original)
+    await wrapper.get('[data-group-id="21"]').setValue(true)
+    await wrapper.get('[data-group-id="42"]').setValue(false)
+    await button(wrapper, 'save').trigger('click')
+    await flushPromises()
+    expect(mocks.updateConfig).toHaveBeenCalledWith({ ...original, group_ids: [21] })
+    await wrapper.get('[data-group-id="21"]').setValue(false)
+    await button(wrapper, 'save').trigger('click')
+    await flushPromises()
+    expect(mocks.updateConfig).toHaveBeenLastCalledWith({ ...original, group_ids: [] })
+    wrapper.unmount()
+  })
   it('adds a missing provider and saves its models without changing existing settings', async () => {
     const original = config()
     const wrapper = await panel(original)

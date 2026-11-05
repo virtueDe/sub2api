@@ -64,6 +64,7 @@ type SettingHandler struct {
 	totpService              *service.TotpService
 	userService              *service.UserService
 	checkInService           *service.CheckInService
+	paidDiscountService      *service.PaidRedeemDiscountService
 }
 
 func (h *SettingHandler) SetCheckInService(s *service.CheckInService) { h.checkInService = s }

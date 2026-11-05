@@ -16,6 +16,22 @@
     <!-- Detail content -->
     <div v-else-if="detail" class="space-y-4 text-sm">
       <div class="grid grid-cols-2 gap-x-6 gap-y-3">
+        <div class="col-span-2">
+          <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('admin.usage.requestId') }}</span>
+          <div v-if="detail.request_id" class="mt-0.5 flex items-start gap-1.5">
+            <span class="min-w-0 break-all font-mono text-xs text-gray-900 dark:text-dark-100">{{ detail.request_id }}</span>
+            <button
+              type="button"
+              class="shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
+              :title="t('keys.copyToClipboard')"
+              :aria-label="t('keys.copyToClipboard')"
+              @click="copyToClipboard(detail.request_id, t('admin.usage.requestIdCopied'))"
+            >
+              <Icon name="copy" size="sm" class="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <p v-else class="mt-0.5 text-gray-400 dark:text-dark-500">-</p>
+        </div>
         <!-- Time -->
         <div>
           <span class="font-medium text-gray-500 dark:text-dark-400">{{ t('usage.errors.time') }}</span>
@@ -76,9 +92,11 @@
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import Icon from '@/components/icons/Icon.vue'
 import ImageGenerationDetail from '@/components/usage/ImageGenerationDetail.vue'
 import { getMyErrorDetail } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
+import { useClipboard } from '@/composables/useClipboard'
 import type { UserErrorRequestDetail } from '@/types'
 
 const props = defineProps<{
@@ -91,6 +109,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { copyToClipboard } = useClipboard()
 
 const loading = ref(false)
 const loadError = ref(false)

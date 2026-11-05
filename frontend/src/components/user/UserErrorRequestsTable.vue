@@ -92,6 +92,24 @@
           <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatDateTime(row.created_at) }}</span>
         </template>
 
+        <template #cell-request_id="{ row }">
+          <div v-if="row.request_id" class="flex max-w-[160px] items-center gap-1.5">
+            <span class="truncate font-mono text-xs text-gray-500 dark:text-gray-400" :title="row.request_id">
+              {{ row.request_id }}
+            </span>
+            <button
+              type="button"
+              class="shrink-0 rounded p-0.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-dark-700 dark:hover:text-gray-300"
+              :title="t('keys.copyToClipboard')"
+              :aria-label="t('keys.copyToClipboard')"
+              @click.stop="copyToClipboard(row.request_id, t('admin.usage.requestIdCopied'))"
+            >
+              <Icon name="copy" size="sm" class="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
+        </template>
+
         <template #cell-user_agent="{ row }">
           <span
             v-if="row.user_agent"
@@ -126,10 +144,12 @@ import { useI18n } from 'vue-i18n'
 import DataTable from '@/components/common/DataTable.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Pagination from '@/components/common/Pagination.vue'
+import Icon from '@/components/icons/Icon.vue'
 import UserErrorDetailModal from '@/components/user/UserErrorDetailModal.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'
 import IpGeoBatchToolbar from '@/components/common/IpGeoBatchToolbar.vue'
 import { formatDateTime } from '@/utils/format'
+import { useClipboard } from '@/composables/useClipboard'
 import {
   mapErrorSortKey,
   numericRequestTypeKind,
@@ -162,9 +182,10 @@ function onSort(key: string, order: 'asc' | 'desc') {
 }
 
 const { t } = useI18n()
+const { copyToClipboard } = useClipboard()
 
 // 列序对齐用户端用量明细:Key → 模型 → 端点 → IP → 分组 → 类型 → 平台 → 分类
-// → 结果(状态→消息)→ 时间 → UA(用量明细 UA 同在时间之后的尾部)
+// → 结果(状态→消息)→ 时间 → 请求 ID → UA
 const allColumns = computed<Column[]>(() => [
   { key: 'key_name', label: t('usage.errors.keyName') },
   { key: 'model', label: t('usage.errors.model'), sortable: true },
@@ -177,6 +198,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'status', label: t('usage.errors.status'), sortable: true },
   { key: 'message', label: t('usage.errors.message') },
   { key: 'created_at', label: t('usage.errors.time'), sortable: true },
+  { key: 'request_id', label: t('admin.usage.requestId') },
   { key: 'user_agent', label: t('usage.userAgent') },
 ])
 

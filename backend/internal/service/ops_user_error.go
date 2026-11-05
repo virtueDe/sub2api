@@ -9,9 +9,11 @@ import "time"
 // client_ip / user_agent / group_name / request_type / stream 均为该用户
 // 自己请求的属性，经产品决策（2026-07-03）开放，
 // 与用量明细已向用户展示自身 ip_address/user_agent/分组/类型 的口径对齐；
-// error_body 仅在详情接口（GetUserErrorRequestDetail）按归属校验后返回。
+// request_id 向用户开放以便排障；error_body 仅在详情接口
+// （GetUserErrorRequestDetail）按归属校验后返回。
 type UserErrorRequest struct {
 	ID              int64     `json:"id"`
+	RequestID       string    `json:"request_id"`
 	CreatedAt       time.Time `json:"created_at"`
 	Model           string    `json:"model"`
 	InboundEndpoint string    `json:"inbound_endpoint"`
@@ -104,6 +106,7 @@ func ToUserErrorRequest(e *OpsErrorLog) *UserErrorRequest {
 	}
 	return &UserErrorRequest{
 		ID:              e.ID,
+		RequestID:       e.RequestID,
 		CreatedAt:       e.CreatedAt,
 		Model:           model,
 		InboundEndpoint: e.InboundEndpoint,

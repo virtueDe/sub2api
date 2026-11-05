@@ -39,6 +39,9 @@
             <button @click="handleExportCodes" class="btn btn-secondary">
               {{ t('admin.redeem.exportCsv') }}
             </button>
+            <button @click="showDiscountDialog = true" class="btn btn-secondary">
+              {{ t('admin.redeem.discount.title') }}
+            </button>
             <button
               data-test="batch-update-open"
               @click="openBatchUpdateDialog"
@@ -632,6 +635,7 @@
         </div>
       </div>
     </Teleport>
+    <PaidRedeemDiscountDialog v-if="showDiscountDialog" :show="showDiscountDialog" @close="showDiscountDialog = false" />
   </AppLayout>
 </template>
 
@@ -666,6 +670,7 @@ import Select from '@/components/common/Select.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 import Icon from '@/components/icons/Icon.vue'
+import PaidRedeemDiscountDialog from '@/components/admin/redeem/PaidRedeemDiscountDialog.vue'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -682,6 +687,7 @@ interface GroupOption {
 }
 
 const showGenerateDialog = ref(false)
+const showDiscountDialog = ref(false)
 const showResultDialog = ref(false)
 const generatedCodes = ref<RedeemCode[]>([])
 const subscriptionGroups = ref<Group[]>([])

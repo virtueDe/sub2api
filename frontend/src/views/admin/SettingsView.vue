@@ -7536,6 +7536,14 @@
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
               {{ t('admin.settings.features.modelPlaza.description') }}
             </p>
+            <div class="mt-3 flex flex-wrap items-center gap-4 text-sm">
+              <button type="button" class="btn btn-secondary btn-sm" @click="showPlazaDisplayDialog = true">
+                {{ t('admin.settings.features.modelPlaza.displayTitle') }}
+              </button>
+              <router-link to="/admin/channels/monitor" class="text-primary-600 hover:underline dark:text-primary-400">
+                {{ t('admin.settings.features.modelPlaza.monitorLink') }}
+              </router-link>
+            </div>
           </div>
           <div class="space-y-5 p-6">
             <div class="flex items-center justify-between">
@@ -9164,6 +9172,7 @@
       </form>
 
       <!-- Provider dialogs placed outside the settings form to prevent form submission bubbling -->
+      <ModelPlazaDisplayDialog v-if="showPlazaDisplayDialog" :show="showPlazaDisplayDialog" @close="showPlazaDisplayDialog = false" />
       <PaymentProviderDialog
         ref="providerDialogRef"
         :show="showProviderDialog"
@@ -9202,6 +9211,8 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, watch } from "vue";
+import ModelPlazaDisplayDialog from '@/components/admin/settings/ModelPlazaDisplayDialog.vue';
+const showPlazaDisplayDialog = ref(false);
 import { listPlatformIds } from "@/constants/platformCatalog";
 import { useI18n } from "vue-i18n";
 import { adminAPI } from "@/api";

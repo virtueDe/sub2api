@@ -2276,6 +2276,7 @@ export interface ExtendSubscriptionRequest {
 
 export interface UserErrorRequest {
   id: number
+  request_id: string
   created_at: string
   model: string
   inbound_endpoint: string

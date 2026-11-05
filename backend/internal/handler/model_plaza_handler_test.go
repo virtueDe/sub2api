@@ -268,6 +268,10 @@ func TestFilterPlazaVisibleGroups_SubscribedExclusiveGroup(t *testing.T) {
 
 type plazaVarySettingRepo struct{ service.SettingRepository }
 
+func (plazaVarySettingRepo) GetValue(context.Context, string) (string, error) {
+	return "", service.ErrSettingNotFound
+}
+
 func (plazaVarySettingRepo) GetMultiple(context.Context, []string) (map[string]string, error) {
 	return map[string]string{service.SettingKeyModelPlazaEnabled: "true"}, nil
 }

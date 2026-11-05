@@ -2,12 +2,13 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import UserErrorDetailModal from '../UserErrorDetailModal.vue'
 
-const { getDetail } = vi.hoisted(() => ({ getDetail: vi.fn() }))
+const { getDetail, copyToClipboard } = vi.hoisted(() => ({ getDetail: vi.fn(), copyToClipboard: vi.fn() }))
 vi.mock('@/api/usage', () => ({ getMyErrorDetail: getDetail }))
+vi.mock('@/composables/useClipboard', () => ({ useClipboard: () => ({ copyToClipboard }) }))
 vi.mock('@/utils/format', () => ({ formatDateTime: (value: string) => value }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 enableAutoUnmount(afterEach)
-beforeEach(() => { getDetail.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => {}) })
+beforeEach(() => { getDetail.mockReset(); copyToClipboard.mockReset(); vi.spyOn(console, 'error').mockImplementation(() => {}) })
 afterEach(() => vi.restoreAllMocks())
 function deferred() {
   let resolve!: (value: unknown) => void
@@ -26,6 +27,24 @@ async function open() {
 }
 
 describe('user error detail requests', () => {
+  it('displays and copies the full request ID', async () => {
+    getDetail.mockResolvedValue({ ...detail('image-model'), request_id: 'req-error-detail-full-id' })
+    const wrapper = await open()
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('req-error-detail-full-id')
+    await wrapper.get('button[aria-label="keys.copyToClipboard"]').trigger('click')
+    expect(copyToClipboard).toHaveBeenCalledWith('req-error-detail-full-id', 'admin.usage.requestIdCopied')
+  })
+
+  it('does not offer to copy an empty request ID', async () => {
+    getDetail.mockResolvedValue({ ...detail('image-model'), request_id: '' })
+    const wrapper = await open()
+    await flushPromises()
+
+    expect(wrapper.find('button[aria-label="keys.copyToClipboard"]').exists()).toBe(false)
+  })
+
   it('keeps the newer detail when an earlier request finishes last', async () => {
     const old = deferred(); const current = deferred()
     getDetail.mockReturnValueOnce(old.promise).mockReturnValueOnce(current.promise)

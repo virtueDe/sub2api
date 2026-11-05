@@ -105,12 +105,13 @@ func (s *APIKeyService) initAuthCache(cfg *config.Config) {
 // StartAuthCacheInvalidationSubscriber starts the Pub/Sub subscriber for L1 cache invalidation.
 // This should be called after the service is fully initialized.
 func (s *APIKeyService) StartAuthCacheInvalidationSubscriber(ctx context.Context) {
-	if s.cache == nil || (s.authCacheL1 == nil && s.authNegativeCacheL1 == nil) {
+	if s.cache == nil || (s.authCacheL1 == nil && s.authNegativeCacheL1 == nil && !s.hasAuthCacheInvalidationListeners()) {
 		return
 	}
 	s.authInvalidationStart.Do(func() {
 		subscriberCtx, cancel := context.WithCancel(ctx)
 		subscriberCtx = withAuthCacheSubscriptionReady(subscriberCtx, func() {
+			s.invalidateRelatedAuthCaches()
 			s.authInvalidationConnected.Store(true)
 		})
 		s.authInvalidationCancel = cancel
@@ -156,6 +157,7 @@ func (s *APIKeyService) invalidateLocalAuthCache(cacheKey string) {
 	if s == nil {
 		return
 	}
+	s.invalidateRelatedAuthCaches()
 	if s.authCacheL1 != nil {
 		s.authCacheL1.Del(cacheKey)
 	}
@@ -252,12 +254,7 @@ func (s *APIKeyService) setAuthCacheEntry(ctx context.Context, cacheKey string, 
 }
 
 func (s *APIKeyService) deleteAuthCache(ctx context.Context, cacheKey string) {
-	if s.authCacheL1 != nil {
-		s.authCacheL1.Del(cacheKey)
-	}
-	if s.authNegativeCacheL1 != nil {
-		s.authNegativeCacheL1.Del(cacheKey)
-	}
+	s.invalidateLocalAuthCache(cacheKey)
 	if s.cache == nil {
 		return
 	}

@@ -137,6 +137,7 @@
         <div class="card-header flex flex-wrap items-center justify-between gap-2 !py-3">
           <div>
             <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('channelMonitorV2.settings.groupsTitle') }}</h3>
+            <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ t('channelMonitorV2.settings.groupsHint') }}</p>
             <p class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">
               {{
                 draft.group_ids.length
@@ -165,6 +166,7 @@
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500/40"
                 :checked="draft.group_ids.includes(group.id)"
+                :data-group-id="group.id"
                 @change="toggleGroup(group.id)"
               />
               <span class="min-w-0 flex-1 truncate font-medium text-gray-800 dark:text-gray-100">{{ group.name }}</span>

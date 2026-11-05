@@ -104,6 +104,24 @@ func NewModelPlazaService(
 //
 // 可见性过滤（专属分组）不在此层做，由 handler 按登录态裁剪。
 func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error) {
+	return s.ListDisplayGroups(ctx, ModelPlazaDisplayConfig{Mode: "automatic"})
+}
+
+// ListDisplayGroups uses the administrator's group/model selection in manual
+// mode. User visibility and dedicated rates are still applied by the handler.
+func (s *ModelPlazaService) ListDisplayGroups(ctx context.Context, cfg ModelPlazaDisplayConfig) ([]PlazaGroup, error) {
+	cfg, err := normalizeModelPlazaDisplay(cfg)
+	if err != nil {
+		return nil, err
+	}
+	selected := make(map[int64][]ModelPlazaDisplayModel, len(cfg.Groups))
+	for _, entry := range cfg.Groups {
+		selected[entry.GroupID] = entry.Models
+	}
+	manual := cfg.Mode == "manual"
+	if manual && len(selected) == 0 {
+		return []PlazaGroup{}, nil
+	}
 	channels, err := s.channelRepo.ListAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
@@ -122,6 +140,9 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	order := make([]int64, 0, len(groups))
 	for i := range groups {
 		g := &groups[i]
+		if _, ok := selected[g.ID]; manual && !ok {
+			continue
+		}
 		byGroup[g.ID] = &PlazaGroup{
 			ID:                        g.ID,
 			Name:                      g.Name,
@@ -140,6 +161,7 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 			VideoRateIndependent:      g.VideoRateIndependent,
 			VideoRateMultiplier:       g.VideoRateMultiplier,
 			LongContextPricingEnabled: g.LongContextPricingEnabled,
+			Models:                    []PlazaModel{},
 		}
 		groupEnt[g.ID] = g
 		order = append(order, g.ID)
@@ -161,6 +183,9 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		fillGlobalPricingFallback(s.pricingService, supported)
 
 		for _, gid := range ch.GroupIDs {
+			if manual && len(selected[gid]) > 0 {
+				continue
+			}
 			pg, ok := byGroup[gid]
 			if !ok {
 				continue
@@ -201,7 +226,14 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	out := make([]PlazaGroup, 0, len(order))
 	for _, gid := range order {
 		pg := byGroup[gid]
-		if len(pg.Models) == 0 {
+		if manual {
+			for _, spec := range selected[gid] {
+				if pg.Platform == PlatformComposite || spec.Platform == pg.Platform {
+					pg.Models = append(pg.Models, s.explicitDisplayModel(ctx, spec, groupEnt[gid]))
+				}
+			}
+		}
+		if len(pg.Models) == 0 && !manual {
 			continue
 		}
 		sort.SliceStable(pg.Models, func(i, j int) bool {
@@ -212,7 +244,9 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		})
 		g := groupEnt[gid]
 		for j := range pg.Models {
-			s.fillDisplayPricing(ctx, &pg.Models[j], g)
+			if !manual || len(selected[gid]) == 0 {
+				s.fillDisplayPricing(ctx, &pg.Models[j], g)
+			}
 			pg.Models[j].OfficialPricing = s.lookupOfficialPricing(ctx, pg.Models[j].Name, officialMemo)
 		}
 		out = append(out, *pg)
