@@ -226,7 +226,7 @@ func loadPaidDiscountRates(ctx context.Context, client *dbent.Client, groupID in
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	rates := make(map[int64]*float64)
 	for rows.Next() {
 		var id int64
