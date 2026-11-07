@@ -157,19 +157,21 @@ func TestOpenAIImagesPassthroughDoesNotLeakAcrossAccountAttempts(t *testing.T) {
 
 func TestOpenAIImagesOAuthPassthroughPreservesBase64(t *testing.T) {
 	cacheImagePassthroughSettings(t, true, []int64{35})
-	for _, route := range []string{"native", "responses", "fallback"} {
+	for _, route := range []string{"native", "native-json", "responses", "fallback"} {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/stream=%t", route, stream), func(t *testing.T) {
 				model := "gpt-image-2"
 				if route == "responses" {
 					model = "gpt-image-1"
+				} else if route == "native-json" {
+					model = "gpt-image-2.6-flare"
 				}
 				body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"cat","response_format":"url","stream":%t}`, model, stream))
 				c, rec := newOpenAIImagesTestContext(t, body)
 				response := openAIImagesJSONResponse()
-				if route != "native" {
+				if route == "responses" || route == "fallback" {
 					response = b64BackfillImageResponse(http.StatusOK, "text/event-stream", []byte("data: {\"type\":\"response.completed\",\"response\":{\"output\":[{\"type\":\"image_generation_call\",\"result\":\"aGVsbG8=\"}]}}\n\n"))
-				} else if stream {
+				} else if stream && route == "native" {
 					response = b64BackfillImageResponse(http.StatusOK, "text/event-stream", []byte("data: {\"type\":\"image_generation.completed\",\"b64_json\":\"aGVsbG8=\"}\n\n"))
 				}
 				upstream := &httpUpstreamRecorder{resp: response}

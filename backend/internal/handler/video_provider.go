@@ -66,11 +66,12 @@ func (h *OpenAIGatewayHandler) ProviderVideos(c *gin.Context) {
 	}
 	body, err := httputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		status := http.StatusBadRequest
-		if _, ok := err.(*http.MaxBytesError); ok {
-			status = http.StatusRequestEntityTooLarge
+		reqLog := requestLogger(c, "handler.openai_gateway.provider_videos")
+		if handleRequestBodyReadError(c, reqLog, err) {
+			return
 		}
-		h.errorResponse(c, status, "invalid_request_error", "Cannot read video request body")
+		status, message := requestBodyReadFailure(reqLog, c.Request, err)
+		h.errorResponse(c, status, "invalid_request_error", message)
 		return
 	}
 	endpoint, native, contentType, err := service.PrepareUnifiedVideoRequest(c, videoGroupPlatform(c), body)

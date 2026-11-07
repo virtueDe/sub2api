@@ -77,7 +77,8 @@ func TestAsyncImageHandlerPassthroughUsesFinalAccount(t *testing.T) {
 			require.NoError(t, err)
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"prompt":"cat"}`))
-			taskCtx, recorder, cancel := newAsyncImageContext(c, []byte(`{"prompt":"cat"}`), time.Minute)
+			taskCtx, recorder, cancel, err := newAsyncImageContext(c, []byte(`{"prompt":"cat"}`), time.Minute)
+			require.NoError(t, err)
 			h := &AsyncImageHandler{tasks: tasks, openAI: &OpenAIGatewayHandler{gatewayService: gateway}}
 			h.execute = func(_ string, c *gin.Context) {
 				setOpsSelectedAccount(c, tc.firstID)
