@@ -169,9 +169,10 @@ func (s *ModelPlazaService) groupDisplayModels(ctx context.Context, g *Group) ([
 		return nil, errors.New("model plaza account repository is unavailable")
 	}
 	platforms := []string{g.Platform}
-	if g.Platform == PlatformComposite {
+	switch g.Platform {
+	case PlatformComposite:
 		platforms = domain.ConcretePlatformIDs()
-	} else if g.Platform == PlatformGemini || g.Platform == PlatformAnthropic {
+	case PlatformGemini, PlatformAnthropic:
 		platforms = append(platforms, PlatformAntigravity)
 	}
 	accounts, err := s.accountRepo.ListModelAvailabilityCandidates(ctx, &g.ID, platforms, false)
@@ -186,7 +187,7 @@ func (s *ModelPlazaService) groupDisplayModels(ctx context.Context, g *Group) ([
 			continue
 		}
 		mixed := g.Platform != PlatformComposite && account.Platform != g.Platform
-		if mixed && (!(g.Platform == PlatformGemini || g.Platform == PlatformAnthropic) || !account.IsMixedSchedulingEnabled()) {
+		if mixed && ((g.Platform != PlatformGemini && g.Platform != PlatformAnthropic) || !account.IsMixedSchedulingEnabled()) {
 			continue
 		}
 		names, err := s.accountDisplayModelNames(ctx, account, g)
@@ -273,7 +274,11 @@ func (s *ModelPlazaService) cachedAccountDisplayModels(ctx context.Context, acco
 	}
 	key := fmt.Sprintf("%d:%d", account.ID, account.UpdatedAt.UnixNano())
 	if value, ok := s.accountModelsCache.Get(key); ok {
-		return value.([]string), nil
+		models, valid := value.([]string)
+		if !valid {
+			return nil, errors.New("invalid model plaza cached model list")
+		}
+		return models, nil
 	}
 	result := s.accountModelsFlight.DoChan(key, func() (any, error) {
 		if cached, ok := s.accountModelsCache.Get(key); ok {
@@ -297,7 +302,11 @@ func (s *ModelPlazaService) cachedAccountDisplayModels(ctx context.Context, acco
 		if fetched.Err != nil {
 			return nil, fetched.Err
 		}
-		return fetched.Val.([]string), nil
+		models, valid := fetched.Val.([]string)
+		if !valid {
+			return nil, errors.New("invalid model plaza discovered model list")
+		}
+		return models, nil
 	}
 }
 
