@@ -1,11 +1,11 @@
 ---
 public: true
 slug: image-api
-title: Duomi 生图 API
+title: 生图外部服务统一调用说明
 description: 通过 HTTPS 调用文生图和图像编辑接口
 ---
 
-# Duomi 生图 API
+# 生图外部服务统一调用说明
 
 版本：1.0
 
