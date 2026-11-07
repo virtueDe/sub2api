@@ -130,6 +130,22 @@ describe('UsageFilters — user search dropdown', () => {
     vi.useRealTimers()
   })
 
+  it('offers 451 in the upstream status filter and forwards the selected code', async () => {
+    const wrapper = mountFilters()
+    await wrapper.setProps({ mode: 'errors' })
+    const statusSelect = wrapper.findAllComponents({ name: 'Select' }).find(select =>
+      select.props('options')?.some((option: { value: unknown }) => option.value === 451)
+    )!
+    expect(statusSelect).toBeDefined()
+    statusSelect.vm.$emit('update:modelValue', 451)
+    statusSelect.vm.$emit('change')
+    await flushPromises()
+    expect(wrapper.props('modelValue')).toMatchObject({ status_code: 451 })
+    expect(wrapper.emitted('change')).toBeTruthy()
+    expect(wrapper.find('[title="admin.ops.errorLog.statusFilterHint"]').text()).toBe('admin.ops.errorLog.status')
+    wrapper.unmount()
+  })
+
   it('(a) labels deleted users with the i18n badge and (b) sorts active users before deleted ones, (c) selection sets user_id', async () => {
     // Arrange: mock returns deleted FIRST (proves sorting re-orders to active-first)
     mockSearchUsers.mockResolvedValue([

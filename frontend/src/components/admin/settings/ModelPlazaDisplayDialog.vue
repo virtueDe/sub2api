@@ -11,7 +11,7 @@
         <p class="text-sm text-gray-500">{{ t('admin.settings.features.modelPlaza.displayHint') }}</p>
         <label class="block">
           <span class="input-label">{{ t('admin.settings.features.modelPlaza.displayMode') }}</span>
-          <select v-model="form.mode" data-testid="mode" class="input">
+          <select v-model="form.mode" data-testid="mode" class="input" @change="onModeChange">
             <option value="automatic">{{ t('admin.settings.features.modelPlaza.automatic') }}</option>
             <option value="manual">{{ t('admin.settings.features.modelPlaza.manual') }}</option>
           </select>
@@ -34,14 +34,15 @@
               <button type="button" class="btn btn-ghost btn-sm" :data-remove-group="entry.group_id" @click="toggleGroup(entry.group_id)">{{ t('common.remove') }}</button>
             </div>
             <p class="text-xs text-gray-500">{{ t('admin.settings.features.modelPlaza.modelsHint') }}</p>
-            <div v-for="(model, index) in entry.models" :key="index" class="flex flex-wrap items-center gap-2">
-              <select v-model="model.platform" :data-model-platform="`${entry.group_id}-${index}`" class="input w-36" :aria-label="t('admin.settings.features.modelPlaza.modelPlatform')">
-                <option v-for="platform in modelPlatforms(entry.group_id)" :key="platform.value" :value="platform.value">{{ platform.label }}</option>
-              </select>
-              <input v-model="model.name" :data-model-name="`${entry.group_id}-${index}`" class="input min-w-40 flex-1 font-mono text-sm" :aria-label="t('admin.settings.features.modelPlaza.modelName')" placeholder="gpt-image-2.6-sunburst" />
-              <button type="button" class="btn btn-ghost btn-sm" :aria-label="t('admin.settings.features.modelPlaza.removeModel')" @click="entry.models.splice(index, 1)">{{ t('common.remove') }}</button>
+            <p v-if="modelPreviews[entry.group_id]?.loading" class="text-sm text-gray-500">{{ t('common.loading') }}</p>
+            <div v-else-if="modelPreviews[entry.group_id]?.error" role="alert" :data-model-error="entry.group_id" class="text-sm text-red-600">
+              {{ modelPreviews[entry.group_id]?.error }}
+              <button type="button" :data-retry-models="entry.group_id" class="ml-2 underline" @click="loadGroupModels(entry.group_id)">{{ t('common.refresh') }}</button>
             </div>
-            <button type="button" :data-add-model="entry.group_id" class="btn btn-secondary btn-sm" @click="addModel(entry)">{{ t('admin.settings.features.modelPlaza.addModel') }}</button>
+            <div v-else-if="modelPreviews[entry.group_id]?.models.length" :data-models-for="entry.group_id" class="flex flex-wrap gap-2">
+              <span v-for="model in modelPreviews[entry.group_id]?.models" :key="`${model.platform}:${model.name}`" :title="model.platform" class="rounded bg-gray-100 px-2 py-1 font-mono text-xs dark:bg-dark-700">{{ model.name }}</span>
+            </div>
+            <p v-else class="text-sm text-gray-500">{{ t('admin.settings.features.modelPlaza.noGroupModels') }}</p>
           </div>
         </template>
         <p class="text-xs text-gray-500">{{ t('admin.settings.features.modelPlaza.separateSaveHint') }}</p>
@@ -49,19 +50,18 @@
     </div>
     <template #footer>
       <button type="button" class="btn btn-secondary" :disabled="saving" @click="emit('close')">{{ t('common.cancel') }}</button>
-      <button type="button" data-testid="save" class="btn btn-primary" :disabled="loading || saving || !loaded || !dirty" @click="save">{{ t('common.save') }}</button>
+      <button type="button" data-testid="save" class="btn btn-primary" :disabled="loading || saving || !loaded || !dirty || modelLoadBlocked" @click="save">{{ t('common.save') }}</button>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { useAppStore } from '@/stores/app'
 import { getAllIncludingInactive } from '@/api/admin/groups'
 import * as displayAPI from '@/api/admin/modelPlazaDisplay'
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import type { AdminGroup } from '@/types'
 
 const props = defineProps<{ show: boolean }>()
@@ -76,6 +76,13 @@ const loading = ref(false)
 const loaded = ref(false)
 const saving = ref(false)
 const error = ref('')
+const modelPreviews = ref<Record<number, { models: displayAPI.PlazaDisplayModel[]; loading: boolean; error: string }>>({})
+const modelRequests = new Map<number, number>()
+let modelRequestVersion = 0
+const modelLoadBlocked = computed(() => form.mode === 'manual' && form.groups.some(group => {
+  const preview = modelPreviews.value[group.group_id]
+  return preview?.loading || Boolean(preview?.error)
+}))
 const dirty = computed(() => saved.value !== JSON.stringify(form))
 const visibleGroups = computed(() => {
   const query = search.value.trim().toLowerCase()
@@ -90,35 +97,71 @@ function groupFor(id: number) { return groups.value.find(group => group.id === i
 function isSelected(id: number) { return form.groups.some(group => group.group_id === id) }
 function toggleGroup(id: number) {
   const index = form.groups.findIndex(group => group.group_id === id)
-  if (index >= 0) form.groups.splice(index, 1)
-  else form.groups.push({ group_id: id, models: [] })
+  if (index >= 0) {
+    form.groups.splice(index, 1)
+    modelRequests.delete(id)
+    delete modelPreviews.value[id]
+  } else {
+    form.groups.push({ group_id: id, models: [] })
+    void loadGroupModels(id)
+  }
 }
-function modelPlatforms(id: number) {
-  const platform = groupFor(id)?.platform
-  if (platform && platform !== 'composite') return [{ value: platform, label: platform }]
-  return CONCRETE_PLATFORM_OPTIONS
+function onModeChange() {
+  if (form.mode === 'automatic') {
+    form.groups = []
+    clearModelPreviews()
+  }
 }
-function addModel(entry: displayAPI.PlazaDisplayGroup) {
-  entry.models.push({ name: '', platform: modelPlatforms(entry.group_id)[0]?.value || 'openai' })
+function clearModelPreviews() {
+  modelRequests.clear()
+  modelPreviews.value = {}
+}
+async function loadGroupModels(id: number) {
+  if (groupFor(id)?.status !== 'active' || !isSelected(id)) return
+  const request = ++modelRequestVersion
+  modelRequests.set(id, request)
+  modelPreviews.value[id] = { models: [], loading: true, error: '' }
+  try {
+    const models = await displayAPI.getGroupModels(id)
+    if (modelRequests.get(id) !== request) return
+    modelPreviews.value[id] = { models, loading: false, error: '' }
+  } catch (err) {
+    if (modelRequests.get(id) !== request) return
+    modelPreviews.value[id] = { models: [], loading: false, error: errorMessage(err, 'admin.settings.features.modelPlaza.modelsLoadFailed') }
+  }
 }
 
 watch(() => props.show, show => {
   if (show) void load()
-  else loadVersion++
+  else {
+    loadVersion++
+    clearModelPreviews()
+  }
 }, { immediate: true })
+onBeforeUnmount(() => {
+  loadVersion++
+  clearModelPreviews()
+})
 
 async function load() {
   const version = ++loadVersion
+  clearModelPreviews()
   loading.value = true
   loaded.value = false
   error.value = ''
   try {
     const [config, allGroups] = await Promise.all([displayAPI.getConfig(), getAllIncludingInactive()])
     if (version !== loadVersion) return
-    Object.assign(form, config)
+    Object.assign(form, {
+      mode: config.mode,
+      groups: config.groups.map(group => ({ group_id: group.group_id, models: [] })),
+    })
     groups.value = allGroups
     saved.value = JSON.stringify(form)
     loaded.value = true
+    if (form.mode === 'manual') {
+      for (const group of form.groups) void loadGroupModels(group.group_id)
+    }
   } catch (err) {
     if (version === loadVersion) error.value = errorMessage(err, 'admin.settings.features.modelPlaza.displayLoadFailed')
   } finally {
@@ -127,7 +170,7 @@ async function load() {
 }
 
 async function save() {
-  if (!loaded.value || saving.value) return
+  if (!loaded.value || saving.value || modelLoadBlocked.value) return
   saving.value = true
   error.value = ''
   try {
@@ -135,7 +178,7 @@ async function save() {
       mode: form.mode,
       groups: form.mode === 'automatic' ? [] : form.groups.map(group => ({
         group_id: group.group_id,
-        models: group.models.map(model => ({ ...model, name: model.name.trim() })),
+        models: [],
       })),
     })
     Object.assign(form, config)

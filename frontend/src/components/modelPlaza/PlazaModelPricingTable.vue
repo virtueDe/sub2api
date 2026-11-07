@@ -24,7 +24,7 @@
           <th colspan="3" class="pz-bg pt-2 text-center">
             <div class="pz-title border-b pb-2 font-semibold">
               {{ t('modelPlaza.table.paidPrice') }}
-              <span class="pz-unit ml-1 normal-case font-normal">{{ t('modelPlaza.table.unitPerMillion') }}</span>
+              <span class="pz-unit ml-1 normal-case font-normal">{{ paidUnitLabel }}</span>
             </div>
           </th>
           <th
@@ -33,7 +33,7 @@
           >
             <div class="border-b border-gray-200 pb-2 text-gray-400 dark:border-dark-600 dark:text-dark-500">
               {{ t('modelPlaza.table.officialPrice') }}
-              <span class="ml-1 normal-case font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.unitPerMillion') }}</span>
+              <span v-if="hasOfficialPricing" class="ml-1 normal-case font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.unitPerMillion') }}</span>
             </div>
           </th>
           <th
@@ -46,9 +46,12 @@
         <tr
           class="border-b border-gray-200 text-left text-[11px] font-medium uppercase leading-4 tracking-wide text-gray-400 dark:border-dark-700 dark:text-dark-500"
         >
-          <th class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.input') }}</th>
-          <th class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.output') }}</th>
-          <th class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.cache') }}</th>
+          <template v-if="hasTokenModels">
+            <th class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.input') }}</th>
+            <th class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.output') }}</th>
+            <th class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.cache') }}</th>
+          </template>
+          <th v-else colspan="3" class="pz-bg px-3 py-2 font-medium">{{ t('modelPlaza.table.unitPrice') }}</th>
           <th class="border-l border-gray-100 px-3 py-2 font-medium dark:border-dark-700/60">
             {{ t('modelPlaza.table.input') }}
           </th>
@@ -181,7 +184,7 @@
             </td>
           </template>
 
-          <!-- 按次 / 按图片计费:实付区整体合并,阶梯芯片或单一按次价 -->
+          <!-- 按次 / 按图片 / 视频按秒计费:实付区整体合并,每档标明对应单位 -->
           <template v-else>
             <td colspan="3" class="pz-cell px-3 py-2.5 align-middle">
               <div
@@ -385,11 +388,22 @@ const hasCustomRate = computed(
   () => props.userRateMultiplier != null && props.userRateMultiplier !== props.rateMultiplier
 )
 
+const billingModes = computed(() => new Set(props.models.map(billingMode)))
+const hasTokenModels = computed(() => billingModes.value.has(BILLING_MODE_TOKEN))
+const hasOfficialPricing = computed(() => props.models.some(model => model.official_pricing != null))
+const paidUnitLabel = computed(() => {
+  if (billingModes.value.size > 1) return t('modelPlaza.table.mixedUnits')
+  if (hasTokenModels.value) return t('modelPlaza.table.unitPerMillion')
+  const model = props.models[0]
+  return model ? `$ ${perUnitSuffix(model)}` : ''
+})
+
 function billingMode(m: PlazaModel): BillingMode {
   return (m.pricing?.billing_mode || BILLING_MODE_TOKEN) as BillingMode
 }
 
 function billingModeLabel(m: PlazaModel): string {
+  if (billingMode(m) === BILLING_MODE_VIDEO) return t('modelPlaza.table.perVideo')
   return billingMode(m) === BILLING_MODE_IMAGE
     ? t('modelPlaza.table.perImage')
     : t('modelPlaza.table.perRequest')
@@ -457,8 +471,9 @@ function official(value: number | null | undefined): string {
   return formatScaled(value, PER_MILLION, MIN_DECIMALS)
 }
 
-/** 非 token 计费的单位后缀:按图片 → “/ 张”,按次 → “/ 次”。 */
+/** 非 token 计费的单位后缀:图片按张、视频按秒、请求按次。 */
 function perUnitSuffix(m: PlazaModel): string {
+  if (billingMode(m) === BILLING_MODE_VIDEO) return t('modelPlaza.table.perUnitSecond')
   return billingMode(m) === BILLING_MODE_IMAGE
     ? t('modelPlaza.table.perUnitImage')
     : t('modelPlaza.table.perUnitRequest')
@@ -532,7 +547,7 @@ function tierHint(m: PlazaModel): string {
 }
 
 
-/** 按次/按图模式的阶梯定价(仅保留配了按次价的档位)。 */
+/** 非 token 模式的阶梯定价，per_request_price 在视频模式下表示每秒价格。 */
 function requestIntervals(m: PlazaModel): UserPricingInterval[] {
   return (m.pricing?.intervals ?? []).filter((iv) => iv.per_request_price != null)
 }

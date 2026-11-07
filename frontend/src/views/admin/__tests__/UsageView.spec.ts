@@ -646,7 +646,7 @@ describe('admin UsageView detail tab filter forwarding', () => {
     vi.useRealTimers()
   })
 
-  it('forwards model/account_id/group_id to listErrorLogs on the errors tab', async () => {
+  it('forwards upstream status/model/account/group filters and shows both status columns on the errors tab', async () => {
     const wrapper = mount(UsageView, {
       global: { stubs: {
         AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
@@ -665,6 +665,7 @@ describe('admin UsageView detail tab filter forwarding', () => {
     vm.filters.model = 'gpt-5.3-codex'
     vm.filters.account_id = 7
     vm.filters.group_id = 3
+    vm.filters.status_code = 451
     await flushPromises()
 
     // 按标签选择错误请求，避免二开生图标签改变按钮顺序。
@@ -679,7 +680,11 @@ describe('admin UsageView detail tab filter forwarding', () => {
       model: 'gpt-5.3-codex',
       account_id: 7,
       group_id: 3,
+      status_codes: '451',
     }))
+    expect(wrapper.findComponent({ name: 'OpsErrorLogTable' }).props('visibleColumnKeys')).toEqual(
+      expect.arrayContaining(['status', 'client_status'])
+    )
   })
 
   it('keeps the image records tab and forwards image-only filters', async () => {

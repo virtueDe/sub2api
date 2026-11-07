@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
@@ -139,31 +141,179 @@ func (s *ModelPlazaService) ValidateDisplayConfig(ctx context.Context, cfg Model
 	return result, nil
 }
 
-// Explicit models need no channel association. Resolve configured pricing from
-// the same group/platform as billing; unknown models keep an unavailable price.
-func (s *ModelPlazaService) explicitDisplayModel(ctx context.Context, spec ModelPlazaDisplayModel, g *Group) PlazaModel {
-	m := PlazaModel{Name: spec.Name, Platform: spec.Platform}
-	if s.resolver != nil {
-		resolved := s.resolver.Resolve(WithResolvedTargetPlatform(ctx, spec.Platform), PricingInput{Model: spec.Name, GroupID: &g.ID, Group: g})
-		if resolved != nil && resolved.channelPricing != nil {
-			clone := resolved.channelPricing.Clone()
-			m.Pricing = &clone
+// ListDisplayGroupModels shares the manual catalogue with the administrator's
+// preview. It never saves the discovered models into the display configuration.
+func (s *ModelPlazaService) ListDisplayGroupModels(ctx context.Context, groupID int64) ([]ModelPlazaDisplayModel, error) {
+	g, err := s.groupRepo.GetByID(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if g.Status != StatusActive {
+		return nil, ErrGroupNotFound
+	}
+	models, err := s.groupDisplayModels(ctx, g)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ModelPlazaDisplayModel, 0, len(models))
+	for _, model := range models {
+		out = append(out, ModelPlazaDisplayModel{Name: model.Name, Platform: model.Platform})
+	}
+	return out, nil
+}
+
+// Model availability is based on persistent account settings, so temporary
+// rate limits do not make the plaza catalogue disappear.
+func (s *ModelPlazaService) groupDisplayModels(ctx context.Context, g *Group) ([]PlazaModel, error) {
+	if s.accountRepo == nil {
+		return nil, errors.New("model plaza account repository is unavailable")
+	}
+	platforms := []string{g.Platform}
+	if g.Platform == PlatformComposite {
+		platforms = domain.ConcretePlatformIDs()
+	} else if g.Platform == PlatformGemini || g.Platform == PlatformAnthropic {
+		platforms = append(platforms, PlatformAntigravity)
+	}
+	accounts, err := s.accountRepo.ListModelAvailabilityCandidates(ctx, &g.ID, platforms, false)
+	if err != nil {
+		return nil, fmt.Errorf("list model plaza group accounts: %w", err)
+	}
+	models := make([]PlazaModel, 0)
+	seen := make(map[ModelPlazaDisplayModel]bool)
+	for i := range accounts {
+		account := &accounts[i]
+		if account.Status != StatusActive || !account.Schedulable || !isConcreteRequestPlatform(account.Platform) {
+			continue
+		}
+		mixed := g.Platform != PlatformComposite && account.Platform != g.Platform
+		if mixed && (!(g.Platform == PlatformGemini || g.Platform == PlatformAnthropic) || !account.IsMixedSchedulingEnabled()) {
+			continue
+		}
+		names, err := s.accountDisplayModelNames(ctx, account, g)
+		if err != nil {
+			return nil, fmt.Errorf("load model plaza group %d models: %w", g.ID, err)
+		}
+		platform := account.Platform
+		if mixed {
+			platform = g.Platform
+		}
+		for _, name := range names {
+			name = strings.TrimSpace(name)
+			key := ModelPlazaDisplayModel{Name: strings.ToLower(name), Platform: platform}
+			if name == "" || strings.ContainsAny(name, "*?") || seen[key] || !g.ModelAllowlist.Allows(name) {
+				continue
+			}
+			if mixed && ((g.Platform == PlatformGemini && !mixedListingModelAllowed(g.Platform, name)) ||
+				(g.Platform == PlatformAnthropic && !strings.HasPrefix(mapAntigravityModel(account, name), "claude-"))) {
+				continue
+			}
+			seen[key] = true
+			models = append(models, PlazaModel{Name: name, Platform: platform})
 		}
 	}
-	if m.Pricing == nil {
-		m.Pricing = matchGroupModelPricing(g, spec.Name)
+	sort.Slice(models, func(i, j int) bool {
+		if models[i].Name != models[j].Name {
+			return models[i].Name < models[j].Name
+		}
+		return models[i].Platform < models[j].Platform
+	})
+	return models, nil
+}
+
+func (s *ModelPlazaService) accountDisplayModelNames(ctx context.Context, account *Account, g *Group) ([]string, error) {
+	if account.IsTypeSafe() {
+		return defaultModelsListCandidateIDs(PlatformTypeSafe), nil
 	}
-	// GPT Images without an explicit token card use the gateway's per-image
-	// billing path. Do not let the token catalogue hide the group's image tiers.
-	if m.Pricing == nil && IsGPTImageGenerationModel(spec.Name) && s.billingService != nil {
+	mapping := account.GetModelMapping()
+	if account.IsOpenAIPassthroughEnabled() {
+		mapping = nil
+	}
+	names := make([]string, 0, len(mapping))
+	needsCatalogue := len(mapping) == 0
+	hasWildcard := false
+	for name := range mapping {
+		if strings.ContainsAny(name, "*?") {
+			needsCatalogue = true
+			hasWildcard = true
+		} else {
+			names = append(names, name)
+		}
+	}
+	if needsCatalogue {
+		if account.IsBedrock() {
+			for name := range domain.DefaultBedrockModelMapping {
+				names = append(names, name)
+			}
+		} else if account.Type == AccountTypeAPIKey {
+			upstream, err := s.cachedAccountDisplayModels(ctx, account)
+			if err != nil {
+				return nil, err
+			}
+			names = append(names, upstream...)
+		} else {
+			names = append(names, defaultModelsListCandidateIDs(account.Platform)...)
+		}
+	}
+	// Exact group allowlist entries can expand account wildcard mappings.
+	if hasWildcard && g.ModelAllowlist.Enabled {
+		names = append(names, g.ModelAllowlist.Models...)
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if accountSupportsModel(account, name) {
+			out = append(out, name)
+		}
+	}
+	return dedupeAndSortModelIDs(out), nil
+}
+
+func (s *ModelPlazaService) cachedAccountDisplayModels(ctx context.Context, account *Account) ([]string, error) {
+	if s.fetchAccountModels == nil || s.accountModelsCache == nil {
+		return nil, errors.New("model plaza account model discovery is unavailable")
+	}
+	key := fmt.Sprintf("%d:%d", account.ID, account.UpdatedAt.UnixNano())
+	if value, ok := s.accountModelsCache.Get(key); ok {
+		return value.([]string), nil
+	}
+	result := s.accountModelsFlight.DoChan(key, func() (any, error) {
+		if cached, ok := s.accountModelsCache.Get(key); ok {
+			return cached, nil
+		}
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		models, err := s.fetchAccountModels(fetchCtx, account)
+		if err != nil {
+			// Upstream errors can contain private URLs or response bodies. Keep
+			// the public error actionable without disclosing account details.
+			return nil, infraerrors.ServiceUnavailable("MODEL_PLAZA_MODELS_UNAVAILABLE", "Unable to load account models; check the account model configuration and retry")
+		}
+		s.accountModelsCache.SetDefault(key, models)
+		return models, nil
+	})
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case fetched := <-result:
+		if fetched.Err != nil {
+			return nil, fetched.Err
+		}
+		return fetched.Val.([]string), nil
+	}
+}
+
+// Manual prices use group cards and the global catalogue, never channel prices.
+func (s *ModelPlazaService) fillManualDisplayPricing(ctx context.Context, m *PlazaModel, g *Group) {
+	if matchGroupModelPricing(g, m.Name) == nil && IsGPTImageGenerationModel(m.Name) && s.billingService != nil {
 		m.Pricing = &ChannelModelPricing{BillingMode: BillingModeImage}
 		for i, tier := range []string{ImageBillingSize1K, ImageBillingSize2K, ImageBillingSize4K} {
-			cost := s.billingService.CalculateImageCost(spec.Name, tier, 1, &ImagePriceConfig{Price1K: g.ImagePrice1K, Price2K: g.ImagePrice2K, Price4K: g.ImagePrice4K}, 1)
+			cost := s.billingService.CalculateImageCost(m.Name, tier, 1, &ImagePriceConfig{Price1K: g.ImagePrice1K, Price2K: g.ImagePrice2K, Price4K: g.ImagePrice4K}, 1)
 			price := cost.TotalCost
 			m.Pricing.Intervals = append(m.Pricing.Intervals, PricingInterval{TierLabel: tier, PerRequestPrice: &price, SortOrder: i})
 		}
-		return m
+		return
 	}
-	s.fillDisplayPricing(ctx, &m, g)
-	return m
+	if s.pricingService != nil && matchGroupModelPricing(g, m.Name) == nil {
+		m.Pricing = synthesizePricingFromLiteLLM(s.pricingService.GetModelPricing(m.Name), nil)
+	}
+	s.fillDisplayPricingWithResolver(ctx, m, g, NewModelPricingResolver(nil, s.billingService))
 }

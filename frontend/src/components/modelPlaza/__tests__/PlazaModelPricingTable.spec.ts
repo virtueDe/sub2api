@@ -77,6 +77,12 @@ describe('PlazaModelPricingTable', () => {
     })
     try {
       expect(wrapper.text()).toContain(`$${(2 * tc.expected).toFixed(2)}`)
+      expect(wrapper.text()).toContain('modelPlaza.table.perVideo')
+      expect(wrapper.text()).toContain('modelPlaza.table.perUnitSecond')
+      expect(wrapper.text()).not.toContain('modelPlaza.table.perRequest')
+      expect(wrapper.text()).not.toContain('modelPlaza.table.perUnitRequest')
+      expect(wrapper.get('thead').text()).not.toContain('modelPlaza.table.unitPerMillion')
+      expect(wrapper.get('thead').text()).toContain('modelPlaza.table.unitPrice')
       const rateCell = wrapper.findAll('tbody tr td').at(-1)!
       if (tc.enabled) expect(rateCell.text()).toBe(`${tc.expected}x`)
       else expect(rateCell.text()).toContain(`${tc.expected}x`)
@@ -98,6 +104,41 @@ describe('PlazaModelPricingTable', () => {
     })
     expect(wrapper.text()).toContain('720p')
     expect(wrapper.text()).toContain('$1.00')
+    expect(wrapper.get('tbody').text()).toContain('modelPlaza.table.perVideo')
+    expect(wrapper.get('tbody').text()).toContain('modelPlaza.table.perUnitSecond')
+    expect(wrapper.get('tbody').text()).not.toContain('modelPlaza.table.perUnitRequest')
+    wrapper.unmount()
+  })
+
+  it('shows the configured SDG video prices per second without token scaling', () => {
+    const models = [
+      ['sdg-2.5-720p', 1.12], ['sdg-2.5-480p', 0.64], ['sdg-2.5-1080p', 2.07]
+    ].map(([name, price]) => {
+      const model = tokenModel({ name: String(name), official_pricing: null })
+      model.pricing!.billing_mode = 'video'
+      model.pricing!.per_request_price = Number(price)
+      return model
+    })
+    const wrapper = mountTable(models, 1)
+    for (const model of models) {
+      const row = wrapper.findAll('tbody tr').find(row => row.text().includes(model.name))!
+      expect(row.text()).toContain(`$${model.pricing!.per_request_price!.toFixed(2)}`)
+      expect(row.text()).toContain('modelPlaza.table.perUnitSecond')
+    }
+    expect(wrapper.get('thead').text()).not.toContain('modelPlaza.table.unitPerMillion')
+    wrapper.unmount()
+  })
+
+  it('uses a mixed-unit header while preserving token and video units', () => {
+    const video = tokenModel({ name: 'video', official_pricing: null })
+    video.pricing!.billing_mode = 'video'
+    video.pricing!.per_request_price = 1.12
+    const wrapper = mountTable([tokenModel(), video], 1)
+    expect(wrapper.get('thead').text()).toContain('modelPlaza.table.mixedUnits')
+    expect(wrapper.get('thead').text()).toContain('modelPlaza.table.unitPerMillion')
+    expect(wrapper.get('tbody').text()).toContain('$3.00')
+    expect(wrapper.get('tbody').text()).toContain('$1.12')
+    expect(wrapper.get('tbody').text()).toContain('modelPlaza.table.perUnitSecond')
     wrapper.unmount()
   })
 
@@ -255,6 +296,8 @@ describe('PlazaModelPricingTable', () => {
     const text = wrapper.text()
     expect(text).toContain('modelPlaza.table.paidPrice')
     expect(text).toContain('modelPlaza.table.officialPrice')
+    expect(wrapper.get('thead').text()).toContain('modelPlaza.table.unitPerMillion')
+    expect(wrapper.get('thead').text()).not.toContain('modelPlaza.table.mixedUnits')
     // token 行:模型 + 实付 3 列 + 官方 3 列 + 倍率
     expect(wrapper.findAll('tbody td')).toHaveLength(8)
   })

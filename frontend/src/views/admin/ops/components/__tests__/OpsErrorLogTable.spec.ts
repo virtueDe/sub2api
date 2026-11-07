@@ -76,6 +76,34 @@ describe('OpsErrorLogTable user/api-key/account columns', () => {
 })
 
 describe('OpsErrorLogTable column order', () => {
+  it('shows upstream and response codes separately while sorting by upstream status', async () => {
+    const wrapper = mountTable({ status_code: 400, upstream_status_code: 400, client_status_code: 451 })
+    await wrapper.setProps({ visibleColumnKeys: ['status', 'client_status'] })
+    const headers = wrapper.findAll('thead th')
+    expect(headers.map(header => header.text())).toEqual([
+      'admin.ops.errorLog.status', 'admin.ops.errorLog.clientStatus',
+    ])
+    const cells = wrapper.findAll('tbody td')
+    expect(cells[0].text()).toContain('400')
+    expect(cells[0].text()).not.toContain('451')
+    expect(cells[1].text()).toBe('451')
+    await headers[0].trigger('click')
+    expect(wrapper.emitted('sort')).toEqual([['status_code', 'asc']])
+    await headers[1].trigger('click')
+    expect(wrapper.emitted('sort')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('does not invent a missing upstream or response status from the legacy status field', async () => {
+    const wrapper = mountTable({ status_code: 451, upstream_status_code: null, client_status_code: null })
+    await wrapper.setProps({ visibleColumnKeys: ['status', 'client_status'] })
+    const cells = wrapper.findAll('tbody td')
+    expect(cells[0].text()).toContain('—')
+    expect(cells[1].text()).toBe('—')
+    expect(wrapper.text()).not.toContain('451')
+    wrapper.unmount()
+  })
+
   it('puts time and response content first for ops without changing time sorting', async () => {
     const wrapper = mountTable({})
     await wrapper.setProps({ summaryFirst: true })

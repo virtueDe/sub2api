@@ -706,6 +706,7 @@ const errAllColumns = computed(() => [
   { key: 'type', label: t('admin.ops.errorLog.type') },
   { key: 'category', label: t('usage.errors.category') },
   { key: 'status', label: t('admin.ops.errorLog.status') },
+  { key: 'client_status', label: t('admin.ops.errorLog.clientStatus') },
   { key: 'message', label: t('admin.ops.errorLog.message') },
   { key: 'created_at', label: t('admin.ops.errorLog.time') },
   { key: 'user_agent', label: t('usage.userAgent') },

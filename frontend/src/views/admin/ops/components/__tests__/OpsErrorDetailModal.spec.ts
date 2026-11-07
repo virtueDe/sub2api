@@ -78,8 +78,9 @@ describe('OpsErrorDetailModal', () => {
       error_owner: 'provider',
       error_source: 'gateway',
       severity: 'P1',
-      status_code: 502,
+      status_code: 429,
       upstream_status_code: 429,
+      client_status_code: 502,
       platform: 'openai',
       model: 'gpt-5.6',
       resolved: false,
@@ -108,7 +109,22 @@ describe('OpsErrorDetailModal', () => {
     expect(wrapper.text()).toContain('provider rate limit exhausted')
     expect(wrapper.text()).toContain('admin.ops.errorDetail.upstreamStatus')
     expect(wrapper.text()).toContain('429')
+    const responseLabel = wrapper.findAll('div').find(el => el.text() === 'admin.ops.errorLog.clientStatus')!
+    expect(responseLabel.element.parentElement?.textContent).toContain('502')
     expect(wrapper.findAll('pre')).toHaveLength(2)
     expect(wrapper.text()).not.toContain('admin.ops.errorDetail.payloads.upstream_detail')
+  })
+
+  it('shows an unknown response status when only the legacy upstream-first code is available', async () => {
+    mocks.getRequestErrorDetail.mockResolvedValue({ id: 1, phase: 'request', status_code: 400, upstream_status_code: 400 })
+    const wrapper = shallowMount(OpsErrorDetailModal, {
+      props: { show: true, errorId: 1, errorType: 'request' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } }
+    })
+    await flushPromises()
+    const label = wrapper.findAll('div').find(el => el.text() === 'admin.ops.errorLog.clientStatus')!
+    expect(label.element.parentElement?.textContent).toContain('—')
+    expect(label.element.parentElement?.textContent).not.toContain('400')
+    wrapper.unmount()
   })
 })

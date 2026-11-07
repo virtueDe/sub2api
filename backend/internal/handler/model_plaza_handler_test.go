@@ -287,7 +287,7 @@ func (plazaVaryGroupRepo) ListActive(context.Context) ([]service.Group, error) {
 func TestModelPlazaHandler_VaryKeepsCORSOrigin(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := NewModelPlazaHandler(
-		service.NewModelPlazaService(plazaVaryChannelRepo{}, plazaVaryGroupRepo{}, nil, nil, nil),
+		service.NewModelPlazaService(plazaVaryChannelRepo{}, plazaVaryGroupRepo{}, nil, nil, nil, nil, nil),
 		nil,
 		service.NewSettingService(plazaVarySettingRepo{}, &config.Config{}),
 	)
@@ -308,4 +308,19 @@ func TestModelPlazaHandler_VaryKeepsCORSOrigin(t *testing.T) {
 		// 共享缓存需同时按来源与语言区分，否则 A 来源的响应可能被复用给 B。
 		require.Equal(t, []string{"Origin", "Accept-Language"}, w.Header().Values("Vary"))
 	}
+}
+
+func filterPlazaVisibleGroups(
+	groups []service.PlazaGroup,
+	allowedGroups map[int64]struct{},
+	restrictPublicGroups bool,
+) []service.PlazaGroup {
+	visible := make([]service.PlazaGroup, 0, len(groups))
+	for _, g := range groups {
+		if !plazaGroupVisible(g.ID, g.IsExclusive, allowedGroups, restrictPublicGroups) {
+			continue
+		}
+		visible = append(visible, g)
+	}
+	return visible
 }

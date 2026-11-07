@@ -45,7 +45,7 @@ const modalTitle = computed(() => {
 })
 
 const statusCodeSelectOptions = computed(() => {
-  const codes = [400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504, 529]
+  const codes = [400, 401, 403, 404, 409, 422, 429, 451, 500, 502, 503, 504, 529]
   return [
     { value: null, label: t('common.all') },
     ...codes.map((c) => ({ value: c, label: String(c) })),
@@ -242,8 +242,8 @@ watch(
             </div>
           </div>
 
-          <div class="compact-select">
-            <Select :model-value="statusCode" :options="statusCodeSelectOptions" @update:model-value="statusCode = $event as any" />
+          <div class="compact-select" :title="t('admin.ops.errorLog.statusFilterHint')">
+            <Select :model-value="statusCode" :options="statusCodeSelectOptions" :aria-label="t('admin.ops.errorLog.status')" @update:model-value="statusCode = $event as any" />
           </div>
 
           <div class="compact-select">

@@ -164,7 +164,7 @@
 
         <!-- Status Code Filter (errors only) -->
         <div v-if="mode === 'errors'" class="w-full sm:w-auto sm:min-w-[180px]">
-          <label class="input-label">{{ t('admin.ops.errorLog.status') }}</label>
+          <label class="input-label" :title="t('admin.ops.errorLog.statusFilterHint')">{{ t('admin.ops.errorLog.status') }}</label>
           <Select v-model="filters.status_code" :options="statusCodeOptions" @change="emitChange" />
         </div>
 

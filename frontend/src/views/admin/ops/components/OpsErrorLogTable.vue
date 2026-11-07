@@ -108,8 +108,8 @@
 
         <template #cell-status="{ row }">
           <div class="flex items-center gap-1.5">
-            <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="getStatusClass(row.status_code)">
-              {{ row.status_code }}
+            <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="getStatusClass(row.upstream_status_code ?? 0)">
+              {{ row.upstream_status_code ?? '—' }}
             </span>
             <span
               v-if="row.severity"
@@ -120,6 +120,14 @@
               class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-gray-100 text-gray-800 dark:bg-dark-700 dark:text-gray-200"
             >{{ formatRequestType(row.request_type) }}</span>
           </div>
+        </template>
+
+        <template #cell-client_status="{ row }">
+          <span
+            class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
+            :class="getStatusClass(row.client_status_code ?? 0)"
+            :title="t('admin.ops.errorLog.clientStatusHint')"
+          >{{ row.client_status_code ?? '—' }}</span>
         </template>
 
         <template #cell-message="{ row }">
@@ -207,6 +215,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'type', label: t('admin.ops.errorLog.type') },
   { key: 'category', label: t('usage.errors.category') },
   { key: 'status', label: t('admin.ops.errorLog.status'), sortable: true },
+  { key: 'client_status', label: t('admin.ops.errorLog.clientStatus') },
   { key: 'message', label: t('admin.ops.errorLog.message') },
   { key: 'created_at', label: t('admin.ops.errorLog.time'), sortable: true },
   { key: 'user_agent', label: t('usage.userAgent') },

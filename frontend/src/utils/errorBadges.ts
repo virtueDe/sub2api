@@ -67,4 +67,4 @@ export function mapErrorSortKey(key: string): string {
  * 用固定列表而非「当前页出现过的码」派生,避免目标状态码只在后续页/筛选外时无法选中
  * ——后端 status_code 过滤对全量数据生效,选项不应被当前页数据限制。
  */
-export const COMMON_ERROR_STATUS_CODES = [400, 401, 403, 404, 408, 413, 429, 499, 500, 502, 503, 504, 529]
+export const COMMON_ERROR_STATUS_CODES = [400, 401, 403, 404, 408, 413, 429, 451, 499, 500, 502, 503, 504, 529]

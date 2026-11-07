@@ -577,6 +577,7 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpA
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
 		adminSettings.GET("/model-plaza-display", h.ModelPlaza.GetDisplayConfig)
+		adminSettings.GET("/model-plaza-display/groups/:id/models", h.ModelPlaza.GetDisplayGroupModels)
 		adminSettings.PUT("/model-plaza-display", h.ModelPlaza.UpdateDisplayConfig)
 		adminSettings.GET("/paid-redeem-discount", h.Admin.Setting.GetPaidRedeemDiscount)
 		adminSettings.PUT("/paid-redeem-discount", h.Admin.Setting.UpdatePaidRedeemDiscount)

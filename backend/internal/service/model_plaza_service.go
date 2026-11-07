@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
+
+	gocache "github.com/patrickmn/go-cache"
+	"golang.org/x/sync/singleflight"
 )
 
 // PlazaOfficialPricing 模型广场展示用的官方参考价（USD per token），与计费同源：
@@ -66,11 +70,15 @@ type PlazaGroup struct {
 // 模型枚举来自渠道配置；token 模型的展示单价与阶梯由 BillingService 的阶梯表
 // 查询给出（与扣费走同一条解析链与计费函数），图片/按次模型沿用渠道/分组档位价。
 type ModelPlazaService struct {
-	channelRepo    ChannelRepository
-	groupRepo      GroupRepository
-	pricingService *PricingService
-	billingService *BillingService
-	resolver       *ModelPricingResolver
+	channelRepo         ChannelRepository
+	groupRepo           GroupRepository
+	pricingService      *PricingService
+	billingService      *BillingService
+	resolver            *ModelPricingResolver
+	accountRepo         AccountRepository
+	fetchAccountModels  func(context.Context, *Account) ([]string, error)
+	accountModelsCache  *gocache.Cache
+	accountModelsFlight singleflight.Group
 }
 
 // NewModelPlazaService 创建模型广场服务。
@@ -80,13 +88,18 @@ func NewModelPlazaService(
 	pricingService *PricingService,
 	billingService *BillingService,
 	resolver *ModelPricingResolver,
+	accountRepo AccountRepository,
+	accountTestService *AccountTestService,
 ) *ModelPlazaService {
 	return &ModelPlazaService{
-		channelRepo:    channelRepo,
-		groupRepo:      groupRepo,
-		pricingService: pricingService,
-		billingService: billingService,
-		resolver:       resolver,
+		channelRepo:        channelRepo,
+		groupRepo:          groupRepo,
+		pricingService:     pricingService,
+		billingService:     billingService,
+		resolver:           resolver,
+		accountRepo:        accountRepo,
+		fetchAccountModels: accountTestService.FetchUpstreamSupportedModels,
+		accountModelsCache: gocache.New(time.Minute, 5*time.Minute),
 	}
 }
 
@@ -107,24 +120,34 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	return s.ListDisplayGroups(ctx, ModelPlazaDisplayConfig{Mode: "automatic"})
 }
 
-// ListDisplayGroups uses the administrator's group/model selection in manual
-// mode. User visibility and dedicated rates are still applied by the handler.
+// ListDisplayGroups uses the selected groups' account models in manual
+// mode, exclusively from their account pools.
 func (s *ModelPlazaService) ListDisplayGroups(ctx context.Context, cfg ModelPlazaDisplayConfig) ([]PlazaGroup, error) {
+	return s.ListVisibleDisplayGroups(ctx, cfg, nil)
+}
+
+// ListVisibleDisplayGroups applies visibility before discovering account models,
+// so an inaccessible group's upstream cannot break the caller's catalogue.
+// A nil predicate includes all groups for internal/admin callers.
+func (s *ModelPlazaService) ListVisibleDisplayGroups(ctx context.Context, cfg ModelPlazaDisplayConfig, isVisible func(int64, bool) bool) ([]PlazaGroup, error) {
 	cfg, err := normalizeModelPlazaDisplay(cfg)
 	if err != nil {
 		return nil, err
 	}
-	selected := make(map[int64][]ModelPlazaDisplayModel, len(cfg.Groups))
+	selected := make(map[int64]bool, len(cfg.Groups))
 	for _, entry := range cfg.Groups {
-		selected[entry.GroupID] = entry.Models
+		selected[entry.GroupID] = true
 	}
 	manual := cfg.Mode == "manual"
 	if manual && len(selected) == 0 {
 		return []PlazaGroup{}, nil
 	}
-	channels, err := s.channelRepo.ListAll(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("list channels: %w", err)
+	var channels []Channel
+	if !manual {
+		channels, err = s.channelRepo.ListAll(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("list channels: %w", err)
+		}
 	}
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
@@ -140,7 +163,10 @@ func (s *ModelPlazaService) ListDisplayGroups(ctx context.Context, cfg ModelPlaz
 	order := make([]int64, 0, len(groups))
 	for i := range groups {
 		g := &groups[i]
-		if _, ok := selected[g.ID]; manual && !ok {
+		if manual && !selected[g.ID] {
+			continue
+		}
+		if isVisible != nil && !isVisible(g.ID, g.IsExclusive) {
 			continue
 		}
 		byGroup[g.ID] = &PlazaGroup{
@@ -183,9 +209,6 @@ func (s *ModelPlazaService) ListDisplayGroups(ctx context.Context, cfg ModelPlaz
 		fillGlobalPricingFallback(s.pricingService, supported)
 
 		for _, gid := range ch.GroupIDs {
-			if manual && len(selected[gid]) > 0 {
-				continue
-			}
 			pg, ok := byGroup[gid]
 			if !ok {
 				continue
@@ -227,10 +250,9 @@ func (s *ModelPlazaService) ListDisplayGroups(ctx context.Context, cfg ModelPlaz
 	for _, gid := range order {
 		pg := byGroup[gid]
 		if manual {
-			for _, spec := range selected[gid] {
-				if pg.Platform == PlatformComposite || spec.Platform == pg.Platform {
-					pg.Models = append(pg.Models, s.explicitDisplayModel(ctx, spec, groupEnt[gid]))
-				}
+			pg.Models, err = s.groupDisplayModels(ctx, groupEnt[gid])
+			if err != nil {
+				return nil, err
 			}
 		}
 		if len(pg.Models) == 0 && !manual {
@@ -244,7 +266,9 @@ func (s *ModelPlazaService) ListDisplayGroups(ctx context.Context, cfg ModelPlaz
 		})
 		g := groupEnt[gid]
 		for j := range pg.Models {
-			if !manual || len(selected[gid]) == 0 {
+			if manual {
+				s.fillManualDisplayPricing(ctx, &pg.Models[j], g)
+			} else {
 				s.fillDisplayPricing(ctx, &pg.Models[j], g)
 			}
 			pg.Models[j].OfficialPricing = s.lookupOfficialPricing(ctx, pg.Models[j].Name, officialMemo)
@@ -265,6 +289,10 @@ func (s *ModelPlazaService) ListDisplayGroups(ctx context.Context, cfg ModelPlaz
 // token 模型取计费阶梯表（单价与档位均由真实计费函数得出），
 // 图片/按次模型（或阶梯表不可用时）沿用渠道定价与分组图片档位价。
 func (s *ModelPlazaService) fillDisplayPricing(ctx context.Context, m *PlazaModel, g *Group) {
+	s.fillDisplayPricingWithResolver(ctx, m, g, s.resolver)
+}
+
+func (s *ModelPlazaService) fillDisplayPricingWithResolver(ctx context.Context, m *PlazaModel, g *Group, resolver *ModelPricingResolver) {
 	if groupPricing := matchGroupModelPricing(g, m.Name); groupPricing != nil {
 		m.Pricing = groupPricing
 		// 分组模型级固定价就是实收价，不能再被分组图片兜底档位覆盖。
@@ -273,8 +301,8 @@ func (s *ModelPlazaService) fillDisplayPricing(ctx context.Context, m *PlazaMode
 			return
 		}
 	}
-	if s.billingService != nil && s.resolver != nil {
-		sched, err := s.billingService.ResolveContextPricingSchedule(ctx, s.resolver, ContextPricingScheduleInput{
+	if s.billingService != nil && resolver != nil {
+		sched, err := s.billingService.ResolveContextPricingSchedule(ctx, resolver, ContextPricingScheduleInput{
 			Model:    m.Name,
 			Group:    g,
 			Platform: m.Platform,

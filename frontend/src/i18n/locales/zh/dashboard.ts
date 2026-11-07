@@ -722,10 +722,14 @@ export default {
       officialPrice: '官方价格',
       rate: '折扣倍率',
       unitPerMillion: '$ / 1M token',
+      unitPrice: '单价',
+      mixedUnits: '单位见模型；Token 价格按百万计',
       perUnitRequest: '/ 次',
       perUnitImage: '/ 张',
+      perUnitSecond: '/ 秒',
       perRequest: '按次计费',
-      perImage: '按图片计费'
+      perImage: '按图片计费',
+      perVideo: '视频（按秒）'
     },
     nav: {
       login: '登录',

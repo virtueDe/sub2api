@@ -912,6 +912,9 @@ export interface OpsErrorLog {
 
   severity: OpsSeverity
   status_code: number
+  upstream_status_code?: number | null
+  // Recorded response outcome; in-band errors may differ from the HTTP status.
+  client_status_code?: number | null
   platform: string
   model: string
 
@@ -953,7 +956,6 @@ export interface OpsErrorDetail extends OpsErrorLog {
   error_body: string
 
   // Upstream context (optional; enriched by gateway services)
-  upstream_status_code?: number | null
   upstream_error_message?: string
   upstream_error_detail?: string
   upstream_errors?: string

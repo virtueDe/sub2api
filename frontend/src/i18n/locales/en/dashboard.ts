@@ -718,10 +718,14 @@ export default {
       officialPrice: 'Official Price',
       rate: 'Rate',
       unitPerMillion: '$ / 1M tokens',
+      unitPrice: 'Unit price',
+      mixedUnits: 'Units shown per model; tokens priced per million',
       perUnitRequest: '/ request',
       perUnitImage: '/ image',
+      perUnitSecond: '/ second',
       perRequest: 'Per request',
-      perImage: 'Per image'
+      perImage: 'Per image',
+      perVideo: 'Video (per second)'
     },
     nav: {
       login: 'Sign In',

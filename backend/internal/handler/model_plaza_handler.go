@@ -129,12 +129,6 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	groups, err := h.plazaService.ListDisplayGroups(c.Request.Context(), display)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
 	// allowedGroups == nil 表示匿名；登录用户恒为非 nil（可能为空集合）。
 	var allowedGroups map[int64]struct{}
 	var restrictPublicGroups bool
@@ -154,7 +148,13 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		}
 	}
 
-	visible := filterPlazaVisibleGroups(groups, allowedGroups, restrictPublicGroups)
+	visible, err := h.plazaService.ListVisibleDisplayGroups(c.Request.Context(), display, func(id int64, exclusive bool) bool {
+		return plazaGroupVisible(id, exclusive, allowedGroups, restrictPublicGroups)
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	// 广场可匿名访问，分组文案随请求语言变化，提示中间缓存按语言区分。
 	// 追加而非覆盖：CORS 中间件已为具体来源写入 Vary: Origin。
@@ -166,28 +166,16 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 	})
 }
 
-// filterPlazaVisibleGroups 按登录态裁剪分组可见性。
+// plazaGroupVisible 在读取模型目录前判断分组可见性。
 // allowedGroups == nil 表示匿名（仅非专属）；非 nil 包含普通授权及有效订阅分组。
 // restrictPublicGroups 为 true 时，公开分组也必须落在 allowedGroups 内，否则用户会
 // 在广场看到自己实际绑定不了的分组。
-func filterPlazaVisibleGroups(
-	groups []service.PlazaGroup,
-	allowedGroups map[int64]struct{},
-	restrictPublicGroups bool,
-) []service.PlazaGroup {
-	visible := make([]service.PlazaGroup, 0, len(groups))
-	for _, g := range groups {
-		if g.IsExclusive || (restrictPublicGroups && allowedGroups != nil) {
-			if allowedGroups == nil {
-				continue
-			}
-			if _, ok := allowedGroups[g.ID]; !ok {
-				continue
-			}
-		}
-		visible = append(visible, g)
+func plazaGroupVisible(id int64, exclusive bool, allowedGroups map[int64]struct{}, restrictPublicGroups bool) bool {
+	if exclusive || (restrictPublicGroups && allowedGroups != nil) {
+		_, allowed := allowedGroups[id]
+		return allowed
 	}
-	return visible
+	return true
 }
 
 // toLocalizedModelPlazaGroups 转换可见分组，并把名称与描述换成请求首选语言的版本。
