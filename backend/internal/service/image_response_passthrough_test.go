@@ -161,9 +161,10 @@ func TestOpenAIImagesOAuthPassthroughPreservesBase64(t *testing.T) {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/stream=%t", route, stream), func(t *testing.T) {
 				model := "gpt-image-2"
-				if route == "responses" {
+				switch route {
+				case "responses":
 					model = "gpt-image-1"
-				} else if route == "native-json" {
+				case "native-json":
 					model = "gpt-image-2.6-flare"
 				}
 				body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"cat","response_format":"url","stream":%t}`, model, stream))
