@@ -302,7 +302,7 @@ func (s *UsageService) GetUserDashboardStats(ctx context.Context, userID int64) 
 
 // GetAPIKeyDashboardStats returns dashboard summary stats filtered by API Key.
 func (s *UsageService) GetAPIKeyDashboardStats(ctx context.Context, apiKeyID int64) (*usagestats.UserDashboardStats, error) {
-	stats, err := loadUsageStats(ctx, &s.statsCache, usageSummaryKey(apiKeyID), func(loadCtx context.Context) (*usagestats.UserDashboardStats, error) {
+	stats, err := loadUsageStats(ctx, &s.statsCache, usageSummaryKey(apiKeyID), apiKeyID, func(loadCtx context.Context) (*usagestats.UserDashboardStats, error) {
 		return s.usageRepo.GetAPIKeyDashboardStats(loadCtx, apiKeyID)
 	})
 	if err != nil {
@@ -405,7 +405,7 @@ func (s *UsageService) GetGroupStatsWithFilters(ctx context.Context, startTime, 
 // GetAPIKeyModelStats returns per-model usage stats for a specific API Key.
 func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.ModelStat, error) {
 	key := fmt.Sprintf("model:%d:%d:%d", apiKeyID, startTime.UnixNano(), endTime.UnixNano())
-	stats, err := loadUsageStats(ctx, &s.statsCache, key, func(loadCtx context.Context) ([]usagestats.ModelStat, error) {
+	stats, err := loadUsageStats(ctx, &s.statsCache, key, apiKeyID, func(loadCtx context.Context) ([]usagestats.ModelStat, error) {
 		return s.usageRepo.GetModelStatsWithFilters(loadCtx, startTime, endTime, 0, apiKeyID, 0, 0, nil, nil, nil)
 	})
 	if err != nil {
@@ -417,7 +417,7 @@ func (s *UsageService) GetAPIKeyModelStats(ctx context.Context, apiKeyID int64, 
 // GetAPIKeyDailyUsage returns daily usage stats for a user's API key.
 func (s *UsageService) GetAPIKeyDailyUsage(ctx context.Context, userID, apiKeyID int64, startTime, endTime time.Time) ([]usagestats.APIKeyDailyUsagePoint, error) {
 	key := fmt.Sprintf("daily:%d:%d:%d:%d", userID, apiKeyID, startTime.UnixNano(), endTime.UnixNano())
-	trend, err := loadUsageStats(ctx, &s.statsCache, key, func(loadCtx context.Context) ([]usagestats.TrendDataPoint, error) {
+	trend, err := loadUsageStats(ctx, &s.statsCache, key, apiKeyID, func(loadCtx context.Context) ([]usagestats.TrendDataPoint, error) {
 		return s.usageRepo.GetUsageTrendWithFilters(loadCtx, startTime, endTime, "day", userID, apiKeyID, 0, 0, "", nil, nil, nil)
 	})
 	if err != nil {

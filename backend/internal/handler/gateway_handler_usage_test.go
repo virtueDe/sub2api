@@ -8,11 +8,67 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type unavailableUsageStatsRepo struct {
+	service.UsageLogRepository
+	calls int
+}
+
+func (r *unavailableUsageStatsRepo) GetAPIKeyDashboardStats(context.Context, int64) (*usagestats.UserDashboardStats, error) {
+	r.calls++
+	return nil, context.DeadlineExceeded
+}
+
+type liveUsageBalanceRepo struct {
+	service.UserRepository
+	balance float64
+	calls   int
+}
+
+func (r *liveUsageBalanceRepo) GetByID(context.Context, int64) (*service.User, error) {
+	r.calls++
+	return &service.User{ID: 42, Balance: r.balance}, nil
+}
+
+func (*liveUsageBalanceRepo) GetUserAvatar(context.Context, int64) (*service.UserAvatar, error) {
+	return nil, nil
+}
+
+func TestUsageStatisticsBackoffStillReturnsLiveBalance(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	statsRepo := &unavailableUsageStatsRepo{}
+	users := &liveUsageBalanceRepo{}
+	h := &GatewayHandler{
+		usageService: service.NewUsageService(statsRepo, nil, nil, nil),
+		userService:  service.NewUserService(users, nil, nil, nil),
+	}
+	for i, balance := range []float64{12, 9.5} {
+		users.balance = balance
+		recorder := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(recorder)
+		c.Request = httptest.NewRequest(http.MethodGet, "/v1/usage", nil)
+		c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 7, UserID: 42, Status: service.StatusAPIKeyActive})
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 42})
+		h.Usage(c)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var body map[string]any
+		require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &body))
+		require.Equal(t, balance, body["balance"])
+		require.Equal(t, balance, body["remaining"])
+		require.Equal(t, "unrestricted", body["mode"])
+		for _, key := range []string{"usage", "daily_usage", "model_stats"} {
+			require.NotContains(t, body, key, "failed statistics must not masquerade as zero usage")
+		}
+		require.Equal(t, i+1, users.calls)
+		require.Equal(t, 1, statsRepo.calls, "polling must not repeat a failed scan")
+	}
+}
 
 func TestUsageUnrestrictedIncludesWeeklyWindowStart(t *testing.T) {
 	gin.SetMode(gin.TestMode)

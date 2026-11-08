@@ -17,6 +17,7 @@ import (
 const (
 	usageStatsTTL         = 20 * time.Second
 	usageStatsTimeout     = 2 * time.Second
+	usageStatsFailureTTL  = 30 * time.Second
 	usageStatsMaxEntries  = 1024
 	usageStatsConcurrency = 2
 )
@@ -27,13 +28,60 @@ type usageStatsEntry struct {
 	value   any
 	expires time.Time
 }
+
+type usageStatsScopeState struct {
+	loading    bool
+	retryAfter time.Time
+	err        error
+}
+
 type usageStatsCache struct {
 	once         sync.Once
 	mu           sync.Mutex
 	entries      map[string]usageStatsEntry
+	scopes       map[int64]usageStatsScopeState
 	gate         chan struct{}
 	flights      singleflight.Group
 	lastErrorLog atomic.Int64
+}
+
+// All derived statistics for a key share admission and failure backoff. Result
+// keys still include the exact range, so different ranges never share values.
+func (c *usageStatsCache) beginLoad(scope int64) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	if state, ok := c.scopes[scope]; ok {
+		if state.loading {
+			return errUsageStatsBusy
+		}
+		if now.Before(state.retryAfter) {
+			return state.err
+		}
+		delete(c.scopes, scope)
+	}
+	if len(c.scopes) >= usageStatsMaxEntries {
+		for key, state := range c.scopes {
+			if !state.loading && !now.Before(state.retryAfter) {
+				delete(c.scopes, key)
+			}
+		}
+		if len(c.scopes) >= usageStatsMaxEntries {
+			return errUsageStatsBusy
+		}
+	}
+	c.scopes[scope] = usageStatsScopeState{loading: true}
+	return nil
+}
+
+func (c *usageStatsCache) finishLoad(scope int64, err error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err != nil {
+		c.scopes[scope] = usageStatsScopeState{err: err, retryAfter: time.Now().Add(usageStatsFailureTTL)}
+		return
+	}
+	delete(c.scopes, scope)
 }
 
 func usageSummaryKey(apiKeyID int64) string {
@@ -54,13 +102,14 @@ func (c *usageStatsCache) get(key string) (any, bool) {
 // Cache only derived statistics, never the live balance or authorization data.
 // Unique requests are rejected when the small DB budget is full instead of
 // creating another unbounded queue alongside billing.
-func loadUsageStats[T any](ctx context.Context, c *usageStatsCache, key string, load func(context.Context) (T, error)) (T, error) {
+func loadUsageStats[T any](ctx context.Context, c *usageStatsCache, key string, scope int64, load func(context.Context) (T, error)) (T, error) {
 	var zero T
 	if err := ctx.Err(); err != nil {
 		return zero, err
 	}
 	c.once.Do(func() {
 		c.entries = make(map[string]usageStatsEntry)
+		c.scopes = make(map[int64]usageStatsScopeState)
 		c.gate = make(chan struct{}, usageStatsConcurrency)
 	})
 	if value, ok := c.get(key); ok {
@@ -74,10 +123,14 @@ func loadUsageStats[T any](ctx context.Context, c *usageStatsCache, key string, 
 		if value, ok := c.get(key); ok {
 			return value, nil
 		}
+		if err := c.beginLoad(scope); err != nil {
+			return nil, err
+		}
 		select {
 		case c.gate <- struct{}{}:
 			defer func() { <-c.gate }()
 		default:
+			c.finishLoad(scope, nil)
 			c.logFailure(errUsageStatsBusy)
 			return nil, errUsageStatsBusy
 		}
@@ -85,6 +138,7 @@ func loadUsageStats[T any](ctx context.Context, c *usageStatsCache, key string, 
 		defer cancel()
 		value, err := load(loadCtx)
 		if err != nil {
+			c.finishLoad(scope, err)
 			c.logFailure(err)
 			return nil, err
 		}
@@ -101,6 +155,7 @@ func loadUsageStats[T any](ctx context.Context, c *usageStatsCache, key string, 
 			c.entries[key] = usageStatsEntry{value: value, expires: now.Add(usageStatsTTL)}
 		}
 		c.mu.Unlock()
+		c.finishLoad(scope, nil)
 		return value, nil
 	})
 	select {

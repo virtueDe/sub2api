@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -13,6 +15,12 @@ import (
 
 type usageBillingRepository struct {
 	db *sql.DB
+}
+
+// Preserve the original error for errors.Is/As, while identifying the SQL
+// operation that failed. No SQL text, credentials or request payload is logged.
+func usageBillingStageError(stage string, started time.Time, err error) error {
+	return fmt.Errorf("sql_stage=%s sql_elapsed_ms=%d: %w", stage, time.Since(started).Milliseconds(), err)
 }
 
 func NewUsageBillingRepository(_ *dbent.Client, sqlDB *sql.DB) service.UsageBillingRepository {
@@ -31,10 +39,19 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	if cmd.RequestID == "" {
 		return nil, service.ErrUsageBillingRequestIDRequired
 	}
+	started := time.Now()
+	defer func() {
+		if err != nil {
+			pool := r.db.Stats()
+			err = fmt.Errorf("usage billing request_id=%q api_key_id=%d user_id=%d account_id=%d elapsed_ms=%d db_pool_in_use=%d db_pool_idle=%d db_pool_max_open=%d context_err=%v: %w",
+				cmd.RequestID, cmd.APIKeyID, cmd.UserID, cmd.AccountID, time.Since(started).Milliseconds(),
+				pool.InUse, pool.Idle, pool.MaxOpenConnections, ctx.Err(), err)
+		}
+	}()
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return nil, err
+		return nil, usageBillingStageError("begin", started, err)
 	}
 	defer func() {
 		if tx != nil {
@@ -55,8 +72,9 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		return nil, err
 	}
 
+	commitStarted := time.Now()
 	if err := tx.Commit(); err != nil {
-		return nil, err
+		return nil, usageBillingStageError("commit", commitStarted, err)
 	}
 	tx = nil
 	return result, nil
@@ -68,6 +86,7 @@ func (r *usageBillingRepository) claimUsageBillingKey(ctx context.Context, tx *s
 
 func (r *usageBillingRepository) claimUsageBillingRequest(ctx context.Context, tx *sql.Tx, requestID string, apiKeyID int64, requestFingerprint string) (bool, error) {
 	var id int64
+	started := time.Now()
 	err := tx.QueryRowContext(ctx, `
 		INSERT INTO usage_billing_dedup (request_id, api_key_id, request_fingerprint)
 		VALUES ($1, $2, $3)
@@ -76,12 +95,13 @@ func (r *usageBillingRepository) claimUsageBillingRequest(ctx context.Context, t
 	`, requestID, apiKeyID, requestFingerprint).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		var existingFingerprint string
+		started = time.Now()
 		if err := tx.QueryRowContext(ctx, `
 			SELECT request_fingerprint
 			FROM usage_billing_dedup
 			WHERE request_id = $1 AND api_key_id = $2
 		`, requestID, apiKeyID).Scan(&existingFingerprint); err != nil {
-			return false, err
+			return false, usageBillingStageError("dedup_existing_lookup", started, err)
 		}
 		if strings.TrimSpace(existingFingerprint) != strings.TrimSpace(requestFingerprint) {
 			return false, service.ErrUsageBillingRequestConflict
@@ -89,9 +109,10 @@ func (r *usageBillingRepository) claimUsageBillingRequest(ctx context.Context, t
 		return false, nil
 	}
 	if err != nil {
-		return false, err
+		return false, usageBillingStageError("dedup_insert", started, err)
 	}
 	var archivedFingerprint string
+	started = time.Now()
 	err = tx.QueryRowContext(ctx, `
 		SELECT request_fingerprint
 		FROM usage_billing_dedup_archive
@@ -104,7 +125,7 @@ func (r *usageBillingRepository) claimUsageBillingRequest(ctx context.Context, t
 		return false, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
-		return false, err
+		return false, usageBillingStageError("dedup_archive_lookup", started, err)
 	}
 	return true, nil
 }
@@ -173,15 +194,17 @@ func (r *usageBillingRepository) applyBatchImageBalanceHold(
 
 func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
 	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
+		started := time.Now()
 		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
-			return err
+			return usageBillingStageError("subscription", started, err)
 		}
 	}
 
 	if cmd.BalanceCost > 0 {
+		started := time.Now()
 		newBalance, sufficient, err := deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.BalanceCost)
 		if err != nil {
-			return err
+			return usageBillingStageError("balance", started, err)
 		}
 		result.NewBalance = &newBalance
 		result.BalanceOverdrafted = !sufficient
@@ -189,24 +212,27 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 
 	// Key 已不存在时跳过其自身的额度/限速计数，其余结算项不受影响。
 	if cmd.APIKeyQuotaCost > 0 {
+		started := time.Now()
 		exhausted, err := incrementUsageBillingAPIKeyQuota(ctx, tx, cmd.APIKeyID, cmd.APIKeyQuotaCost)
 		if err != nil && !errors.Is(err, service.ErrAPIKeyNotFound) {
-			return err
+			return usageBillingStageError("api_key_quota", started, err)
 		}
 		result.APIKeyQuotaExhausted = exhausted
 	}
 
 	if cmd.APIKeyRateLimitCost > 0 {
+		started := time.Now()
 		if err := incrementUsageBillingAPIKeyRateLimit(ctx, tx, cmd.APIKeyID, cmd.APIKeyRateLimitCost); err != nil && !errors.Is(err, service.ErrAPIKeyNotFound) {
-			return err
+			return usageBillingStageError("api_key_rate_limit", started, err)
 		}
 	}
 
 	// 账号已不存在时跳过其配额计数，其余结算项不受影响。
 	if cmd.AccountQuotaCost > 0 && service.AccountTypeSupportsQuota(cmd.AccountType) {
+		started := time.Now()
 		quotaState, err := incrementUsageBillingAccountQuota(ctx, tx, cmd.AccountID, cmd.AccountQuotaCost, cmd.AccountQuotaHasDailyLimit, cmd.AccountQuotaHasWeeklyLimit)
 		if err != nil && !errors.Is(err, service.ErrAccountNotFound) {
-			return err
+			return usageBillingStageError("account_quota", started, err)
 		}
 		result.QuotaState = quotaState
 	}
