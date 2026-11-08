@@ -80,6 +80,15 @@ func TestImageGenerationCaptureResponseFormats(t *testing.T) {
 	}
 }
 
+func TestImageGenerationCaptureGeminiFileData(t *testing.T) {
+	capture := NewImageGenerationCapture("application/json", []byte(`{"prompt":"tree"}`))
+	capture.ObserveResponse([]byte(`{"candidates":[{"content":{"parts":[{"fileData":{"mimeType":"image/png","fileUri":"https://example.test/a.png"}},{"file_data":{"mime_type":"image/jpeg","file_uri":"https://example.test/b.jpg"}},{"fileData":{"mimeType":"audio/mp3","fileUri":"https://example.test/c.mp3"}}]}}]}`), false)
+	images := capture.Snapshot().Images
+	require.Len(t, images, 2)
+	require.Equal(t, "https://example.test/a.png", images[0].URL)
+	require.Equal(t, "https://example.test/b.jpg", images[1].URL)
+}
+
 func TestImageGenerationCaptureFinalReplacesPartialAndDeduplicates(t *testing.T) {
 	capture := NewImageGenerationCapture("application/json", []byte(`{"prompt":"cat"}`))
 	capture.ObserveResponse([]byte("data: {\"type\":\"response.image_generation_call.partial_image\",\"output_index\":0,\"partial_image_b64\":\"partial\"}\n\n"), true)

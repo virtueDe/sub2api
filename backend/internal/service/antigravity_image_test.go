@@ -8,6 +8,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestIsImageGenerationModel_NanoBanana21(t *testing.T) {
+	for _, model := range []string{"gemini-nano-banana-2.1", "models/gemini-nano-banana-2.1", "GEMINI-NANO-BANANA-2.1"} {
+		require.True(t, isImageGenerationModel(model), model)
+	}
+	require.False(t, isImageGenerationModel("custom-gemini-nano-banana-2.1"))
+	require.False(t, isImageGenerationModel("gemini-nano-banana-2.10"))
+}
+
 // TestIsImageGenerationModel_GeminiProImage 测试 gemini-3-pro-image 识别
 func TestIsImageGenerationModel_GeminiProImage(t *testing.T) {
 	require.True(t, isImageGenerationModel("gemini-3-pro-image"))

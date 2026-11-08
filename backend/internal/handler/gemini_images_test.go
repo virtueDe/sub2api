@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildGeminiImageRequestIgnoresUnsupportedOptions(t *testing.T) {
@@ -66,6 +67,31 @@ func TestBuildGeminiImageRequestIgnoresUnsupportedOptions(t *testing.T) {
 	data := inlineData["data"]
 	if data != base64.StdEncoding.EncodeToString([]byte("png")) {
 		t.Fatalf("inline data was not encoded: %v", data)
+	}
+}
+
+func TestGeminiImageItemsFileData(t *testing.T) {
+	items, err := geminiImageItems([]byte(`{"candidates":[{"content":{"parts":[{"fileData":{"mimeType":"image/png","fileUri":"https://example.test/a.png"}},{"file_data":{"mime_type":"image/jpeg","file_uri":"https://example.test/b.jpg"}},{"fileData":{"mimeType":"audio/mp3","fileUri":"https://example.test/c.mp3"}}]}}]}`))
+	require.NoError(t, err)
+	require.Equal(t, []map[string]string{{"url": "https://example.test/a.png"}, {"url": "https://example.test/b.jpg"}}, items)
+	for _, uri := range []string{`""`, `123`, `"gs://bucket/image.png"`, `"javascript:alert(1)"`} {
+		_, err := geminiImageItems([]byte(`{"candidates":[{"content":{"parts":[{"fileData":{"mimeType":"image/png","fileUri":` + uri + `}}]}}]}`))
+		require.Error(t, err)
+	}
+	items, err = geminiImageItems([]byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"aGk="}},{"fileData":{"mimeType":"image/png","fileUri":"gs://bucket/image.png"}}]}}]}`))
+	require.ErrorContains(t, err, "public HTTP(S) URL")
+	require.Empty(t, items, "must not silently return a partial successful result")
+}
+
+func TestGeminiSafetyFailoverKeeps451(t *testing.T) {
+	status, message := mapGeminiUpstreamError(451)
+	require.Equal(t, 451, status)
+	require.Equal(t, "Content blocked by upstream policy", message)
+}
+
+func TestNanoBananaImageModelListing(t *testing.T) {
+	for _, platform := range []string{service.PlatformGemini, service.PlatformComposite} {
+		require.True(t, isImageModelForPlatform(platform, "gemini-nano-banana-2.1"))
 	}
 }
 

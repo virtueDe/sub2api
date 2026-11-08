@@ -26,6 +26,30 @@ type asyncImageMemoryStore struct {
 	tasks map[string]*service.ImageTaskRecord
 }
 
+func TestAsyncGeminiValidationPreservesErrors(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &AsyncImageHandler{openAI: &OpenAIGatewayHandler{gatewayService: &service.OpenAIGatewayService{}}}
+	for _, tc := range []struct{ name, body, want string }{
+		{"unknown model", `{"model":"unknown","prompt":"draw a tree"}`, "images endpoint requires an image model"},
+		{"invalid JSON", `{"model":`, "failed to parse request body"},
+		{"invalid count", `{"model":"gemini-3-pro-image-preview","prompt":"tree","n":0}`, "n must be greater than 0"},
+		{"missing prompt", `{"model":"gemini-3-pro-image-preview"}`, "prompt is required"},
+		{"banana", `{"model":"gemini-nano-banana-2.1","prompt":"draw a tree"}`, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(tc.body))
+			c.Request.Header.Set("Content-Type", "application/json")
+			err := h.validateRequest(c, service.PlatformGemini, []byte(tc.body))
+			if tc.want == "" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, tc.want)
+			}
+		})
+	}
+}
+
 func (s *asyncImageMemoryStore) Save(_ context.Context, task *service.ImageTaskRecord, _ time.Duration) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

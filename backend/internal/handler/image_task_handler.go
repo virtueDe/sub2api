@@ -249,7 +249,10 @@ func (h *AsyncImageHandler) validateRequest(c *gin.Context, platform string, bod
 			return errors.New("image gateway is unavailable")
 		}
 		parsed, err := h.openAI.gatewayService.ParseGeminiImagesRequest(c, body)
-		if err != nil || strings.TrimSpace(parsed.Prompt) == "" {
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(parsed.Prompt) == "" {
 			return errors.New("prompt is required")
 		}
 		return nil

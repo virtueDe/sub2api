@@ -23,6 +23,7 @@ func TestIsGeminiImageGenerationIntent(t *testing.T) {
 		want   bool
 	}{
 		{name: "pro image", models: []string{"gemini-3-pro-image"}, want: true},
+		{name: "nano banana 2.1", models: []string{"gemini-nano-banana-2.1"}, want: true},
 		{name: "flash image preview with prefix", models: []string{"models/gemini-3.1-flash-image-preview"}, want: true},
 		{name: "image generation experimental", models: []string{"gemini-2.0-flash-exp-image-generation"}, want: true},
 		{name: "imageless suffix", models: []string{"gemini-3-pro-imageless"}, want: false},

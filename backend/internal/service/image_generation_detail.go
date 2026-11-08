@@ -217,6 +217,12 @@ func (c *ImageGenerationCapture) collectImages(value any, partial bool, index st
 		if image.MimeType == "" {
 			image.MimeType, _ = node["mime_type"].(string)
 		}
+		if image.URL == "" && strings.HasPrefix(strings.ToLower(image.MimeType), "image/") {
+			image.URL, _ = node["fileUri"].(string)
+			if image.URL == "" {
+				image.URL, _ = node["file_uri"].(string)
+			}
+		}
 		if strings.HasPrefix(typ, "image_generation") || strings.HasPrefix(typ, "response.image_generation_call.") {
 			if image.B64JSON == "" {
 				image.B64JSON, _ = node["result"].(string)
@@ -259,7 +265,7 @@ func (c *ImageGenerationCapture) collectImages(value any, partial bool, index st
 		for key, child := range node {
 			// Only output containers; a response may also echo input/reference images.
 			switch key {
-			case "data", "output", "response", "item", "candidates", "choices", "message", "delta", "content", "text", "parts", "inlineData", "inline_data", "images", "image_url":
+			case "data", "output", "response", "item", "candidates", "choices", "message", "delta", "content", "text", "parts", "inlineData", "inline_data", "fileData", "file_data", "images", "image_url":
 				childIndex := index
 				// Top-level output arrays use the same positions as output_index in
 				// SSE events; nested arrays retain their parent position.

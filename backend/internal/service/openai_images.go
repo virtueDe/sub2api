@@ -683,7 +683,7 @@ func validateOpenAIImagesModel(model string) error {
 func isGeminiCompatibleImageModel(model string) bool {
 	model = strings.ToLower(strings.TrimSpace(model))
 	return strings.HasPrefix(model, "gemini-") &&
-		(strings.HasSuffix(model, "-image") || strings.Contains(model, "-image-"))
+		(isImageGenerationModel(model) || strings.HasSuffix(model, "-image") || strings.Contains(model, "-image-"))
 }
 
 func validateCompatibleImagesModel(model string) error {

@@ -347,7 +347,7 @@ curl "https://subapi.duomi.cloud/v1/images/tasks/${TASK_ID}" \
 | Nano Banana 2 | `gemini-3.1-flash-image-preview` | `imageSize` 支持 `512`、`1K`、`2K`、`4K`。 |
 | Nano Banana 2.1 | `gemini-nano-banana-2.1` | `imageSize` 支持 `1K`、`2K`、`4K`，不支持 `512`。 |
 
-三款模型均使用以下原生调用格式。本站兼容异步入口当前使用两个 `-preview` 模型；`gemini-nano-banana-2.1` 使用原生同步接口。
+三款模型均支持以下原生调用格式，以及本站 Images 兼容同步／异步入口。兼容入口使用顶层 `model`、`prompt`，原生入口使用 URL 模型和 `contents`，两种请求格式不能混用。
 
 ### 5.2 原生同步文生图
 
@@ -468,7 +468,9 @@ HTTP 成功也可能只返回文字或内容过滤信息，不能只凭 HTTP `20
 
 ### 5.6 Gemini 异步文生图：本站兼容格式
 
-使用 `gemini-3.1-flash-image-preview` 或 `gemini-3-pro-image-preview`。本站单任务异步入口使用 `model`、`prompt` 等字段，**不能直接提交原生 `contents` / `generationConfig` 请求体**。
+使用 `gemini-3.1-flash-image-preview`、`gemini-3-pro-image-preview` 或 `gemini-nano-banana-2.1`。本站单任务异步入口使用 `model`、`prompt` 等字段，**不能直接提交原生 `contents` / `generationConfig` 请求体**。
+
+同步调用可使用 `/v1/images/generations` 或 `/v1/images/edits`。兼容结果的 `data[]` 支持 `b64_json` 和 `url`：上游 `inlineData` 转为 Base64，图片 `fileData` 的 HTTP(S) 地址转为 URL；不支持将 `gs://` 等需额外认证的文件引用作为公开图片地址。
 
 ```bash
 curl -i "https://subapi.duomi.cloud/v1/images/generations/async" \
@@ -491,7 +493,7 @@ curl "https://subapi.duomi.cloud/v1/images/tasks/${TASK_ID}" \
 
 | 参数 | 类型 | 必填 | 本站 Gemini 异步行为 |
 | --- | --- | --- | --- |
-| `model` | string | 是 | `gemini-3.1-flash-image-preview` 或 `gemini-3-pro-image-preview`。 |
+| `model` | string | 是 | `gemini-3.1-flash-image-preview`、`gemini-3-pro-image-preview` 或 `gemini-nano-banana-2.1`。 |
 | `prompt` | string | 是 | 转换为原生 `contents[].parts[].text`。 |
 | `aspect_ratio` | string | 否 | 直接转为 `imageConfig.aspectRatio`，取值需符合所选模型；推荐通过此字段指定比例。 |
 | `size` | string | 否 | 兼容字段，例如 `1536x1024`。仅近似转换为 `16:9`、`3:2`、`1:1`、`2:3`、`9:16` 之一，**不控制精确像素或分辨率档位**；同时传入时 `aspect_ratio` 优先。 |

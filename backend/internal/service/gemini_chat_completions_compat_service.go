@@ -906,6 +906,13 @@ func (s *GeminiMessagesCompatService) writeGeminiChatCompletionsMappedError(
 	}
 
 	switch upstreamStatus {
+	case http.StatusUnavailableForLegalReasons:
+		statusCode = upstreamStatus
+		errType = "invalid_request_error"
+		errMsg = upstreamMsg
+		if errMsg == "" {
+			errMsg = "Content blocked by upstream policy"
+		}
 	case http.StatusBadRequest:
 		if statusCode == http.StatusBadGateway {
 			statusCode = http.StatusBadRequest

@@ -260,7 +260,7 @@ func TestHandleNativeNonStreamingResponse_FileDataImageBilling(t *testing.T) {
 	}
 	_, err := (&GeminiMessagesCompatService{}).handleNativeNonStreamingResponse(c, resp, false, nil, "")
 	require.NoError(t, err)
-	const model = "gemini-nano-banana-2.1"
+	const model = "custom-native-image-model"
 	require.False(t, isImageGenerationModel(model))
 	count := resolveGeminiImageCount(c, model, model)
 	require.Equal(t, 2, count)

@@ -211,3 +211,25 @@ func TestWriteGeminiMappedError_400KeepsUpstreamMessage(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, geminiSkippedTestUpstreamMsg, errObj["message"], "应回传上游 message")
 }
+
+func TestGeminiSafetyErrorPreserves451(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, chat := range []bool{false, true} {
+		svc := &GeminiMessagesCompatService{}
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		account := &Account{ID: 1, Platform: PlatformGemini}
+		body := []byte(`{"error":{"code":451,"message":"prompt or image unsafe"}}`)
+		if chat {
+			require.Error(t, svc.writeGeminiChatCompletionsMappedError(c, account, 451, "", body))
+		} else {
+			require.Error(t, svc.writeGeminiMappedError(c, account, 451, "", body))
+		}
+		require.Equal(t, http.StatusUnavailableForLegalReasons, rec.Code)
+		require.Contains(t, rec.Body.String(), `"type":"invalid_request_error"`)
+		require.Contains(t, rec.Body.String(), "prompt or image unsafe")
+		require.False(t, svc.shouldRetryGeminiUpstreamError(account, 451))
+		require.False(t, svc.shouldFailoverGeminiUpstreamError(451))
+	}
+}

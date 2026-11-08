@@ -251,6 +251,7 @@ func (h *GatewayHandler) forwardGeminiImage(c *gin.Context, ctx context.Context,
 
 func geminiImageItems(body []byte) ([]map[string]string, error) {
 	data := make([]map[string]string, 0)
+	var imageError error
 	gjson.GetBytes(body, "candidates").ForEach(func(_, candidate gjson.Result) bool {
 		candidate.Get("content.parts").ForEach(func(_, part gjson.Result) bool {
 			inline := part.Get("inlineData")
@@ -258,14 +259,41 @@ func geminiImageItems(body []byte) ([]map[string]string, error) {
 				inline = part.Get("inline_data")
 			}
 			value := strings.TrimSpace(inline.Get("data").String())
-			if value == "" {
+			if value != "" {
+				data = append(data, map[string]string{"b64_json": value})
 				return true
 			}
-			data = append(data, map[string]string{"b64_json": value})
+			file := part.Get("fileData")
+			if !file.Exists() {
+				file = part.Get("file_data")
+			}
+			mimeType := file.Get("mimeType")
+			if !mimeType.Exists() {
+				mimeType = file.Get("mime_type")
+			}
+			uri := file.Get("fileUri")
+			if !uri.Exists() {
+				uri = file.Get("file_uri")
+			}
+			if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(mimeType.String())), "image/") {
+				return true
+			}
+			// Only expose URLs clients can download. Gemini's gs:// file handles
+			// require credentials and are not public image URLs.
+			imageURL := strings.TrimSpace(uri.String())
+			parsed, err := url.Parse(imageURL)
+			if uri.Type != gjson.String || err != nil || parsed.Host == "" || parsed.User != nil || (parsed.Scheme != "https" && parsed.Scheme != "http") {
+				imageError = fmt.Errorf("upstream image file requires a public HTTP(S) URL")
+				return false
+			}
+			data = append(data, map[string]string{"url": imageURL})
 			return true
 		})
-		return true
+		return imageError == nil
 	})
+	if imageError != nil {
+		return nil, imageError
+	}
 	if len(data) == 0 {
 		//nolint:staticcheck // Preserve the public Gemini product name in the API error.
 		return nil, fmt.Errorf("Gemini returned no image data")

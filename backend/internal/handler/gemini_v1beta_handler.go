@@ -946,6 +946,8 @@ func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverE
 
 func mapGeminiUpstreamError(statusCode int) (int, string) {
 	switch statusCode {
+	case http.StatusUnavailableForLegalReasons:
+		return statusCode, "Content blocked by upstream policy"
 	case 401:
 		return http.StatusBadGateway, "Upstream authentication failed, please contact administrator"
 	case 403:

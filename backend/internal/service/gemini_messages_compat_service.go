@@ -1968,6 +1968,13 @@ func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, acc
 	}
 
 	switch upstreamStatus {
+	case http.StatusUnavailableForLegalReasons:
+		statusCode = upstreamStatus
+		errType = "invalid_request_error"
+		errMsg = upstreamMsg
+		if errMsg == "" {
+			errMsg = "Content blocked by upstream policy"
+		}
 	case 400:
 		if statusCode == 0 {
 			statusCode = http.StatusBadRequest

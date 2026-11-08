@@ -21,7 +21,7 @@ import (
 
 func TestCompatibleImagesGeminiModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, model := range []string{"gemini-2.5-flash-image", "gemini-2.5-flash-image-preview", "gemini-3-pro-image", "gemini-3.1-flash-image"} {
+	for _, model := range []string{"gemini-2.5-flash-image", "gemini-2.5-flash-image-preview", "gemini-3-pro-image", "gemini-3.1-flash-image", "gemini-nano-banana-2.1"} {
 		t.Run(model, func(t *testing.T) {
 			body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"draw"}`, model))
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -48,9 +48,12 @@ func TestCompatibleImagesGeminiModels(t *testing.T) {
 
 func TestCompatibleImagesForwardGemini(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, kind := range []string{"generation", "json_edit", "multipart_edit", "composite_multipart_alias", "channel_mapping", "account_mapping"} {
+	for _, kind := range []string{"generation", "nano_banana", "json_edit", "multipart_edit", "composite_multipart_alias", "channel_mapping", "account_mapping"} {
 		t.Run(kind, func(t *testing.T) {
 			model := "gemini-3.1-flash-image"
+			if kind == "nano_banana" {
+				model = "gemini-nano-banana-2.1"
+			}
 			endpoint := openAIImagesGenerationsEndpoint
 			contentType := "application/json"
 			channelModel := ""
