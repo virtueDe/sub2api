@@ -45,7 +45,7 @@ func (r *imageProfitRepository) ListPrices(ctx context.Context, page, size int) 
 	if err != nil {
 		return nil, 0, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	prices, err := scanProfitPrices(rows, true)
 	return prices, total, err
 }
@@ -84,7 +84,7 @@ func (r *imageProfitRepository) ListReports(ctx context.Context, start, end stri
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	reports := []service.ImageProfitReport{}
 	for rows.Next() {
 		var id int64
@@ -124,7 +124,7 @@ func (r *imageProfitRepository) PendingDates(ctx context.Context, through time.T
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	dates := []time.Time{}
 	for rows.Next() {
 		var value string
@@ -146,7 +146,7 @@ func (r *imageProfitRepository) Settle(ctx context.Context, day time.Time, reaso
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	// Read committed + date-scoped lock: a waiting worker sees the preceding commit.
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtextextended('image_profit:' || $1,0))`, date); err != nil {
 		return nil, err
