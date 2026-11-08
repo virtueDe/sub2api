@@ -817,6 +817,7 @@ const customMenuItemsForAdmin = computed(() => {
 const adminNavItems = computed((): NavItem[] => {
   const baseItems: NavItem[] = [
     { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
+    { path: '/admin/profit-accounting', label: t('nav.profitAccounting'), icon: RechargeSubscriptionIcon, hideInSimpleMode: true },
     { path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon, featureFlag: flagOpsMonitoring },
     { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
     { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon },
@@ -877,7 +878,6 @@ const adminNavItems = computed((): NavItem[] => {
       ],
     },
     { path: '/admin/usage', label: t('nav.usage'), icon: ChartIcon },
-    { path: '/admin/profit-accounting', label: t('nav.profitAccounting'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/admin/daily-token-ranking-reward', label: t('nav.dailyTokenRankingReward'), icon: RankingIcon },
     { path: '/admin/check-in-records', label: t('nav.checkinRecords'), icon: SignInIcon, hideInSimpleMode: true },
     { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
