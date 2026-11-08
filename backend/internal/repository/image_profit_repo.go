@@ -175,7 +175,7 @@ func (r *imageProfitRepository) Settle(ctx context.Context, day time.Time, reaso
 		return nil, err
 	}
 	prices, err := scanProfitPrices(pricesRows, false)
-	pricesRows.Close()
+	_ = pricesRows.Close()
 	if err != nil {
 		return nil, err
 	}
@@ -188,17 +188,17 @@ func (r *imageProfitRepository) Settle(ctx context.Context, day time.Time, reaso
 		var u service.ImageProfitUsage
 		var breakdown []byte
 		if err = rows.Scan(&u.ID, &u.AccountID, &u.ChannelID, &u.AccountName, &u.ChannelName, &u.Model, &u.Resolution, &u.ImageCount, &breakdown, &u.Revenue, &u.CreatedAt); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, err
 		}
 		if err = json.Unmarshal(breakdown, &u.Breakdown); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return nil, fmt.Errorf("invalid image size breakdown: %w", err)
 		}
 		calculator.Add(u)
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return nil, err
 	}
