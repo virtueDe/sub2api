@@ -172,6 +172,7 @@ export default {
     usage: '使用记录',
     ranking: '今日排行',
     dailyTokenRankingReward: '排行奖励结算',
+    profitAccounting: '利润核算',
     checkin: '每日签到',
     checkinRecords: '签到记录',
     redeem: '兑换',

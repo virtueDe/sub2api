@@ -172,6 +172,7 @@ export default {
     usage: 'Usage',
     ranking: 'Today\'s Ranking',
     dailyTokenRankingReward: 'Ranking Reward Settlement',
+    profitAccounting: 'Profit Accounting',
     checkin: 'Daily Check-in',
     checkinRecords: 'Check-in Records',
     redeem: 'Redeem',

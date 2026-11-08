@@ -716,6 +716,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/profit-accounting',
+    name: 'AdminProfitAccounting',
+    component: () => import('@/views/admin/ProfitAccountingView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Profit Accounting',
+      titleKey: 'admin.profitAccounting.title',
+      descriptionKey: 'admin.profitAccounting.description'
+    }
+  },
+  {
     path: '/admin/affiliates',
     redirect: '/admin/affiliates/invites'
   },
