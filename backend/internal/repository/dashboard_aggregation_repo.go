@@ -630,7 +630,7 @@ func (r *dashboardAggregationRepository) dropUsageLogsPartitions(ctx context.Con
 	sort.Slice(partitions, func(i, j int) bool {
 		return partitions[i].month.Before(partitions[j].month)
 	})
-	if db, ok := r.sql.(*sql.DB); ok {
+	if db, ok := r.sql.(usagePartitionTransactionBeginner); ok {
 		for _, partition := range partitions {
 			if err := dropUsageLogsPartitionWithRollupInvalidation(ctx, db, partition.name, partition.month); err != nil {
 				return err
@@ -638,15 +638,14 @@ func (r *dashboardAggregationRepository) dropUsageLogsPartitions(ctx context.Con
 		}
 		return nil
 	}
-	for _, partition := range partitions {
-		if _, err := r.sql.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", pq.QuoteIdentifier(partition.name))); err != nil {
-			return err
-		}
-	}
-	return nil
+	return fmt.Errorf("usage partition cleanup requires transactional invalidation")
 }
 
-func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db *sql.DB, name string, monthStart time.Time) error {
+type usagePartitionTransactionBeginner interface {
+	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
+}
+
+func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db usagePartitionTransactionBeginner, name string, monthStart time.Time) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -654,6 +653,18 @@ func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db *sql.D
 	rollback := func(err error) error {
 		_ = tx.Rollback()
 		return err
+	}
+	// Partition DDL does not fire DELETE triggers. Serialize with the rollup
+	// consumer and append affected buckets in the same transaction as DROP.
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(742981311)"); err != nil {
+		return rollback(err)
+	}
+	if _, err := tx.ExecContext(ctx, "LOCK TABLE "+pq.QuoteIdentifier(name)+" IN ACCESS EXCLUSIVE MODE"); err != nil {
+		return rollback(err)
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO usage_key_rollup_events(bucket_start,api_key_id,user_id)
+	 SELECT DISTINCT date_trunc('hour',created_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC',api_key_id,user_id FROM %s`, pq.QuoteIdentifier(name))); err != nil {
+		return rollback(err)
 	}
 
 	if err := lockGroupUsageRollupState(ctx, tx); err != nil {
@@ -678,8 +689,26 @@ func (r *dashboardAggregationRepository) createUsageLogsPartition(ctx context.Co
 		pq.QuoteLiteral(monthStart.Format("2006-01-02")),
 		pq.QuoteLiteral(nextMonth.Format("2006-01-02")),
 	)
-	_, err := r.sql.ExecContext(ctx, query)
-	return err
+	db, ok := r.sql.(usagePartitionTransactionBeginner)
+	if !ok {
+		return fmt.Errorf("usage partition creation requires a transaction")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// Serialize concurrent creators before the relation exists.
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(742981312)"); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, query); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "SELECT install_usage_key_rollup_partition_triggers($1::regclass)", name); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func truncateToDay(t time.Time) time.Time {

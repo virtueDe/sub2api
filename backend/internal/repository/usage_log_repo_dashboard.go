@@ -402,8 +402,35 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		return nil, err
 	}
 
-	// 累计 Token 统计
-	totalStatsQuery := `
+	if r.useUsageRollup(0) {
+		total, err := r.readUsageRollup(ctx, userID, 0, time.Time{}, time.Time{}, true)
+		if err != nil {
+			return nil, err
+		}
+		daily, err := r.readUsageRollup(ctx, userID, 0, today, time.Time{}, true)
+		if err != nil {
+			return nil, err
+		}
+		stats.TotalRequests = total.TotalRequests
+		stats.TodayRequests = daily.TotalRequests
+		stats.TotalInputTokens = total.TotalInputTokens
+		stats.TodayInputTokens = daily.TotalInputTokens
+		stats.TotalOutputTokens = total.TotalOutputTokens
+		stats.TodayOutputTokens = daily.TotalOutputTokens
+		stats.TotalCacheCreationTokens = total.TotalCacheCreationTokens
+		stats.TodayCacheCreationTokens = daily.TotalCacheCreationTokens
+		stats.TotalCacheReadTokens = total.TotalCacheReadTokens
+		stats.TodayCacheReadTokens = daily.TotalCacheReadTokens
+		stats.TotalTokens = total.TotalTokens
+		stats.TodayTokens = daily.TotalTokens
+		stats.TotalCost = total.TotalCost
+		stats.TodayCost = daily.TotalCost
+		stats.TotalActualCost = total.TotalActualCost
+		stats.TodayActualCost = daily.TotalActualCost
+		stats.AverageDurationMs = total.AverageDurationMs
+	} else {
+		// 累计 Token 统计
+		totalStatsQuery := `
 		SELECT
 			COUNT(*) as total_requests,
 			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
@@ -416,26 +443,26 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		FROM usage_logs
 		WHERE user_id = $1
 	`
-	if err := scanSingleRow(
-		ctx,
-		r.sql,
-		totalStatsQuery,
-		[]any{userID},
-		&stats.TotalRequests,
-		&stats.TotalInputTokens,
-		&stats.TotalOutputTokens,
-		&stats.TotalCacheCreationTokens,
-		&stats.TotalCacheReadTokens,
-		&stats.TotalCost,
-		&stats.TotalActualCost,
-		&stats.AverageDurationMs,
-	); err != nil {
-		return nil, err
-	}
-	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
+		if err := scanSingleRow(
+			ctx,
+			r.sql,
+			totalStatsQuery,
+			[]any{userID},
+			&stats.TotalRequests,
+			&stats.TotalInputTokens,
+			&stats.TotalOutputTokens,
+			&stats.TotalCacheCreationTokens,
+			&stats.TotalCacheReadTokens,
+			&stats.TotalCost,
+			&stats.TotalActualCost,
+			&stats.AverageDurationMs,
+		); err != nil {
+			return nil, err
+		}
+		stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 
-	// 今日 Token 统计
-	todayStatsQuery := `
+		// 今日 Token 统计
+		todayStatsQuery := `
 		SELECT
 			COUNT(*) as today_requests,
 			COALESCE(SUM(input_tokens), 0) as today_input_tokens,
@@ -447,23 +474,24 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 		FROM usage_logs
 		WHERE user_id = $1 AND created_at >= $2
 	`
-	if err := scanSingleRow(
-		ctx,
-		r.sql,
-		todayStatsQuery,
-		[]any{userID, today},
-		&stats.TodayRequests,
-		&stats.TodayInputTokens,
-		&stats.TodayOutputTokens,
-		&stats.TodayCacheCreationTokens,
-		&stats.TodayCacheReadTokens,
-		&stats.TodayCost,
-		&stats.TodayActualCost,
-	); err != nil {
-		return nil, err
-	}
-	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
+		if err := scanSingleRow(
+			ctx,
+			r.sql,
+			todayStatsQuery,
+			[]any{userID, today},
+			&stats.TodayRequests,
+			&stats.TodayInputTokens,
+			&stats.TodayOutputTokens,
+			&stats.TodayCacheCreationTokens,
+			&stats.TodayCacheReadTokens,
+			&stats.TodayCost,
+			&stats.TodayActualCost,
+		); err != nil {
+			return nil, err
+		}
+		stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
 
+	}
 	// 性能指标：RPM 和 TPM（最近1分钟，仅统计该用户的请求）
 	rpm, tpm, err := r.getPerformanceStats(ctx, userID)
 	if err != nil {
@@ -572,6 +600,13 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 }
 
 func (r *usageLogRepository) GetAPIKeyTotalStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
+	if r.useUsageRollup(apiKeyID) {
+		v, err := r.readUsageRollup(ctx, 0, apiKeyID, time.Time{}, time.Time{}, true)
+		if err != nil {
+			return nil, err
+		}
+		return &UserDashboardStats{TotalAPIKeys: 1, ActiveAPIKeys: 1, AverageDurationMs: v.AverageDurationMs, TotalRequests: v.TotalRequests, TotalInputTokens: v.TotalInputTokens, TotalOutputTokens: v.TotalOutputTokens, TotalCacheCreationTokens: v.TotalCacheCreationTokens, TotalCacheReadTokens: v.TotalCacheReadTokens, TotalTokens: v.TotalTokens, TotalCost: v.TotalCost, TotalActualCost: v.TotalActualCost}, nil
+	}
 	stats := &UserDashboardStats{TotalAPIKeys: 1, ActiveAPIKeys: 1}
 	// 累计 Token 统计
 	totalStatsQuery := `
@@ -609,6 +644,13 @@ func (r *usageLogRepository) GetAPIKeyTotalStats(ctx context.Context, apiKeyID i
 }
 
 func (r *usageLogRepository) GetAPIKeyTodayStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
+	if r.useUsageRollup(apiKeyID) {
+		v, err := r.readUsageRollup(ctx, 0, apiKeyID, timezone.Today(), time.Time{}, true)
+		if err != nil {
+			return nil, err
+		}
+		return &UserDashboardStats{TotalAPIKeys: 1, ActiveAPIKeys: 1, AverageDurationMs: v.AverageDurationMs, TodayRequests: v.TotalRequests, TodayInputTokens: v.TotalInputTokens, TodayOutputTokens: v.TotalOutputTokens, TodayCacheCreationTokens: v.TotalCacheCreationTokens, TodayCacheReadTokens: v.TotalCacheReadTokens, TodayTokens: v.TotalTokens, TodayCost: v.TotalCost, TodayActualCost: v.TotalActualCost}, nil
+	}
 	stats := &UserDashboardStats{TotalAPIKeys: 1, ActiveAPIKeys: 1}
 	today := timezone.Today()
 	// 今日 Token 统计

@@ -240,6 +240,9 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionedSortsAndInvali
 		{name: "usage_logs_202606", start: juneStart},
 	} {
 		mock.ExpectBegin()
+		mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(`LOCK TABLE`).WillReturnResult(sqlmock.NewResult(0, 1))
+		mock.ExpectExec(`INSERT INTO usage_key_rollup_events`).WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
 			WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 		mock.ExpectExec(`UPDATE usage_group_rollup_state`).
@@ -311,6 +314,9 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionFailureRollsBack
 			AddRow("usage_logs_202606").
 			AddRow("usage_logs_202604"))
 	mock.ExpectBegin()
+	mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`LOCK TABLE`).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec(`INSERT INTO usage_key_rollup_events`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	mock.ExpectExec(`UPDATE usage_group_rollup_state`).

@@ -82,6 +82,7 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 }
 
 func provideCleanup(
+	usageRollupWorker *service.UsageRollupWorker,
 	imageProfit *service.ImageProfitService,
 	entClient *ent.Client,
 	rdb *redis.Client,
@@ -147,6 +148,7 @@ func provideCleanup(
 
 		// 应用层清理步骤可并行执行，基础设施资源（Redis/Ent）最后按顺序关闭。
 		parallelSteps := []cleanupStep{
+			{"UsageRollupWorker", func() error { usageRollupWorker.Stop(); return nil }},
 			{"DigestSessionStore", func() error {
 				if digestSessions != nil {
 					digestSessions.Close()

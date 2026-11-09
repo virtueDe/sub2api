@@ -1628,6 +1628,11 @@ func (s *ServerConfig) Address() string {
 // DatabaseConfig 数据库连接配置
 // 性能优化：新增连接池参数，避免频繁创建/销毁连接
 type DatabaseConfig struct {
+	// Rollups are built in shadow mode until operators enable reads after reconciliation.
+	UsageRollupEnabled      bool    `mapstructure:"usage_rollup_enabled"`
+	UsageRollupReadsEnabled bool    `mapstructure:"usage_rollup_reads_enabled"`
+	UsageRollupReadKeyIDs   []int64 `mapstructure:"usage_rollup_read_key_ids"`
+
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
 	User     string `mapstructure:"user"`
@@ -2309,6 +2314,9 @@ func setDefaults() {
 	viper.SetDefault("database.user_platform_quota_flusher_enabled", false)
 	viper.SetDefault("database.user_platform_quota_flush_interval_ms", 2000)
 	viper.SetDefault("database.user_platform_quota_flush_batch_size", 1000)
+
+	viper.SetDefault("database.usage_rollup_enabled", true)
+	viper.SetDefault("database.usage_rollup_reads_enabled", false)
 
 	// Redis
 	viper.SetDefault("redis.host", "localhost")

@@ -282,6 +282,9 @@ func (r *usageLogRepository) GetUsageTrendWithUsageFilters(ctx context.Context, 
 }
 
 func (r *usageLogRepository) getUsageTrendWithFilters(ctx context.Context, startTime, endTime time.Time, granularity string, userID, apiKeyID, accountID, groupID int64, model string, modelSource string, requestType *int16, stream *bool, billingType *int8, billingMode string, upstreamModelMismatch *bool, nativeCompactionV2 *bool) (results []TrendDataPoint, err error) {
+	if r.useUsageRollup(apiKeyID) && (userID > 0 || apiKeyID > 0) && accountID == 0 && groupID == 0 && model == "" && requestType == nil && stream == nil && billingType == nil && billingMode == "" && upstreamModelMismatch == nil && nativeCompactionV2 == nil && rollupTrendAligned(startTime, endTime, granularity) {
+		return r.readUsageRollupTrend(ctx, userID, apiKeyID, startTime, endTime, granularity)
+	}
 	if shouldUsePreaggregatedTrend(granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType, billingMode, upstreamModelMismatch, nativeCompactionV2) {
 		aggregated, aggregatedErr := r.getUsageTrendFromAggregates(ctx, startTime, endTime, granularity)
 		if aggregatedErr == nil && len(aggregated) > 0 {

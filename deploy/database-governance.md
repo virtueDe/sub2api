@@ -1,4 +1,4 @@
-# 数据库压力治理：第一阶段
+# 数据库压力治理
 
 本阶段保护扣费、鉴权和余额读取，减少统计回源并发；不替代按 Key/用户的小时汇总，也没有实现普通生图的持久化待结算任务。代码部署前，不会改变线上行为。
 
@@ -68,3 +68,19 @@ python3 deploy/db_pressure_sampler.py \
 - 全量 `go test -tags=unit ./...` 的其他包通过，service 包首跑有未修改用例 `TestRecordCyberPolicyEvent_RuntimeSnapshotRefreshFailureKeepsStaleScope` 的 1 秒等待失败。service 全包复跑中该用例通过，但未修改用例 `TestOpenAIResponsesOrphanPrecheckLargeEscapedContent` 的零分配断言得到 3。两者随后分别单独连续 5 次通过。全量稳定性仍需 CI/隔离环境复核，不标记全绿。
 - 本地 Docker daemon 不可用，未执行真实 PostgreSQL 集成测试或 Linux 采样烟测；当前 Windows Go 的 CGO 关闭，未执行 race 检查。
 - 最初全目录 lint 同时报告了本次类型断言/格式问题和本地被忽略的 `backend/output/image-base64-cleanup` 工具的 12 项既有 errcheck 告警；本次问题已修正，本地独立工具保持原状。最终对 `cmd`、`ent`、`internal`、`migrations`、`pkg` 全部生产目录运行 golangci-lint 2.14.0，结果为 **0 issues**。
+
+## 第二阶段：Key/用户小时汇总
+
+迁移 `251` 建立 UTC 小时桶、追加式变更事件和显式回填清单。INSERT 批量去重；UPDATE 的旧/新 transition table 覆盖跨月移动；DELETE（含外键级联）登记旧桶。业务写入只追加标识，不锁统计总额行。后台每秒最多重算一个小时，以覆盖写替代累加，仅删除本批已领取事件；低 ID 晚提交仍保留待处理。
+
+`database.usage_rollup_enabled` 默认 true，后台受阶段一共享预算限制；`database.usage_rollup_reads_enabled` 默认 false，先影子回填。`database.usage_rollup_read_key_ids` 非空时仅列出的 Key 走新读路径，用户汇总保持旧路径；空列表表示切换全部已覆盖查询。未回填完成、有当前身份待处理事件或发现对账差异时返回 `STATISTICS_BUILDING`，不伪造零值，也不自动放开明细扫描。
+
+每分钟在同一 MVCC 快照抽查一个已完成小时，比较所有 Key/用户的请求数、Token、numeric 金额、耗时总和/计数，包含缺失和多余桶。有新事件时标记 `not_caught_up`；真实 `mismatch` 将 `usage_key_rollup_state.integrity_failed` 置 true，所有副本停止汇总读取。此标记不能自动清除，需修复、重新对账后由受控运维流程恢复。观察 `usage.rollup_progress` 的待回填小时、事件数和最老事件年龄，目标延迟不超过 60 秒；超标时回填降优先级，不增加并发。
+
+受管分区创建与触发器安装同事务；删除分区先冻结分区写入并登记受影响桶，再删除，同事务提交。TRUNCATE 明确拒绝。禁止绕开应用维护路径直接 CREATE/ATTACH/DETACH/DROP 分区；数据库管理员手工 DDL 不由本迁移自动拦截。
+
+累计和区间统计读取完整小时桶，非整点起止只读边界明细。日趋势仅在整小时偏移时区启用桶读取；半小时/45 分钟时区、模型/平台等未保存维度仍走受预算保护的原查询。用户 dashboard 的平台分项也仍使用原统计。不能声称所有报表已消除历史扫描。
+
+切换顺序：保持读开关关闭 → 回填完成且事件延迟稳定 → 小范围对账无差异 → 配置少量 Key 并启用读开关 → 观察统计可用率和扣费等待后逐步放开。关闭读开关即可回退到阶段一的受限路径；保留触发器、事件和明细。停 worker 不停事件捕获，会产生积压，不能长期只关 worker。
+
+本地 Docker 已恢复可用。真实 PostgreSQL 测试通过：首次历史回填、未就绪拒绝、部分小时边界、两种 NULL 耗时口径、跨分区改时间/身份、直接叶分区写入、新分区触发器、低 ID 晚提交及对账差异熔断；分区清理单测通过。这里只是本地正确性证据，尚无生产回填速度或峰值延迟验收结果。

@@ -17,6 +17,9 @@ import (
 
 // GetUserStatsAggregated returns aggregated usage statistics for a user using database-level aggregation
 func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
+	if r.useUsageRollup(0) {
+		return r.readUsageRollup(ctx, userID, 0, startTime, endTime, false)
+	}
 	query := `
 		SELECT
 			COUNT(*) as total_requests,
@@ -56,6 +59,9 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 
 // GetAPIKeyStatsAggregated returns aggregated usage statistics for an API key using database-level aggregation
 func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
+	if r.useUsageRollup(apiKeyID) {
+		return r.readUsageRollup(ctx, 0, apiKeyID, startTime, endTime, false)
+	}
 	query := `
 		SELECT
 			COUNT(*) as total_requests,
