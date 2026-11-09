@@ -82,6 +82,7 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 }
 
 func provideCleanup(
+	usageSettlementWorker *service.UsageSettlementWorker,
 	usageRollupWorker *service.UsageRollupWorker,
 	imageProfit *service.ImageProfitService,
 	entClient *ent.Client,
@@ -432,6 +433,7 @@ func provideCleanup(
 		}
 
 		infraSteps := []cleanupStep{
+			{"UsageSettlementWorker", func() error { usageSettlementWorker.Stop(); return nil }},
 			{"Redis", func() error {
 				if rdb == nil {
 					return nil

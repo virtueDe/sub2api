@@ -143,6 +143,11 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 	}
 
 	// 创建 Ent 客户端，绑定到已配置的数据库驱动。
+	// Turning off intake must not strand previously persisted financial facts.
+	if err := drv.DB().QueryRowContext(migrationCtx, `SELECT EXISTS(SELECT 1 FROM usage_settlements WHERE state<>'complete')`).Scan(&cfg.Database.UsageSettlementRecoveryEnabled); err != nil {
+		_ = drv.Close()
+		return nil, nil, fmt.Errorf("check pending usage settlements: %w", err)
+	}
 	client := ent.NewClient(ent.Driver(drv))
 
 	// 启动阶段：从配置或数据库中确保系统密钥可用。

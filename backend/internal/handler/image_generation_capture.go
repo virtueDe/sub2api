@@ -72,13 +72,7 @@ func beginImageGenerationCapture(c *gin.Context, body []byte, mappedModels ...st
 		for _, mappedModel := range mappedModels {
 			geminiImage = geminiImage || service.IsGeminiImageGenerationModel(mappedModel)
 		}
-		if strings.Contains(c.Request.URL.Path, "/models/") {
-			for _, path := range []string{"generationConfig.responseModalities", "generation_config.response_modalities"} {
-				for _, modality := range gjson.GetBytes(body, path).Array() {
-					geminiImage = geminiImage || strings.EqualFold(modality.String(), "IMAGE")
-				}
-			}
-		}
+		geminiImage = geminiImage || service.IsGeminiImageGenerationIntent(body, model, resolvedModel)
 		apiKey, _ := middleware.GetAPIKeyFromContext(c)
 		platform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 		if !service.IsImageGenerationIntentForPlatform(c.Request.URL.Path, model, body, platform) && !geminiImage {

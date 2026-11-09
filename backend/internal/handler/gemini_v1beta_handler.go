@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -595,6 +596,15 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		}
 	}
 	fs := NewFailoverState(maxAccountSwitches, hasBoundSession)
+	if action != "countTokens" && service.IsGeminiImageGenerationIntent(body, modelName, reqModel, urlModel) {
+		settlementCtx, beginErr := h.gatewayService.BeginGeminiImageSettlement(c.Request.Context(), apiKey)
+		if beginErr != nil {
+			reqLog.Error("gemini.settlement_begin_failed", zap.Error(beginErr))
+			googleError(c, http.StatusServiceUnavailable, "Billing is temporarily unavailable; retry later")
+			return
+		}
+		c.Request = c.Request.WithContext(settlementCtx)
+	}
 
 	// 单账号分组首次 503 就不设模型限流标记，避免设 29s 限流导致后续请求连续快速失败；
 	// 是否单账号分组在 antigravity 账号遇到 503 或模型限流预检查时才判定。
@@ -845,7 +855,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		sessionID := service.ExtractClientSessionID(c)
 		// 长上下文阶梯由目录数据驱动，统一在计费路径内生效，入口无需声明。
 		channelUsageFields := clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel)
-		h.submitUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
+		recordUsage := func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 				Result:             result,
 				QuotaPlatform:      quotaPlatform,
@@ -873,7 +883,21 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 					zap.Int64("account_id", account.ID),
 				).Error("gemini.record_usage_failed", zap.Error(err))
 			}
-		})
+		}
+		if service.UsageSettlementFromContext(c.Request.Context()) != "" {
+			// Save final financial facts before this native child returns. The n>1
+			// display-details queue and worker drop policy must not delay settlement.
+			usageCtx, cancel := context.WithTimeout(usageRecordContext(c.Request.Context(), context.Background()), 20*time.Second)
+			recordUsage(usageCtx)
+			cancel()
+			delayImageGenerationUsageTask(c.Request.Context(), func(ctx context.Context) {
+				if err := h.gatewayService.CompleteGeminiImageSettlementDetail(ctx, apiKey.ID); err != nil {
+					logger.L().Warn("gemini.settlement_image_detail_failed", zap.Error(err))
+				}
+			}, h.submitUsageRecordTask)
+		} else {
+			h.submitUsageRecordTask(c.Request.Context(), recordUsage)
+		}
 		reqLog.Debug("gemini.request_completed",
 			zap.Int64("account_id", account.ID),
 			zap.Int("switch_count", fs.SwitchCount),

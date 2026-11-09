@@ -926,6 +926,7 @@ func ProvideRedeemService(redeemRepo RedeemCodeRepository, userRepo UserReposito
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	ProvideUsageRollupWorker,
+	ProvideUsageSettlementWorker,
 	ProvideImageProfitService,
 	// Core services
 	ProvideAuthService,

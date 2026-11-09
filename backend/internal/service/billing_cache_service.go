@@ -1228,7 +1228,8 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 		ok       bool
 		cacheErr error
 	)
-	if s.cache != nil {
+	durable := s.cfg != nil && s.cfg.Database.DurableUsageQuota()
+	if s.cache != nil && !durable {
 		entry, ok, cacheErr = s.cache.GetUserPlatformQuotaCache(ctx, userID, platform)
 	} else {
 		// 标记为"cache 故障"分支：跳过 HIT 路径、不回填、走 DB 一次性检查
@@ -1331,11 +1332,17 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	case res := <-ch:
 		v, dbErr = res.Val, res.Err
 	case <-ctx.Done():
+		if durable {
+			return ctx.Err()
+		}
 		// 当前 caller 的 ctx 被取消：fail-open，不阻断 (此请求已无意义)。
 		logger.LegacyPrintf("service.billing_cache", "Warning: user platform quota check ctx cancelled user=%d platform=%s: %v (fail-open)", userID, platform, ctx.Err())
 		return nil
 	}
 	if dbErr != nil {
+		if durable {
+			return fmt.Errorf("load authoritative platform quota: %w", dbErr)
+		}
 		logger.LegacyPrintf("service.billing_cache", "Warning: load user platform quota failed user=%d platform=%s: %v (fail-open)", userID, platform, dbErr)
 		return nil
 	}

@@ -195,7 +195,13 @@ func (r *usageBillingRepository) applyBatchImageBalanceHold(
 func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
 	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
 		started := time.Now()
-		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
+		var err error
+		if cmd.EffectiveAt.IsZero() {
+			err = incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost)
+		} else {
+			err = incrementSettlementSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost, cmd.EffectiveAt)
+		}
+		if err != nil {
 			return usageBillingStageError("subscription", started, err)
 		}
 	}
@@ -222,7 +228,13 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 
 	if cmd.APIKeyRateLimitCost > 0 {
 		started := time.Now()
-		if err := incrementUsageBillingAPIKeyRateLimit(ctx, tx, cmd.APIKeyID, cmd.APIKeyRateLimitCost); err != nil && !errors.Is(err, service.ErrAPIKeyNotFound) {
+		var err error
+		if cmd.EffectiveAt.IsZero() {
+			err = incrementUsageBillingAPIKeyRateLimit(ctx, tx, cmd.APIKeyID, cmd.APIKeyRateLimitCost)
+		} else {
+			err = incrementSettlementKeyWindows(ctx, tx, cmd)
+		}
+		if err != nil && !errors.Is(err, service.ErrAPIKeyNotFound) {
 			return usageBillingStageError("api_key_rate_limit", started, err)
 		}
 	}
@@ -230,14 +242,20 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	// 账号已不存在时跳过其配额计数，其余结算项不受影响。
 	if cmd.AccountQuotaCost > 0 && service.AccountTypeSupportsQuota(cmd.AccountType) {
 		started := time.Now()
-		quotaState, err := incrementUsageBillingAccountQuota(ctx, tx, cmd.AccountID, cmd.AccountQuotaCost, cmd.AccountQuotaHasDailyLimit, cmd.AccountQuotaHasWeeklyLimit)
+		var quotaState *service.AccountQuotaState
+		var err error
+		if cmd.EffectiveAt.IsZero() {
+			quotaState, err = incrementUsageBillingAccountQuota(ctx, tx, cmd.AccountID, cmd.AccountQuotaCost, cmd.AccountQuotaHasDailyLimit, cmd.AccountQuotaHasWeeklyLimit)
+		} else {
+			quotaState, err = incrementSettlementAccountQuota(ctx, tx, cmd)
+		}
 		if err != nil && !errors.Is(err, service.ErrAccountNotFound) {
 			return usageBillingStageError("account_quota", started, err)
 		}
 		result.QuotaState = quotaState
 	}
 
-	return nil
+	return applySettlementPlatformQuota(ctx, tx, cmd)
 }
 
 func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {

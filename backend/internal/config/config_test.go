@@ -24,6 +24,19 @@ func resetViperWithJWTSecret(t *testing.T) {
 	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
 }
 
+func TestUsageSettlementConfiguration(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("DATABASE_USAGE_SETTLEMENT_ENABLED", "true")
+	t.Setenv("DATABASE_USER_PLATFORM_QUOTA_FLUSHER_ENABLED", "false")
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.Database.DurableUsageQuota())
+	cfg.Database.UsageSettlementEnabled = false
+	cfg.Database.UsageSettlementRecoveryEnabled = true
+	cfg.Database.UserPlatformQuotaFlusherEnabled = true
+	require.ErrorContains(t, cfg.Validate(), "user_platform_quota_flusher_enabled=false")
+}
+
 func TestLoadDefaultModelsListReadMaxBytes(t *testing.T) {
 	resetViperWithJWTSecret(t)
 	cfg, err := Load()

@@ -1625,9 +1625,16 @@ func (s *ServerConfig) Address() string {
 	return fmt.Sprintf("%s:%d", s.Host, s.Port)
 }
 
+func (d *DatabaseConfig) DurableUsageQuota() bool {
+	return d.UsageSettlementEnabled || d.UsageSettlementRecoveryEnabled
+}
+
 // DatabaseConfig 数据库连接配置
 // 性能优化：新增连接池参数，避免频繁创建/销毁连接
 type DatabaseConfig struct {
+	// Durable Gemini image settlement requires DB-authoritative platform quota.
+	UsageSettlementEnabled         bool `mapstructure:"usage_settlement_enabled"`
+	UsageSettlementRecoveryEnabled bool `mapstructure:"-"`
 	// Rollups are built in shadow mode until operators enable reads after reconciliation.
 	UsageRollupEnabled      bool    `mapstructure:"usage_rollup_enabled"`
 	UsageRollupReadsEnabled bool    `mapstructure:"usage_rollup_reads_enabled"`
@@ -2315,6 +2322,8 @@ func setDefaults() {
 	viper.SetDefault("database.user_platform_quota_flush_interval_ms", 2000)
 	viper.SetDefault("database.user_platform_quota_flush_batch_size", 1000)
 
+	viper.SetDefault("database.usage_settlement_enabled", false)
+	viper.SetDefault("database.usage_rollup_read_key_ids", []int64{})
 	viper.SetDefault("database.usage_rollup_enabled", true)
 	viper.SetDefault("database.usage_rollup_reads_enabled", false)
 
@@ -2813,6 +2822,9 @@ func setEnvReachableDefaults() {
 }
 
 func (c *Config) Validate() error {
+	if c.Database.DurableUsageQuota() && c.Database.UserPlatformQuotaFlusherEnabled {
+		return fmt.Errorf("database.usage_settlement_enabled requires user_platform_quota_flusher_enabled=false")
+	}
 	if c.Gateway.MinOutputTokens < 16 {
 		return fmt.Errorf("gateway.min_output_tokens must be at least 16")
 	}

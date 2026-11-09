@@ -42,6 +42,11 @@ func isGeminiImageGenerationIntent(geminiBody []byte, models ...string) bool {
 	return slices.ContainsFunc(models, isGeminiImageOutputModel) || geminiRequestAsksForImageOutput(geminiBody)
 }
 
+// IsGeminiImageGenerationIntent is shared by permission and settlement gates.
+func IsGeminiImageGenerationIntent(body []byte, models ...string) bool {
+	return isGeminiImageGenerationIntent(body, models...)
+}
+
 // isGeminiImageOutputModel 匹配以图片为输出的 Gemini 模型名，与图片接口共用
 // isGeminiCompatibleImageModel 判定。
 func isGeminiImageOutputModel(model string) bool {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 
 	"github.com/shopspring/decimal"
 )
@@ -17,6 +18,10 @@ var ErrUsageBillingRequestConflict = errors.New("usage billing request fingerpri
 
 // UsageBillingCommand describes one billable request that must be applied at most once.
 type UsageBillingCommand struct {
+	// Set only for immutable durable facts; zero preserves legacy timing.
+	EffectiveAt        time.Time
+	EffectiveDayStart  time.Time
+	PlatformQuota      *UsageBillingPlatformQuota
 	RequestID          string
 	APIKeyID           int64
 	RequestFingerprint string
@@ -47,6 +52,12 @@ type UsageBillingCommand struct {
 	// 只用于选择账号配额累加语句，不参与幂等指纹；实际累加哪些维度以数据库中的账号配置为准。
 	AccountQuotaHasDailyLimit  bool
 	AccountQuotaHasWeeklyLimit bool
+}
+
+type UsageBillingPlatformQuota struct {
+	Platform                        string
+	Cost                            float64
+	OccurredAt, DayStart, WeekStart time.Time
 }
 
 func (c *UsageBillingCommand) Normalize() {

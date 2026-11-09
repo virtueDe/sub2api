@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -223,6 +224,9 @@ func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string)
 			return requestID
 		}
 	}
+	if id := UsageSettlementFromContext(ctx); id != "" {
+		return id
+	}
 	if ctx != nil {
 		if clientRequestID, _ := ctx.Value(ctxkey.ClientRequestID).(string); strings.TrimSpace(clientRequestID) != "" {
 			return "client:" + strings.TrimSpace(clientRequestID)
@@ -380,6 +384,20 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 
 	billingCtx, cancel := detachedBillingContext(ctx)
 	defer cancel()
+	if deps.cfg != nil && deps.cfg.Database.DurableUsageQuota() && !p.IsSubscriptionBill && !p.SimpleModeKeyRateLimitOnly && p.Platform != "" && p.Cost.ActualCost > 0 {
+		at := time.Now()
+		if usageLog != nil && !usageLog.CreatedAt.IsZero() {
+			at = usageLog.CreatedAt
+		}
+		cmd.PlatformQuota = &UsageBillingPlatformQuota{Platform: p.Platform, Cost: QuantizeUsageBillingAmount(p.Cost.ActualCost), OccurredAt: at, DayStart: timezone.StartOfDay(at), WeekStart: timezone.StartOfWeek(at)}
+	}
+	if id := UsageSettlementFromContext(ctx); id != "" && cmd.RequestID == id {
+		durable, ok := repo.(UsageSettlementRepository)
+		if !ok {
+			return false, errors.New("durable usage settlement unavailable")
+		}
+		return applyDurableUsageSettlement(billingCtx, durable, cmd, usageLog, p, deps)
+	}
 
 	result, err := repo.Apply(billingCtx, cmd)
 	if err != nil {
@@ -438,7 +456,7 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	// charge. Without the batch flusher, persist inline with the usage task (in a
 	// worker or its synchronous overflow caller), without spawning detached work.
 	// Synchronous overflow remains backpressure, not a global DB concurrency cap.
-	if !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil && deps.billingCacheService != nil {
+	if (deps.cfg == nil || !deps.cfg.Database.DurableUsageQuota()) && !p.IsSubscriptionBill && p.Platform != "" && p.Cost.ActualCost > 0 && p.User != nil && deps.userPlatformQuotaRepo != nil && deps.billingCacheService != nil {
 		if deps.billingCacheService.HasUserPlatformQuotaLimit(ctx, p.User.ID, p.Platform) {
 			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, p.Cost.ActualCost)
 			if deps.cfg == nil || !deps.cfg.Database.UserPlatformQuotaFlusherEnabled {
@@ -817,6 +835,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// 计算费用
 	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt)
+	if UsageSettlementFromContext(ctx) != "" && cost.CalculationError != nil {
+		return fmt.Errorf("settlement pricing unavailable: %w", cost.CalculationError)
+	}
 	// response_model：按上游成功响应自报的模型计费（渠道显式开启才生效）。
 	// 采纳条件见 responseModelBillingDeclaration + hasIdentifiedResponseModelPricing
 	// + responseModelBillingAdoptable。任一条件不满足都静默回落基线，即开启本模式前的
@@ -904,6 +925,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		SimpleModeKeyRateLimitOnly: simpleModeKeyRateLimitOnly,
 	}, s.billingDeps(), s.usageBillingRepo)
 
+	if id := UsageSettlementFromContext(ctx); id != "" && requestID == id {
+		return billingErr
+	}
 	if billingErr != nil {
 		usageLog.ActualCost = 0
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
@@ -1228,7 +1252,7 @@ func (s *GatewayService) calculateImageCost(
 			})
 			if err != nil {
 				logger.LegacyPrintf("service.gateway", "Calculate image channel cost failed: %v", err)
-				return &CostBreakdown{ActualCost: 0}
+				return &CostBreakdown{ActualCost: 0, CalculationError: err}
 			}
 			return cost
 		case !forcePerImage:
@@ -1249,7 +1273,7 @@ func (s *GatewayService) calculateImageCost(
 			})
 			if err != nil {
 				logger.LegacyPrintf("service.gateway", "Calculate image token cost failed: %v", err)
-				return &CostBreakdown{ActualCost: 0}
+				return &CostBreakdown{ActualCost: 0, CalculationError: err}
 			}
 			return cost
 		}
@@ -1299,7 +1323,7 @@ func (s *GatewayService) calculateTokenCost(
 	})
 	if err != nil {
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
-		return &CostBreakdown{ActualCost: 0}
+		return &CostBreakdown{ActualCost: 0, CalculationError: err}
 	}
 	return cost
 }

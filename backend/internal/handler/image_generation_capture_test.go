@@ -48,6 +48,8 @@ func TestBeginImageGenerationCaptureIntent(t *testing.T) {
 	}{
 		{"dedicated images", "/v1/images/generations", `{"prompt":"cat"}`, "openai", true},
 		{"native Gemini alias", "/v1beta/models/my-image:generateContent", `{"contents":[{"parts":[{"text":"cat"}]}],"generationConfig":{"responseModalities":["IMAGE"]}}`, "gemini", true},
+		{"mixed fields", "/v1beta/models/alias:generateContent", `{"generationConfig":{"response_modalities":[" Image "]}}`, "gemini", true},
+		{"enum modality", "/v1beta/models/alias:generateContent", `{"generation_config":{"responseModalities":[2]}}`, "gemini", true},
 		{"ordinary text", "/v1/responses", `{"model":"gpt-5","input":"hello"}`, "openai", false},
 		{"passive Grok namespace", "/v1/responses", `{"model":"grok-4.5","tools":[{"type":"namespace","name":"image_gen","tools":[{"type":"function","name":"imagegen"}]}],"tool_choice":"auto","input":"write code"}`, "grok", false},
 	} {
