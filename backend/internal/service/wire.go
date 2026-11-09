@@ -435,12 +435,12 @@ func ProvideGrokTokenProvider(
 }
 
 // ProvideDashboardAggregationService 创建并启动仪表盘聚合服务
-func ProvideDashboardAggregationService(repo DashboardAggregationRepository, timingWheel *TimingWheelService, lockCache LeaderLockCache, db *sql.DB, cfg *config.Config, settingRepo SettingRepository) *DashboardAggregationService {
+func ProvideDashboardAggregationService(repo DashboardAggregationRepository, timingWheel *TimingWheelService, lockCache LeaderLockCache, db *sql.DB, cfg *config.Config, settingRepo SettingRepository) (*DashboardAggregationService, func()) {
 	svc := NewDashboardAggregationService(repo, timingWheel, cfg)
 	svc.settingRepo = settingRepo
 	svc.SetLeaderLock(lockCache, db)
 	svc.Start()
-	return svc
+	return svc, svc.Stop
 }
 
 // ProvideUsageCleanupService 创建并启动使用记录清理任务服务
@@ -499,13 +499,13 @@ func ProvideSubscriptionExpiryService(userSubRepo UserSubscriptionRepository, se
 }
 
 // ProvideTimingWheelService creates and starts TimingWheelService
-func ProvideTimingWheelService() (*TimingWheelService, error) {
+func ProvideTimingWheelService() (*TimingWheelService, func(), error) {
 	svc, err := NewTimingWheelService()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	svc.Start()
-	return svc, nil
+	return svc, svc.Stop, nil
 }
 
 // ProvideDeferredService creates and starts DeferredService
@@ -948,7 +948,7 @@ var ProviderSet = wire.NewSet(
 	ProvideDailyTokenRankingRepository,
 	NewDailyTokenRankingService,
 	NewDailyTokenRankingRewardService,
-	NewDashboardService,
+	ProvideDashboardService,
 	ProvidePricingService,
 	NewBillingService,
 	ProvideBillingCacheService,

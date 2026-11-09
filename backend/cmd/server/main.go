@@ -148,10 +148,11 @@ func runMainServer() {
 		BuildType: BuildType,
 	}
 
-	app, err := initializeApplication(buildInfo)
+	app, cleanupInfrastructure, err := initializeApplication(buildInfo)
 	if err != nil {
 		log.Fatalf("Failed to initialize application: %v", err)
 	}
+	defer cleanupInfrastructure()
 	defer app.Cleanup()
 	if app.PluginManager != nil {
 		if err := app.PluginManager.Start(context.Background()); err != nil {

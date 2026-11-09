@@ -27,6 +27,43 @@ type usageRepoStub struct {
 	onCall     chan struct{}
 }
 
+type blockingDashboardStatsRepo struct {
+	UsageLogRepository
+	started, finished chan struct{}
+}
+
+func (r *blockingDashboardStatsRepo) GetDashboardStats(ctx context.Context) (*usagestats.DashboardStats, error) {
+	close(r.started)
+	<-ctx.Done()
+	close(r.finished)
+	return nil, ctx.Err()
+}
+
+func TestDashboardStopDrainsAsynchronousRefresh(t *testing.T) {
+	repo := &blockingDashboardStatsRepo{started: make(chan struct{}), finished: make(chan struct{})}
+	s := NewDashboardService(repo, nil, &dashboardCacheStub{}, nil)
+	s.refreshDashboardStatsAsync()
+	select {
+	case <-repo.started:
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not start")
+	}
+	done := make(chan struct{})
+	go func() { s.Stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not stop")
+	}
+	select {
+	case <-repo.finished:
+	default:
+		t.Fatal("stop returned before refresh exited")
+	}
+	s.refreshDashboardStatsAsync()
+	require.Zero(t, atomic.LoadInt32(&s.refreshing))
+}
+
 func (s *usageRepoStub) GetDashboardStats(ctx context.Context) (*usagestats.DashboardStats, error) {
 	atomic.AddInt32(&s.calls, 1)
 	if s.onCall != nil {

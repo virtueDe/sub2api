@@ -29,13 +29,13 @@ type UsageRollupWorker struct {
 	once   sync.Once
 }
 
-func ProvideUsageRollupWorker(repo UsageRollupRepository, cfg *config.Config) *UsageRollupWorker {
+func ProvideUsageRollupWorker(repo UsageRollupRepository, cfg *config.Config) (*UsageRollupWorker, func()) {
 	w := &UsageRollupWorker{done: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancel = cancel
 	if !cfg.Database.UsageRollupEnabled {
 		close(w.done)
-		return w
+		return w, w.Stop
 	}
 	go func() {
 		defer close(w.done)
@@ -70,7 +70,7 @@ func ProvideUsageRollupWorker(repo UsageRollupRepository, cfg *config.Config) *U
 			}
 		}
 	}()
-	return w
+	return w, w.Stop
 }
 func (w *UsageRollupWorker) Stop() {
 	if w != nil {

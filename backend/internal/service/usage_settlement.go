@@ -208,13 +208,13 @@ type UsageSettlementWorker struct {
 	once   sync.Once
 }
 
-func ProvideUsageSettlementWorker(billing UsageBillingRepository, cache *BillingCacheService, cfg *config.Config) *UsageSettlementWorker {
+func ProvideUsageSettlementWorker(billing UsageBillingRepository, cache *BillingCacheService, cfg *config.Config) (*UsageSettlementWorker, func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	w := &UsageSettlementWorker{cancel: cancel, done: make(chan struct{})}
 	repo, ok := billing.(UsageSettlementRepository)
 	if !ok || !cfg.Database.DurableUsageQuota() {
 		close(w.done)
-		return w
+		return w, w.Stop
 	}
 	go func() {
 		defer close(w.done)
@@ -259,7 +259,7 @@ func ProvideUsageSettlementWorker(billing UsageBillingRepository, cache *Billing
 			}
 		}
 	}()
-	return w
+	return w, w.Stop
 }
 func (w *UsageSettlementWorker) Stop() {
 	if w != nil {

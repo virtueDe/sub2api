@@ -42,11 +42,8 @@ func (r *usageKeyRollupRepository) status(ctx context.Context) (service.UsageRol
  COALESCE((SELECT extract(epoch FROM clock_timestamp()-min(created_at)) FROM usage_key_rollup_events),0)`, nil, &s.PendingEvents, &s.PendingHours, &s.OldestEventAgeSeconds)
 	return s, err
 }
-func ProvideUsageLogRepository(client *dbent.Client, db *sql.DB, cfg *config.Config) service.UsageLogRepository {
-	raw := newUsageLogRepositoryWithSQL(client, db)
-	raw.rollupReads = cfg.Database.UsageRollupReadsEnabled
-	raw.rollupKeys = cfg.Database.UsageRollupReadKeyIDs
-	return &governedUsageLogRepository{usageLogRepository: raw}
+func ProvideUsageLogRepository(client *dbent.Client, db *sql.DB, cfg *config.Config, p *StatisticsPools) service.UsageLogRepository {
+	return newGovernedUsageLogRepository(client, db, p, cfg)
 }
 
 func (r *usageLogRepository) useUsageRollup(keyID int64) bool {

@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	"github.com/Wei-Shaw/sub2api/internal/server"
@@ -32,18 +33,19 @@ import (
 
 // Injectors from wire.go:
 
-func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
+func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), error) {
 	configConfig, err := config.ProvideConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	client, err := repository.ProvideEnt(configConfig)
+	client, cleanup, err := repository.ProvideEnt(configConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	db, err := repository.ProvideSQLDB(client)
 	if err != nil {
-		return nil, err
+		cleanup()
+		return nil, nil, err
 	}
 	userRepository := repository.NewUserRepository(client, db)
 	redeemCodeRepository := repository.NewRedeemCodeRepository(client)
@@ -92,7 +94,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	redeemService := service.ProvideRedeemService(redeemCodeRepository, userRepository, subscriptionService, redeemCache, billingCacheService, client, apiKeyAuthCacheInvalidator, affiliateService, paidRedeemDiscountService)
 	secretEncryptor, err := repository.NewAESEncryptor(configConfig)
 	if err != nil {
-		return nil, err
+		cleanup()
+		return nil, nil, err
 	}
 	totpCache := repository.NewTotpCache(redisClient)
 	totpService := service.NewTotpService(userRepository, secretEncryptor, totpCache, settingService, emailService, emailQueueService)
@@ -104,7 +107,12 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	userHandler := handler.ProvideUserHandlerWithCheckIn(userService, authService, emailService, emailCache, affiliateService, serviceUserPlatformQuotaRepository, checkInService)
 	mcpoAuthHandler := handler.NewMCPOAuthHandler(mcpoAuthService, totpService, userService, settingService, configConfig)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
-	usageLogRepository := repository.ProvideUsageLogRepository(client, db, configConfig)
+	statisticsPools, cleanup2, err := repository.ProvideStatisticsPools(db, configConfig)
+	if err != nil {
+		cleanup()
+		return nil, nil, err
+	}
+	usageLogRepository := repository.ProvideUsageLogRepository(client, db, configConfig, statisticsPools)
 	usageService := service.NewUsageService(usageLogRepository, userRepository, client, apiKeyAuthCacheInvalidator)
 	opsRepository := repository.NewOpsRepository(db)
 	usageBillingRepository := repository.NewUsageBillingRepository(client, db)
@@ -114,7 +122,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	pricingRemoteClient := repository.ProvidePricingRemoteClient(configConfig)
 	pricingService, err := service.ProvidePricingService(configConfig, pricingRemoteClient)
 	if err != nil {
-		return nil, err
+		cleanup2()
+		cleanup()
+		return nil, nil, err
 	}
 	billingService := service.NewBillingService(configConfig, pricingService)
 	geminiQuotaService := service.NewGeminiQuotaService(configConfig, settingRepository)
@@ -129,9 +139,11 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	rateLimitService := service.ProvideRateLimitService(accountRepository, usageLogRepository, configConfig, geminiQuotaService, tempUnschedCache, timeoutCounterCache, openAI403CounterCache, settingService, compositeTokenCacheInvalidator, ollamaCloudUsageService)
 	identityCache := repository.NewIdentityCache(redisClient)
 	identityService := service.NewIdentityService(identityCache)
-	timingWheelService, err := service.ProvideTimingWheelService()
+	timingWheelService, cleanup3, err := service.ProvideTimingWheelService()
 	if err != nil {
-		return nil, err
+		cleanup2()
+		cleanup()
+		return nil, nil, err
 	}
 	deferredService := service.ProvideDeferredService(accountRepository, timingWheelService)
 	claudeOAuthClient := repository.NewClaudeOAuthClient()
@@ -184,7 +196,10 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	opsService := service.ProvideOpsService(opsRepository, settingRepository, configConfig, accountRepository, userRepository, concurrencyService, gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService, opsSystemLogSink, settingService, authCacheInvalidationWorker, apiKeyService)
 	dailyTokenRankingRepository, err := service.ProvideDailyTokenRankingRepository(usageLogRepository)
 	if err != nil {
-		return nil, err
+		cleanup3()
+		cleanup2()
+		cleanup()
+		return nil, nil, err
 	}
 	dailyTokenRankingService := service.NewDailyTokenRankingService(dailyTokenRankingRepository, settingService)
 	usageHandler := handler.ProvideUsageHandlerWithDailyTokenRanking(usageService, apiKeyService, opsService, settingService, dailyTokenRankingService)
@@ -200,13 +215,13 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	channelMonitorV2Repository := repository.NewChannelMonitorV2Repository(db)
 	channelMonitorV2Service := service.ProvideChannelMonitorV2Service(channelMonitorV2Repository, settingService)
 	channelMonitorV2Handler := handler.NewChannelMonitorV2Handler(channelMonitorV2Service, apiKeyService)
-	imageProfitRepository := repository.NewImageProfitRepository(db)
-	imageProfitService := service.ProvideImageProfitService(imageProfitRepository, configConfig)
+	imageProfitRepository := repository.ProvideImageProfitRepository(db, statisticsPools)
+	imageProfitService, cleanup4 := service.ProvideImageProfitService(imageProfitRepository, configConfig)
 	imageProfitHandler := admin.NewImageProfitHandler(imageProfitService)
-	dashboardAggregationRepository := repository.NewDashboardAggregationRepository(db)
+	dashboardAggregationRepository := repository.ProvideDashboardAggregationRepository(statisticsPools)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)
-	dashboardService := service.NewDashboardService(usageLogRepository, dashboardAggregationRepository, dashboardStatsCache, configConfig)
-	dashboardAggregationService := service.ProvideDashboardAggregationService(dashboardAggregationRepository, timingWheelService, leaderLockCache, db, configConfig, settingRepository)
+	dashboardService, cleanup5 := service.ProvideDashboardService(usageLogRepository, dashboardAggregationRepository, dashboardStatsCache, configConfig)
+	dashboardAggregationService, cleanup6 := service.ProvideDashboardAggregationService(dashboardAggregationRepository, timingWheelService, leaderLockCache, db, configConfig, settingRepository)
 	dashboardHandler := admin.NewDashboardHandler(dashboardService, dashboardAggregationService)
 	adminGroupRepository := repository.NewAdminGroupRepository(client, db)
 	adminAccountRepository := repository.NewAdminAccountRepository(client, db, schedulerCache)
@@ -236,7 +251,13 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	dataManagementHandler := admin.NewDataManagementHandler(dataManagementService)
 	imagePayloadCleanupService, err := service.ProvideImagePayloadCleanupService(settingRepository, db, configConfig)
 	if err != nil {
-		return nil, err
+		cleanup6()
+		cleanup5()
+		cleanup4()
+		cleanup3()
+		cleanup2()
+		cleanup()
+		return nil, nil, err
 	}
 	backupHandler := admin.NewBackupHandler(backupService, userService, imageStorageSettingService, imagePayloadCleanupService)
 	oAuthHandler := admin.NewOAuthHandler(oAuthService)
@@ -253,7 +274,13 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	promoHandler := admin.NewPromoHandler(promoService)
 	encryptionKey, err := payment.ProvideEncryptionKey(configConfig)
 	if err != nil {
-		return nil, err
+		cleanup6()
+		cleanup5()
+		cleanup4()
+		cleanup3()
+		cleanup2()
+		cleanup()
+		return nil, nil, err
 	}
 	paymentConfigService := service.ProvidePaymentConfigService(client, settingRepository, encryptionKey)
 	registry := payment.ProvideRegistry()
@@ -328,7 +355,13 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	passkeySessionStore := repository.NewPasskeySessionStore(redisClient)
 	passkeyService, err := service.NewPasskeyService(configConfig, passkeyRepository, passkeySessionStore, userRepository)
 	if err != nil {
-		return nil, err
+		cleanup6()
+		cleanup5()
+		cleanup4()
+		cleanup3()
+		cleanup2()
+		cleanup()
+		return nil, nil, err
 	}
 	passkeyHandler := handler.NewPasskeyHandler(passkeyService, authService, settingService)
 	handlerPaymentHandler := handler.NewPaymentHandler(paymentService, paymentConfigService)
@@ -358,9 +391,19 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
 	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
-	usageSettlementWorker := service.ProvideUsageSettlementWorker(usageBillingRepository, billingCacheService, configConfig)
-	usageRollupRepository := repository.NewUsageRollupRepository(db)
-	usageRollupWorker := service.ProvideUsageRollupWorker(usageRollupRepository, configConfig)
+	recorder, cleanup7, err := repository.ProvideDatabaseDiagnostics(statisticsPools, configConfig)
+	if err != nil {
+		cleanup6()
+		cleanup5()
+		cleanup4()
+		cleanup3()
+		cleanup2()
+		cleanup()
+		return nil, nil, err
+	}
+	usageSettlementWorker, cleanup8 := service.ProvideUsageSettlementWorker(usageBillingRepository, billingCacheService, configConfig)
+	usageRollupRepository := repository.ProvideUsageRollupRepository(statisticsPools)
+	usageRollupWorker, cleanup9 := service.ProvideUsageRollupWorker(usageRollupRepository, configConfig)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
 	opsAlertEvaluatorService := service.ProvideOpsAlertEvaluatorService(opsService, opsRepository, emailService, redisClient, configConfig, proxyRepository)
@@ -380,14 +423,24 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	channelMonitorRunner := service.ProvideChannelMonitorRunner(channelMonitorService, settingService, channelMonitorQuotaFetcher)
 	channelMonitorV2Aggregator := service.ProvideChannelMonitorV2Aggregator(channelMonitorV2Repository, db, settingService)
 	userPlatformQuotaUsageFlusher := service.ProvideUserPlatformQuotaUsageFlusher(configConfig, billingCache, serviceUserPlatformQuotaRepository, timingWheelService)
-	v := provideCleanup(usageSettlementWorker, usageRollupWorker, imageProfitService, client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, geminiCachedContentService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, balanceNotifyService, digestSessionStore, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, imagePayloadCleanupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
+	v := provideCleanup(recorder, dashboardAggregationService, dashboardService, usageSettlementWorker, usageRollupWorker, imageProfitService, client, redisClient, opsMetricsCollector, opsAggregationService, opsAlertEvaluatorService, opsCleanupService, opsScheduledReportService, opsSystemLogSink, opsService, opsIngressRejectAggregator, apiKeyService, authCacheInvalidationWorker, schedulerSnapshotService, tokenRefreshService, accountExpiryService, cnProviderBalanceCheckService, openAICodexVersionSyncService, claudeCodeVersionSyncService, proxyExpiryService, subscriptionExpiryService, usageCleanupService, idempotencyCleanupService, geminiCachedContentService, batchImageCleanupService, batchImageWorkerRuntime, pricingService, emailQueueService, billingCacheService, usageRecordWorkerPool, balanceNotifyService, digestSessionStore, subscriptionService, oAuthService, openAIOAuthService, geminiOAuthService, antigravityOAuthService, grokOAuthService, openAIGatewayService, scheduledTestRunnerService, backupService, imagePayloadCleanupService, paymentOrderExpiryService, channelMonitorRunner, channelMonitorV2Aggregator, userPlatformQuotaUsageFlusher, upstreamBillingProbeService, ollamaCloudUsageService, openCodeGoUsageService, auditLogService, openAIQuotaAutoResetService, promptService, pluginManager)
 	application := &Application{
 		Server:        httpServer,
 		PromptAudit:   promptService,
 		PluginManager: pluginManager,
 		Cleanup:       v,
 	}
-	return application, nil
+	return application, func() {
+		cleanup9()
+		cleanup8()
+		cleanup7()
+		cleanup6()
+		cleanup5()
+		cleanup4()
+		cleanup3()
+		cleanup2()
+		cleanup()
+	}, nil
 }
 
 // wire.go:
@@ -418,6 +471,9 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 }
 
 func provideCleanup(
+	diagnostics *dbstats.Recorder,
+	dashboardAggregation *service.DashboardAggregationService,
+	dashboard *service.DashboardService,
 	usageSettlementWorker *service.UsageSettlementWorker,
 	usageRollupWorker *service.UsageRollupWorker,
 	imageProfit *service.ImageProfitService,
@@ -769,6 +825,9 @@ func provideCleanup(
 
 		infraSteps := []cleanupStep{
 			{"UsageSettlementWorker", func() error { usageSettlementWorker.Stop(); return nil }},
+			{"Dashboard", func() error { dashboard.Stop(); return nil }},
+			{"DashboardAggregation", func() error { dashboardAggregation.Stop(); return nil }},
+			{"DatabaseDiagnostics", func() error { diagnostics.Stop(); return nil }},
 			{"Redis", func() error {
 				if rdb == nil {
 					return nil

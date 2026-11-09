@@ -33,6 +33,24 @@ func TestStatisticsRepositoriesShareAdmissionBeforeAnySQL(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestStatisticsReportingPoolKeepsQuotaReadsOnCore(t *testing.T) {
+	core, coreMock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = core.Close() }()
+	read, readMock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = read.Close() }()
+	r := &governedUsageLogRepository{usageLogRepository: &usageLogRepository{sql: core}, reporting: &usageLogRepository{sql: read}, budget: dbstats.NewBudget(1)}
+	readMock.ExpectQuery(`FROM usage_logs WHERE api_key_id = \$1$`).WithArgs(int64(7)).WillReturnRows(sqlmock.NewRows([]string{"count", "input", "output", "creation", "read", "cost", "actual", "duration"}).AddRow(10, 20, 30, 40, 50, 1.2, 0.8, 150))
+	_, err = r.GetAPIKeyTotalStats(context.Background(), 7)
+	require.NoError(t, err)
+	coreMock.ExpectQuery(`FROM usage_logs WHERE account_id = \$1`).WithArgs(int64(3), sqlmock.AnyArg()).WillReturnRows(sqlmock.NewRows([]string{"requests", "tokens", "cost", "standard", "user"}).AddRow(1, 5, 0.1, 0.2, 0.3))
+	_, err = r.GetAccountTodayStats(context.Background(), 3)
+	require.NoError(t, err)
+	require.NoError(t, coreMock.ExpectationsWereMet())
+	require.NoError(t, readMock.ExpectationsWereMet())
+}
+
 func TestStatisticsBudgetDoesNotBlockSchedulingQuotaReads(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

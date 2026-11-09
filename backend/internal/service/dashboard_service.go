@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -51,6 +52,28 @@ type DashboardService struct {
 	aggInterval    time.Duration
 	aggLookback    time.Duration
 	aggUsageDays   int
+	refreshMu      sync.Mutex
+	refreshCancel  context.CancelFunc
+	refreshJobs    sync.WaitGroup
+	stopped        bool
+}
+
+func ProvideDashboardService(usageRepo UsageLogRepository, aggRepo DashboardAggregationRepository, cache DashboardStatsCache, cfg *config.Config) (*DashboardService, func()) {
+	s := NewDashboardService(usageRepo, aggRepo, cache, cfg)
+	return s, s.Stop
+}
+
+func (s *DashboardService) Stop() {
+	if s == nil {
+		return
+	}
+	s.refreshMu.Lock()
+	s.stopped = true
+	if s.refreshCancel != nil {
+		s.refreshCancel()
+	}
+	s.refreshMu.Unlock()
+	s.refreshJobs.Wait()
 }
 
 func NewDashboardService(usageRepo UsageLogRepository, aggRepo DashboardAggregationRepository, cache DashboardStatsCache, cfg *config.Config) *DashboardService {
@@ -257,14 +280,19 @@ func (s *DashboardService) refreshDashboardStatsAsync() {
 	if s.cache == nil {
 		return
 	}
-	if !atomic.CompareAndSwapInt32(&s.refreshing, 0, 1) {
+	s.refreshMu.Lock()
+	if s.stopped || !atomic.CompareAndSwapInt32(&s.refreshing, 0, 1) {
+		s.refreshMu.Unlock()
 		return
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), s.refreshTimeout)
+	s.refreshCancel = cancel
+	s.refreshJobs.Add(1)
+	s.refreshMu.Unlock()
 
 	go func() {
+		defer s.refreshJobs.Done()
 		defer atomic.StoreInt32(&s.refreshing, 0)
-
-		ctx, cancel := context.WithTimeout(context.Background(), s.refreshTimeout)
 		defer cancel()
 
 		stats, err := s.fetchDashboardStats(ctx)
@@ -273,9 +301,7 @@ func (s *DashboardService) refreshDashboardStatsAsync() {
 			return
 		}
 		s.applyAggregationStatus(ctx, stats)
-		cacheCtx, cancel := s.cacheOperationContext()
-		defer cancel()
-		s.saveDashboardStatsCache(cacheCtx, stats)
+		s.saveDashboardStatsCache(ctx, stats)
 	}()
 }
 

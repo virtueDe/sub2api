@@ -9,6 +9,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -21,6 +22,30 @@ type usageBillingRepository struct {
 // operation that failed. No SQL text, credentials or request payload is logged.
 func usageBillingStageError(stage string, started time.Time, err error) error {
 	return fmt.Errorf("sql_stage=%s sql_elapsed_ms=%d: %w", stage, time.Since(started).Milliseconds(), err)
+}
+
+func recordBillingStage(stage string, started time.Time, err error) {
+	if errors.Is(err, sql.ErrNoRows) {
+		err = nil
+	}
+	dbstats.Record(stage, time.Since(started), err)
+}
+
+func beginUsageBillingTransaction(ctx context.Context, db *sql.DB) (*sql.Tx, func(), error) {
+	started := time.Now()
+	conn, err := db.Conn(ctx)
+	dbstats.Record("connection_acquire", time.Since(started), err)
+	if err != nil {
+		return nil, nil, usageBillingStageError("connection_acquire", started, err)
+	}
+	started = time.Now()
+	tx, err := conn.BeginTx(ctx, nil)
+	dbstats.Record("billing_begin", time.Since(started), err)
+	if err != nil {
+		_ = conn.Close()
+		return nil, nil, err
+	}
+	return tx, func() { _ = tx.Rollback(); _ = conn.Close() }, nil
 }
 
 func NewUsageBillingRepository(_ *dbent.Client, sqlDB *sql.DB) service.UsageBillingRepository {
@@ -41,7 +66,9 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	}
 	started := time.Now()
 	defer func() {
+		dbstats.Record("billing", time.Since(started), err)
 		if err != nil {
+			dbstats.TriggerBillingFailure()
 			pool := r.db.Stats()
 			err = fmt.Errorf("usage billing request_id=%q api_key_id=%d user_id=%d account_id=%d elapsed_ms=%d db_pool_in_use=%d db_pool_idle=%d db_pool_max_open=%d context_err=%v: %w",
 				cmd.RequestID, cmd.APIKeyID, cmd.UserID, cmd.AccountID, time.Since(started).Milliseconds(),
@@ -49,10 +76,11 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		}
 	}()
 
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, release, err := beginUsageBillingTransaction(ctx, r.db)
 	if err != nil {
 		return nil, usageBillingStageError("begin", started, err)
 	}
+	defer release()
 	defer func() {
 		if tx != nil {
 			_ = tx.Rollback()
@@ -73,7 +101,9 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 	}
 
 	commitStarted := time.Now()
-	if err := tx.Commit(); err != nil {
+	err = tx.Commit()
+	recordBillingStage("commit", commitStarted, err)
+	if err != nil {
 		return nil, usageBillingStageError("commit", commitStarted, err)
 	}
 	tx = nil
@@ -93,14 +123,17 @@ func (r *usageBillingRepository) claimUsageBillingRequest(ctx context.Context, t
 		ON CONFLICT (request_id, api_key_id) DO NOTHING
 		RETURNING id
 	`, requestID, apiKeyID, requestFingerprint).Scan(&id)
+	recordBillingStage("dedup_insert", started, err)
 	if errors.Is(err, sql.ErrNoRows) {
 		var existingFingerprint string
 		started = time.Now()
-		if err := tx.QueryRowContext(ctx, `
+		err = tx.QueryRowContext(ctx, `
 			SELECT request_fingerprint
 			FROM usage_billing_dedup
 			WHERE request_id = $1 AND api_key_id = $2
-		`, requestID, apiKeyID).Scan(&existingFingerprint); err != nil {
+		`, requestID, apiKeyID).Scan(&existingFingerprint)
+		recordBillingStage("dedup_existing_lookup", started, err)
+		if err != nil {
 			return false, usageBillingStageError("dedup_existing_lookup", started, err)
 		}
 		if strings.TrimSpace(existingFingerprint) != strings.TrimSpace(requestFingerprint) {
@@ -118,6 +151,7 @@ func (r *usageBillingRepository) claimUsageBillingRequest(ctx context.Context, t
 		FROM usage_billing_dedup_archive
 		WHERE request_id = $1 AND api_key_id = $2
 	`, requestID, apiKeyID).Scan(&archivedFingerprint)
+	recordBillingStage("dedup_archive_lookup", started, err)
 	if err == nil {
 		if strings.TrimSpace(archivedFingerprint) != strings.TrimSpace(requestFingerprint) {
 			return false, service.ErrUsageBillingRequestConflict
@@ -201,6 +235,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		} else {
 			err = incrementSettlementSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost, cmd.EffectiveAt)
 		}
+		recordBillingStage("subscription", started, err)
 		if err != nil {
 			return usageBillingStageError("subscription", started, err)
 		}
@@ -209,6 +244,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	if cmd.BalanceCost > 0 {
 		started := time.Now()
 		newBalance, sufficient, err := deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.BalanceCost)
+		recordBillingStage("balance", started, err)
 		if err != nil {
 			return usageBillingStageError("balance", started, err)
 		}
@@ -220,6 +256,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	if cmd.APIKeyQuotaCost > 0 {
 		started := time.Now()
 		exhausted, err := incrementUsageBillingAPIKeyQuota(ctx, tx, cmd.APIKeyID, cmd.APIKeyQuotaCost)
+		recordBillingStage("api_key_quota", started, err)
 		if err != nil && !errors.Is(err, service.ErrAPIKeyNotFound) {
 			return usageBillingStageError("api_key_quota", started, err)
 		}
@@ -234,6 +271,7 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		} else {
 			err = incrementSettlementKeyWindows(ctx, tx, cmd)
 		}
+		recordBillingStage("api_key_rate_limit", started, err)
 		if err != nil && !errors.Is(err, service.ErrAPIKeyNotFound) {
 			return usageBillingStageError("api_key_rate_limit", started, err)
 		}
@@ -249,13 +287,20 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		} else {
 			quotaState, err = incrementSettlementAccountQuota(ctx, tx, cmd)
 		}
+		recordBillingStage("account_quota", started, err)
 		if err != nil && !errors.Is(err, service.ErrAccountNotFound) {
 			return usageBillingStageError("account_quota", started, err)
 		}
 		result.QuotaState = quotaState
 	}
 
-	return applySettlementPlatformQuota(ctx, tx, cmd)
+	if cmd.PlatformQuota != nil {
+		started := time.Now()
+		err := applySettlementPlatformQuota(ctx, tx, cmd)
+		recordBillingStage("platform_quota", started, err)
+		return err
+	}
+	return nil
 }
 
 func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscriptionID int64, costUSD float64) error {

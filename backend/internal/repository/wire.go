@@ -65,7 +65,7 @@ func ProvideSchedulerCache(rdb *redis.Client, cfg *config.Config) service.Schedu
 
 // ProviderSet is the Wire provider set for all repositories
 var ProviderSet = wire.NewSet(
-	NewImageProfitRepository,
+	ProvideImageProfitRepository,
 	NewUserRepository,
 	NewMCPOAuthRepository,
 	NewAPIKeyRepository,
@@ -82,14 +82,14 @@ var ProviderSet = wire.NewSet(
 	NewAnnouncementRepository,
 	NewAnnouncementReadRepository,
 	ProvideUsageLogRepository,
-	NewUsageRollupRepository,
+	ProvideUsageRollupRepository,
 	NewDailyTokenRankingRewardRepository,
 	NewUsageBillingRepository,
 	NewBatchImageRepository,
 	NewGeminiCachedContentRepository,
 	NewIdempotencyRepository,
 	NewUsageCleanupRepository,
-	NewDashboardAggregationRepository,
+	ProvideDashboardAggregationRepository,
 	NewSettingRepository,
 	NewScopedAdminKeyRepository,
 	NewOpsRepository,
@@ -176,6 +176,8 @@ var ProviderSet = wire.NewSet(
 
 	ProvideEnt,
 	ProvideSQLDB,
+	ProvideStatisticsPools,
+	ProvideDatabaseDiagnostics,
 	ProvideRedis,
 )
 
@@ -186,9 +188,12 @@ var ProviderSet = wire.NewSet(
 //
 // 依赖：config.Config
 // 提供：*ent.Client
-func ProvideEnt(cfg *config.Config) (*ent.Client, error) {
+func ProvideEnt(cfg *config.Config) (*ent.Client, func(), error) {
 	client, _, err := InitEnt(cfg)
-	return client, err
+	if err != nil {
+		return nil, nil, err
+	}
+	return client, func() { _ = client.Close() }, nil
 }
 
 // ProvideImageStorageFactory 提供按需构造对象存储客户端的工厂。

@@ -19,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -203,10 +204,14 @@ func flushOpsErrorLogBatch(batch []opsErrorLogJob) {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), opsErrorLogTimeout)
-		_ = opsSvc.RecordErrorBatch(ctx, entries)
+		started := time.Now()
+		err := opsSvc.RecordErrorBatch(ctx, entries)
+		dbstats.Record("ops_error_batch", time.Since(started), err)
+		if err == nil {
+			opsErrorLogProcessed.Add(int64(len(entries)))
+		}
 		cancel()
 	}
-	opsErrorLogProcessed.Add(processed)
 }
 
 func enqueueOpsErrorLog(ops *service.OpsService, entry *service.OpsInsertErrorLogInput) {

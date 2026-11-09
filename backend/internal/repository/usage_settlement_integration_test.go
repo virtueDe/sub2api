@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
@@ -13,6 +14,133 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUsageSettlementFixedAccountOutOfOrder(t *testing.T) {
+	ctx := context.Background()
+	for _, zone := range []string{"Asia/Shanghai", "America/New_York"} {
+		t.Run(zone, func(t *testing.T) {
+			_, s := settlementFixture(t)
+			loc, err := time.LoadLocation(zone)
+			require.NoError(t, err)
+			// Sunday is also the DST transition in New York. Both dimensions must
+			// retain the earlier same-window charge after a reset by the later one.
+			boundary := time.Date(2026, 11, 1, 0, 0, 0, 0, loc)
+			tx, err := integrationDB.BeginTx(ctx, nil)
+			require.NoError(t, err)
+			defer func() { _ = tx.Rollback() }()
+			_, err = tx.ExecContext(ctx, `UPDATE accounts SET extra=jsonb_build_object(
+ 'quota_used',10,'quota_daily_limit',100,'quota_weekly_limit',100,'quota_daily_used',90,'quota_weekly_used',90,
+ 'quota_daily_reset_mode','fixed','quota_weekly_reset_mode','fixed','quota_reset_timezone',$2::text,
+ 'quota_weekly_reset_day',0,'quota_daily_reset_at',$3::text,'quota_weekly_reset_at',$3::text,
+ 'quota_daily_start',$4::text,'quota_weekly_start',$4::text) WHERE id=$1`, s.Command.AccountID, zone, boundary.Format(time.RFC3339), boundary.AddDate(0, 0, -7).Format(time.RFC3339))
+			require.NoError(t, err)
+			cmd := s.Command
+			cmd.AccountQuotaCost = 1.25
+			for _, at := range []time.Time{boundary.Add(11 * time.Hour), boundary.Add(10 * time.Hour)} {
+				cmd.EffectiveAt = at
+				_, err = incrementSettlementAccountQuota(ctx, tx, &cmd)
+				require.NoError(t, err)
+			}
+			var total, daily, weekly float64
+			var ds, ws time.Time
+			require.NoError(t, tx.QueryRowContext(ctx, `SELECT (extra->>'quota_used')::numeric,(extra->>'quota_daily_used')::numeric,(extra->>'quota_weekly_used')::numeric,(extra->>'quota_daily_start')::timestamptz,(extra->>'quota_weekly_start')::timestamptz FROM accounts WHERE id=$1`, cmd.AccountID).Scan(&total, &daily, &weekly, &ds, &ws))
+			require.Equal(t, []float64{12.5, 2.5, 2.5}, []float64{total, daily, weekly})
+			require.True(t, boundary.Equal(ds))
+			require.True(t, boundary.Equal(ws))
+			cmd.EffectiveAt = boundary.Add(-time.Minute)
+			state, err := incrementSettlementAccountQuota(ctx, tx, &cmd)
+			require.NoError(t, err)
+			require.Equal(t, []float64{13.75, 2.5, 2.5}, []float64{state.TotalUsed, state.DailyUsed, state.WeeklyUsed})
+		})
+	}
+}
+
+func TestUsageSettlementSubscriptionAdvancesBeforeIncrement(t *testing.T) {
+	ctx := context.Background()
+	_, s := settlementFixture(t)
+	client := testEntClient(t)
+	group := mustCreateGroup(t, client, &service.Group{Name: uuid.NewString(), Platform: service.PlatformGemini, SubscriptionType: service.SubscriptionTypeSubscription})
+	sub := mustCreateSubscription(t, client, &service.UserSubscription{UserID: s.Command.UserID, GroupID: group.ID})
+	day := time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC)
+	week := day.Add(-7 * 24 * time.Hour)
+	month := day.Add(-30 * 24 * time.Hour)
+	tx, err := integrationDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `UPDATE user_subscriptions SET starts_at=$2,expires_at=$3,daily_window_start=$4,weekly_window_start=$5,monthly_window_start=$2,daily_usage_usd=90,weekly_usage_usd=90,monthly_usage_usd=90 WHERE id=$1`, sub.ID, month, day.AddDate(0, 2, 0), day.AddDate(0, 0, -1), week)
+	require.NoError(t, err)
+	// First charge crosses all three boundaries; the second replays earlier in
+	// the same window. A stale preflight CAS reset must then leave both intact.
+	require.NoError(t, incrementSettlementSubscription(ctx, tx, sub.ID, 1.25, day.Add(2*time.Minute)))
+	require.NoError(t, incrementSettlementSubscription(ctx, tx, sub.ID, 1.25, day.Add(time.Minute)))
+	_, err = tx.ExecContext(ctx, `UPDATE user_subscriptions SET daily_usage_usd=0,daily_window_start=$2 WHERE id=$1 AND daily_window_start=$3`, sub.ID, day, day.AddDate(0, 0, -1))
+	require.NoError(t, err)
+	var d, w, m float64
+	var ds, ws, ms time.Time
+	require.NoError(t, tx.QueryRowContext(ctx, `SELECT daily_usage_usd,weekly_usage_usd,monthly_usage_usd,daily_window_start,weekly_window_start,monthly_window_start FROM user_subscriptions WHERE id=$1`, sub.ID).Scan(&d, &w, &m, &ds, &ws, &ms))
+	require.Equal(t, []float64{2.5, 2.5, 2.5}, []float64{d, w, m})
+	for _, start := range []time.Time{ds, ws, ms} {
+		require.True(t, day.Equal(start))
+	}
+}
+
+func TestUsageSettlementFixedAccountBeforeMissingDSTHour(t *testing.T) {
+	ctx := context.Background()
+	_, s := settlementFixture(t)
+	loc, err := time.LoadLocation("America/New_York")
+	require.NoError(t, err)
+	day := time.Date(2026, 3, 7, 2, 0, 0, 0, loc)
+	week := time.Date(2026, 3, 1, 2, 0, 0, 0, loc)
+	tx, err := integrationDB.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `UPDATE accounts SET extra=jsonb_build_object(
+ 'quota_used',0,'quota_daily_limit',100,'quota_weekly_limit',100,'quota_daily_used',90,'quota_weekly_used',90,
+ 'quota_daily_reset_mode','fixed','quota_weekly_reset_mode','fixed','quota_reset_timezone','America/New_York',
+ 'quota_daily_reset_hour',2,'quota_weekly_reset_hour',2,'quota_weekly_reset_day',0,
+ 'quota_daily_reset_at',$2::text,'quota_weekly_reset_at',$3::text) WHERE id=$1`, s.Command.AccountID, day.Format(time.RFC3339), week.Format(time.RFC3339))
+	require.NoError(t, err)
+	cmd := s.Command
+	cmd.AccountQuotaCost = 1.25
+	for _, at := range []time.Time{day.Add(20 * time.Minute), day.Add(10 * time.Minute)} {
+		cmd.EffectiveAt = at
+		_, err = incrementSettlementAccountQuota(ctx, tx, &cmd)
+		require.NoError(t, err)
+	}
+	var d, w float64
+	var ds, ws time.Time
+	require.NoError(t, tx.QueryRowContext(ctx, `SELECT (extra->>'quota_daily_used')::numeric,(extra->>'quota_weekly_used')::numeric,(extra->>'quota_daily_start')::timestamptz,(extra->>'quota_weekly_start')::timestamptz FROM accounts WHERE id=$1`, cmd.AccountID).Scan(&d, &w, &ds, &ws))
+	require.Equal(t, []float64{2.5, 2.5}, []float64{d, w})
+	require.True(t, day.Equal(ds), "daily start %v", ds)
+	require.True(t, week.Equal(ws), "weekly start %v", ws)
+}
+
+func TestUsageSettlementQuotaModeSurvivesIntakeDisable(t *testing.T) {
+	ctx := context.Background()
+	// An isolated schema models restart without changing other fixtures.
+	conn, err := integrationDB.Conn(ctx)
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	tx, err := conn.BeginTx(ctx, nil)
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	_, err = tx.ExecContext(ctx, `CREATE TEMP TABLE settings(key text PRIMARY KEY,value text,updated_at timestamptz) ON COMMIT DROP; CREATE TEMP TABLE usage_settlements(state text) ON COMMIT DROP`)
+	require.NoError(t, err)
+	for _, step := range []struct{ intake, flusher, want, fail bool }{
+		{false, false, false, false}, {true, true, false, true}, {true, false, true, false}, {false, false, true, false}, {false, true, false, true},
+	} {
+		mode, err := initializeUsageSettlementQuotaMode(ctx, tx, step.intake, step.flusher)
+		if step.fail {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, step.want, mode)
+		}
+	}
+}
+
+// Compile-time check that a transaction can isolate mode initialization tests.
+var _ settlementModeDB = (*sql.Tx)(nil)
 
 func settlementFixture(t *testing.T) (*usageBillingRepository, *service.UsageSettlementSnapshot) {
 	t.Helper()

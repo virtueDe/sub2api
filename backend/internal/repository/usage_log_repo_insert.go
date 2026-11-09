@@ -12,6 +12,7 @@ import (
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -215,7 +216,9 @@ func (r *usageLogRepository) CreateBestEffort(ctx context.Context, log *service.
 	}
 }
 
-func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor, log *service.UsageLog) (bool, error) {
+func (r *usageLogRepository) createSingle(ctx context.Context, sqlq sqlExecutor, log *service.UsageLog) (_ bool, err error) {
+	started := time.Now()
+	defer func() { dbstats.Record("usage_log_single", time.Since(started), err) }()
 	prepared := prepareUsageLogInsert(log)
 	if sqlq == nil {
 		sqlq = r.sql
@@ -555,7 +558,9 @@ func (r *usageLogRepository) flushCreateBatch(db *sql.DB, batch []usageLogCreate
 
 	for _, req := range fallback {
 		fallbackCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		fallbackStarted := time.Now()
 		inserted, err := r.createSingle(fallbackCtx, db, req.log)
+		dbstats.Record("usage_log_fallback", time.Since(fallbackStarted), err)
 		cancel()
 		completeUsageLogCreateRequest(req, usageLogCreateResult{inserted: inserted, err: err})
 	}
@@ -608,10 +613,15 @@ func (r *usageLogRepository) flushBestEffortBatch(db *sql.DB, batch []usageLogBe
 	defer cancel()
 
 	query, args := buildUsageLogBestEffortInsertQuery(preparedList)
-	if _, err := db.ExecContext(ctx, query, args...); err != nil {
+	started := time.Now()
+	_, err := db.ExecContext(ctx, query, args...)
+	dbstats.Record("usage_log_batch", time.Since(started), err)
+	if err != nil {
 		logger.LegacyPrintf("repository.usage_log", "best-effort batch insert failed: %v", err)
 		for _, group := range groupOrder {
+			fallbackStarted := time.Now()
 			singleErr := execUsageLogInsertNoResult(ctx, db, group.prepared)
+			dbstats.Record("usage_log_fallback", time.Since(fallbackStarted), singleErr)
 			if singleErr != nil {
 				logger.LegacyPrintf("repository.usage_log", "best-effort single fallback insert failed: %v", singleErr)
 			} else if group.prepared.requestID != "" && r != nil && r.bestEffortRecent != nil {
@@ -650,7 +660,9 @@ func completeUsageLogCreateRequest(req usageLogCreateRequest, res usageLogCreate
 	sendUsageLogCreateResult(req.resultCh, res)
 }
 
-func (r *usageLogRepository) batchInsertUsageLogs(db *sql.DB, keys []string, preparedByKey map[string]usageLogInsertPrepared) (map[string]bool, map[string]usageLogBatchState, bool, error) {
+func (r *usageLogRepository) batchInsertUsageLogs(db *sql.DB, keys []string, preparedByKey map[string]usageLogInsertPrepared) (_ map[string]bool, _ map[string]usageLogBatchState, _ bool, err error) {
+	started := time.Now()
+	defer func() { dbstats.Record("usage_log_batch", time.Since(started), err) }()
 	if len(keys) == 0 {
 		return map[string]bool{}, map[string]usageLogBatchState{}, false, nil
 	}
@@ -1178,8 +1190,10 @@ func buildUsageLogBestEffortInsertQuery(preparedList []usageLogInsertPrepared) (
 	return query.String(), args
 }
 
-func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared usageLogInsertPrepared) error {
-	_, err := sqlq.ExecContext(ctx, `
+func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared usageLogInsertPrepared) (err error) {
+	started := time.Now()
+	defer func() { dbstats.Record("usage_log_single", time.Since(started), err) }()
+	_, err = sqlq.ExecContext(ctx, `
 		INSERT INTO usage_logs (
 			user_id,
 			api_key_id,

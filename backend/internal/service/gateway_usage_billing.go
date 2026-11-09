@@ -403,6 +403,13 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 	if err != nil {
 		return false, err
 	}
+	if cmd.PlatformQuota != nil && deps.billingCacheService != nil && deps.billingCacheService.cache != nil {
+		// Also retry invalidation after a deduplicated commit. DB quota mode is
+		// persistent, so a Redis failure cannot silently relax enforcement.
+		if cacheErr := deps.billingCacheService.cache.DeleteUserPlatformQuotaCache(billingCtx, cmd.UserID, cmd.PlatformQuota.Platform); cacheErr != nil {
+			logger.LegacyPrintf("service.gateway", "Warning: invalidate committed platform quota cache failed user=%d platform=%s: %v", cmd.UserID, cmd.PlatformQuota.Platform, cacheErr)
+		}
+	}
 
 	if result == nil || !result.Applied {
 		deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)

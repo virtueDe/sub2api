@@ -9,10 +9,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-func (r *usageBillingRepository) BeginSettlement(ctx context.Context, id string, keyID, userID int64) error {
+func (r *usageBillingRepository) BeginSettlement(ctx context.Context, id string, keyID, userID int64) (err error) {
+	started := time.Now()
+	defer func() {
+		dbstats.Record("settlement_begin", time.Since(started), err)
+		if err != nil {
+			dbstats.TriggerBillingFailure()
+		}
+	}()
 	if !strings.HasPrefix(id, "settlement:") || keyID <= 0 || userID <= 0 {
 		return service.ErrUsageSettlementConflict
 	}
@@ -40,7 +48,14 @@ func validateSettlement(s *service.UsageSettlementSnapshot) error {
 	}
 	return nil
 }
-func (r *usageBillingRepository) PrepareSettlement(ctx context.Context, s *service.UsageSettlementSnapshot) error {
+func (r *usageBillingRepository) PrepareSettlement(ctx context.Context, s *service.UsageSettlementSnapshot) (err error) {
+	started := time.Now()
+	defer func() {
+		dbstats.Record("settlement_prepare", time.Since(started), err)
+		if err != nil {
+			dbstats.TriggerBillingFailure()
+		}
+	}()
 	if err := validateSettlement(s); err != nil {
 		return err
 	}
@@ -73,10 +88,17 @@ func (r *usageBillingRepository) PrepareSettlement(ctx context.Context, s *servi
 
 func (r *usageBillingRepository) ApplySettlement(ctx context.Context, ref service.UsageSettlementRef, detail *service.ImageGenerationDetail) (_ *service.UsageSettlementSnapshot, _ *service.UsageBillingApplyResult, err error) {
 	started := time.Now()
-	tx, err := r.db.BeginTx(ctx, nil)
+	defer func() {
+		dbstats.Record("settlement", time.Since(started), err)
+		if err != nil {
+			dbstats.TriggerBillingFailure()
+		}
+	}()
+	tx, release, err := beginUsageBillingTransaction(ctx, r.db)
 	if err != nil {
 		return nil, nil, usageBillingStageError("settlement_begin", started, err)
 	}
+	defer release()
 	defer func() { _ = tx.Rollback() }()
 	var data []byte
 	var state string
@@ -123,9 +145,11 @@ func (r *usageBillingRepository) ApplySettlement(ctx context.Context, ref servic
 	if _, err = tx.ExecContext(ctx, `UPDATE usage_settlements SET state='charged',charged_at=now(),updated_at=now(),last_error_code=NULL WHERE request_id=$1 AND api_key_id=$2`, ref.RequestID, ref.APIKeyID); err != nil {
 		return nil, nil, err
 	}
-	started = time.Now()
-	if err = tx.Commit(); err != nil {
-		return nil, nil, usageBillingStageError("settlement_commit", started, err)
+	commitStarted := time.Now()
+	err = tx.Commit()
+	recordBillingStage("commit", commitStarted, err)
+	if err != nil {
+		return nil, nil, usageBillingStageError("settlement_commit", commitStarted, err)
 	}
 	return &snapshot, result, nil
 }

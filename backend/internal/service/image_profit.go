@@ -278,10 +278,10 @@ func NewImageProfitService(repo ImageProfitRepository, cfg *config.Config) *Imag
 	return &ImageProfitService{repo: repo, enabled: cfg == nil || cfg.RunMode != config.RunModeSimple}
 }
 
-func ProvideImageProfitService(repo ImageProfitRepository, cfg *config.Config) *ImageProfitService {
+func ProvideImageProfitService(repo ImageProfitRepository, cfg *config.Config) (*ImageProfitService, func()) {
 	s := NewImageProfitService(repo, cfg)
 	s.Start()
-	return s
+	return s, s.Stop
 }
 
 func (s *ImageProfitService) ListPrices(ctx context.Context, page, size int) ([]ImageProcurementPrice, int, error) {

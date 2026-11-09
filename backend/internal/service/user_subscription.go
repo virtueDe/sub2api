@@ -175,6 +175,32 @@ func (s *UserSubscription) automaticWindowStartAt(previous *time.Time, period ti
 	return anchor.Add(periods * period), true
 }
 
+// BillingWindowStartsAt uses the same activation/reset policy as preflight.
+// The caller must lock the subscription while reading and persisting these
+// starts, and must not count an older event in an already newer window.
+func (s *UserSubscription) BillingWindowStartsAt(at time.Time) (daily, weekly, monthly time.Time) {
+	daily, weekly, monthly = timezone.StartOfDay(at), at, at
+	if s.DailyWindowStart != nil {
+		daily = *s.DailyWindowStart
+		if next, ok := s.automaticDailyWindowStartAt(at); ok {
+			daily = next
+		}
+	}
+	if s.WeeklyWindowStart != nil {
+		weekly = *s.WeeklyWindowStart
+		if next, ok := s.automaticWindowStartAt(s.WeeklyWindowStart, 7*24*time.Hour, at); ok {
+			weekly = next
+		}
+	}
+	if s.MonthlyWindowStart != nil {
+		monthly = *s.MonthlyWindowStart
+		if next, ok := s.automaticWindowStartAt(s.MonthlyWindowStart, 30*24*time.Hour, at); ok {
+			monthly = next
+		}
+	}
+	return
+}
+
 func (s *UserSubscription) DailyResetTime() *time.Time {
 	if s.DailyWindowStart == nil {
 		return nil

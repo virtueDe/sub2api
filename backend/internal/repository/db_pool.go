@@ -29,9 +29,14 @@ type dbPoolSettings struct {
 }
 
 func clampDBPoolSettings(cfg *config.Config) dbPoolSettings {
+	maxOpen, maxIdle := cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns
+	if cfg.Database.StatisticsIsolationEnabled {
+		maxOpen -= 2
+		maxIdle = min(maxIdle, maxOpen)
+	}
 	return dbPoolSettings{
-		MaxOpenConns:    cfg.Database.MaxOpenConns,
-		MaxIdleConns:    cfg.Database.MaxIdleConns,
+		MaxOpenConns:    maxOpen,
+		MaxIdleConns:    maxIdle,
 		ConnMaxLifetime: clampDBPoolDuration("database.conn_max_lifetime_minutes", cfg.Database.ConnMaxLifetimeMinutes, defaultConnMaxLifetime),
 		ConnMaxIdleTime: clampDBPoolDuration("database.conn_max_idle_time_minutes", cfg.Database.ConnMaxIdleTimeMinutes, defaultConnMaxIdleTime),
 	}

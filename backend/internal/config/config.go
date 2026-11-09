@@ -1632,8 +1632,13 @@ func (d *DatabaseConfig) DurableUsageQuota() bool {
 // DatabaseConfig 数据库连接配置
 // 性能优化：新增连接池参数，避免频繁创建/销毁连接
 type DatabaseConfig struct {
+	StatisticsIsolationEnabled bool   `mapstructure:"statistics_isolation_enabled"`
+	DiagnosticsEnabled         bool   `mapstructure:"diagnostics_enabled"`
+	DiagnosticsDirectory       string `mapstructure:"diagnostics_directory"`
 	// Durable Gemini image settlement requires DB-authoritative platform quota.
-	UsageSettlementEnabled         bool `mapstructure:"usage_settlement_enabled"`
+	UsageSettlementEnabled bool `mapstructure:"usage_settlement_enabled"`
+	// Runtime DB mode is latched persistently once enabled; disabling intake
+	// does not reactivate old Redis quota snapshots after a restart.
 	UsageSettlementRecoveryEnabled bool `mapstructure:"-"`
 	// Rollups are built in shadow mode until operators enable reads after reconciliation.
 	UsageRollupEnabled      bool    `mapstructure:"usage_rollup_enabled"`
@@ -2323,6 +2328,9 @@ func setDefaults() {
 	viper.SetDefault("database.user_platform_quota_flush_batch_size", 1000)
 
 	viper.SetDefault("database.usage_settlement_enabled", false)
+	viper.SetDefault("database.statistics_isolation_enabled", false)
+	viper.SetDefault("database.diagnostics_enabled", false)
+	viper.SetDefault("database.diagnostics_directory", "")
 	viper.SetDefault("database.usage_rollup_read_key_ids", []int64{})
 	viper.SetDefault("database.usage_rollup_enabled", true)
 	viper.SetDefault("database.usage_rollup_reads_enabled", false)
@@ -2822,6 +2830,9 @@ func setEnvReachableDefaults() {
 }
 
 func (c *Config) Validate() error {
+	if c.Database.StatisticsIsolationEnabled && c.Database.MaxOpenConns < 3 {
+		return fmt.Errorf("database.max_open_conns must be >= 3 with statistics isolation")
+	}
 	if c.Database.DurableUsageQuota() && c.Database.UserPlatformQuotaFlusherEnabled {
 		return fmt.Errorf("database.usage_settlement_enabled requires user_platform_quota_flusher_enabled=false")
 	}

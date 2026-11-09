@@ -11,6 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/imagepayload"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
@@ -338,7 +339,9 @@ func (s *OpsSystemLogSink) flushBatch(baseCtx context.Context, batch []*logger.L
 	}
 	ctx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
 	defer cancel()
+	started := time.Now()
 	inserted, err := s.opsRepo.BatchInsertSystemLogs(ctx, inputs)
+	dbstats.Record("system_log_batch", time.Since(started), err)
 	if err != nil {
 		return 0, err
 	}

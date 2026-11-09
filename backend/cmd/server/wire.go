@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	"github.com/Wei-Shaw/sub2api/internal/server"
@@ -31,7 +32,7 @@ type Application struct {
 	Cleanup       func()
 }
 
-func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
+func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), error) {
 	wire.Build(
 		// Infrastructure layer ProviderSets
 		config.ProviderSet,
@@ -60,7 +61,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		// Application struct
 		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup"),
 	)
-	return nil, nil
+	return nil, nil, nil
 }
 
 func providePrivacyClientFactory() service.PrivacyClientFactory {
@@ -82,6 +83,9 @@ func providePluginHostInfo(buildInfo handler.BuildInfo) service.PluginHostInfo {
 }
 
 func provideCleanup(
+	diagnostics *dbstats.Recorder,
+	dashboardAggregation *service.DashboardAggregationService,
+	dashboard *service.DashboardService,
 	usageSettlementWorker *service.UsageSettlementWorker,
 	usageRollupWorker *service.UsageRollupWorker,
 	imageProfit *service.ImageProfitService,
@@ -434,6 +438,9 @@ func provideCleanup(
 
 		infraSteps := []cleanupStep{
 			{"UsageSettlementWorker", func() error { usageSettlementWorker.Stop(); return nil }},
+			{"Dashboard", func() error { dashboard.Stop(); return nil }},
+			{"DashboardAggregation", func() error { dashboardAggregation.Stop(); return nil }},
+			{"DatabaseDiagnostics", func() error { diagnostics.Stop(); return nil }},
 			{"Redis", func() error {
 				if rdb == nil {
 					return nil

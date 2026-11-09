@@ -102,6 +102,9 @@ func isTransientDatabaseInitializationError(err error) bool {
 //   - *sql.DB: 底层的 SQL 数据库连接，可用于直接执行原生 SQL
 //   - error: 初始化过程中的错误
 func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
+	if cfg.Database.StatisticsIsolationEnabled && cfg.Database.MaxOpenConns < 3 {
+		return nil, nil, fmt.Errorf("statistics isolation requires total max_open_conns >= 3")
+	}
 	// 优先初始化时区设置，确保所有时间操作使用统一的时区。
 	// 这对于跨时区部署和日志时间戳的一致性至关重要。
 	if err := timezone.Init(cfg.Timezone); err != nil {
@@ -144,10 +147,12 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 
 	// 创建 Ent 客户端，绑定到已配置的数据库驱动。
 	// Turning off intake must not strand previously persisted financial facts.
-	if err := drv.DB().QueryRowContext(migrationCtx, `SELECT EXISTS(SELECT 1 FROM usage_settlements WHERE state<>'complete')`).Scan(&cfg.Database.UsageSettlementRecoveryEnabled); err != nil {
+	quotaMode, err := initializeUsageSettlementQuotaMode(migrationCtx, drv.DB(), cfg.Database.UsageSettlementEnabled, cfg.Database.UserPlatformQuotaFlusherEnabled)
+	if err != nil {
 		_ = drv.Close()
-		return nil, nil, fmt.Errorf("check pending usage settlements: %w", err)
+		return nil, nil, fmt.Errorf("initialize durable usage quota mode: %w", err)
 	}
+	cfg.Database.UsageSettlementRecoveryEnabled = quotaMode
 	client := ent.NewClient(ent.Driver(drv))
 
 	// 启动阶段：从配置或数据库中确保系统密钥可用。
