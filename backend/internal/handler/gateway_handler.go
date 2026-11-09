@@ -1613,24 +1613,23 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 	ctx := c.Request.Context()
 
 	// 解析可选的日期范围参数（用于 model_stats 查询）
-	startTime, endTime := h.parseUsageDateRange(c)
+	modelRange := h.parseUsageDateRange(c)
 	days, ok := parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
 	if !ok {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Invalid days, allowed range is 1-90")
 		return
 	}
 
-	// Best-effort: 获取用量统计（按当前 API Key 过滤），失败不影响基础响应
-	usageData := h.buildUsageData(ctx, apiKey.ID)
-	dailyUsage := h.buildAPIKeyDailyUsage(c, subject.UserID, apiKey.ID, days)
-
-	// Best-effort: 获取模型统计
-	var modelStats any
+	// Read derived snapshots only after the critical balance/quota reads. Cold
+	// snapshots schedule bounded background work and never wait for its SQL.
 	if h.usageService != nil {
-		if stats, err := h.usageService.GetAPIKeyModelStats(ctx, apiKey.ID, startTime, endTime); err == nil && len(stats) > 0 {
-			modelStats = stats
-		}
+		dailyStart, dailyEnd := apiKeyDailyUsageRange(days, c.Query("timezone"))
+		c.Set("usage_statistics_snapshot", func() service.APIKeyUsageSnapshot {
+			return h.usageService.GetAPIKeyUsageSnapshot(ctx, subject.UserID, apiKey.ID, dailyStart, dailyEnd, modelRange)
+		})
 	}
+	var usageData gin.H
+	var dailyUsage, modelStats any
 
 	// 判断模式: key 有总额度或速率限制 → quota_limited，否则 → unrestricted
 	isQuotaLimited := apiKey.Quota > 0 || apiKey.HasRateLimits()
@@ -1644,71 +1643,16 @@ func (h *GatewayHandler) Usage(c *gin.Context) {
 }
 
 // parseUsageDateRange 解析 start_date / end_date query params，默认返回近 30 天范围
-func (h *GatewayHandler) parseUsageDateRange(c *gin.Context) (time.Time, time.Time) {
-	// Stable default windows let repeated polls share the short statistics cache.
-	now := timezone.Now().Truncate(20 * time.Second)
-	endTime := now
-	startTime := now.AddDate(0, 0, -30)
-
-	if s := c.Query("start_date"); s != "" {
-		if t, err := timezone.ParseInLocation("2006-01-02", s); err == nil {
-			startTime = t
-		}
+func (h *GatewayHandler) parseUsageDateRange(c *gin.Context) service.UsageModelRange {
+	now := timezone.Now()
+	result := service.UsageModelRange{Start: now.AddDate(0, 0, -30), End: now, RollingStart: true, RollingEnd: true}
+	if t, err := timezone.ParseInLocation("2006-01-02", c.Query("start_date")); err == nil {
+		result.Start, result.RollingStart = t, false
 	}
-	if s := c.Query("end_date"); s != "" {
-		if t, err := timezone.ParseInLocation("2006-01-02", s); err == nil {
-			endTime = t.AddDate(0, 0, 1) // half-open range upper bound
-		}
+	if t, err := timezone.ParseInLocation("2006-01-02", c.Query("end_date")); err == nil {
+		result.End, result.RollingEnd = t.AddDate(0, 0, 1), false
 	}
-	return startTime, endTime
-}
-
-// buildUsageData 构建 today/total 用量摘要
-func (h *GatewayHandler) buildUsageData(ctx context.Context, apiKeyID int64) gin.H {
-	if h.usageService == nil {
-		return nil
-	}
-	dashStats, err := h.usageService.GetAPIKeyDashboardStats(ctx, apiKeyID)
-	if err != nil || dashStats == nil {
-		return nil
-	}
-	return gin.H{
-		"today": gin.H{
-			"requests":              dashStats.TodayRequests,
-			"input_tokens":          dashStats.TodayInputTokens,
-			"output_tokens":         dashStats.TodayOutputTokens,
-			"cache_creation_tokens": dashStats.TodayCacheCreationTokens,
-			"cache_read_tokens":     dashStats.TodayCacheReadTokens,
-			"total_tokens":          dashStats.TodayTokens,
-			"cost":                  dashStats.TodayCost,
-			"actual_cost":           dashStats.TodayActualCost,
-		},
-		"total": gin.H{
-			"requests":              dashStats.TotalRequests,
-			"input_tokens":          dashStats.TotalInputTokens,
-			"output_tokens":         dashStats.TotalOutputTokens,
-			"cache_creation_tokens": dashStats.TotalCacheCreationTokens,
-			"cache_read_tokens":     dashStats.TotalCacheReadTokens,
-			"total_tokens":          dashStats.TotalTokens,
-			"cost":                  dashStats.TotalCost,
-			"actual_cost":           dashStats.TotalActualCost,
-		},
-		"average_duration_ms": dashStats.AverageDurationMs,
-		"rpm":                 dashStats.Rpm,
-		"tpm":                 dashStats.Tpm,
-	}
-}
-
-func (h *GatewayHandler) buildAPIKeyDailyUsage(c *gin.Context, userID, apiKeyID int64, days int) any {
-	if h.usageService == nil {
-		return nil
-	}
-	startTime, endTime := apiKeyDailyUsageRange(days, c.Query("timezone"))
-	stats, err := h.usageService.GetAPIKeyDailyUsage(c.Request.Context(), userID, apiKeyID, startTime, endTime)
-	if err != nil {
-		return nil
-	}
-	return stats
+	return result
 }
 
 // usageQuotaLimited 处理 quota_limited 模式的响应
@@ -1801,6 +1745,7 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 		resp["model_stats"] = modelStats
 	}
 
+	appendUsageStatistics(c, resp)
 	c.JSON(http.StatusOK, resp)
 }
 
@@ -1841,6 +1786,7 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 		if modelStats != nil {
 			resp["model_stats"] = modelStats
 		}
+		appendUsageStatistics(c, resp)
 		c.JSON(http.StatusOK, resp)
 		return
 	}
@@ -1869,7 +1815,32 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	if modelStats != nil {
 		resp["model_stats"] = modelStats
 	}
+	appendUsageStatistics(c, resp)
 	c.JSON(http.StatusOK, resp)
+}
+
+// appendUsageStatistics leaves legacy helper callers unchanged and adds explicit
+// per-component freshness for gateway snapshots in every billing mode.
+func appendUsageStatistics(c *gin.Context, response gin.H) {
+	value, ok := c.Get("usage_statistics_snapshot")
+	if !ok {
+		return
+	}
+	load, ok := value.(func() service.APIKeyUsageSnapshot)
+	if !ok {
+		panic("invalid usage statistics snapshot loader")
+	}
+	snapshot := load()
+	response["statistics"] = snapshot.Statistics
+	if snapshot.Usage != nil {
+		response["usage"] = snapshot.Usage
+	}
+	if snapshot.DailyUsage != nil {
+		response["daily_usage"] = snapshot.DailyUsage
+	}
+	if snapshot.ModelStats != nil {
+		response["model_stats"] = snapshot.ModelStats
+	}
 }
 
 // calculateSubscriptionRemaining 计算订阅剩余可用额度

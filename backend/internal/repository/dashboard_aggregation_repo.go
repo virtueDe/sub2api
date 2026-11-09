@@ -31,7 +31,7 @@ func NewDashboardAggregationRepository(sqlDB *sql.DB) service.DashboardAggregati
 		log.Printf("[DashboardAggregation] 检测到非 PostgreSQL 驱动，已自动禁用预聚合")
 		return nil
 	}
-	return newDashboardAggregationRepositoryWithSQL(sqlDB)
+	return &governedDashboardAggregationRepository{dashboardAggregationRepository: newDashboardAggregationRepositoryWithSQL(sqlDB)}
 }
 
 func newDashboardAggregationRepositoryWithSQL(sqlq sqlExecutor) *dashboardAggregationRepository {

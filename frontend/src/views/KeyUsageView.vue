@@ -269,6 +269,15 @@
             </div>
           </div>
 
+          <div v-if="statisticsStatus.length" class="rounded-xl border border-gray-200 bg-white/90 px-6 py-4 text-sm text-gray-600 dark:border-dark-700 dark:bg-dark-900 dark:text-dark-300" data-testid="statistics-freshness" aria-live="polite">
+            <p class="mb-2">{{ t('keyUsage.statisticsNotice') }}</p>
+            <div v-for="item in statisticsStatus" :key="item.name" class="flex flex-wrap gap-x-2 gap-y-1">
+              <span>{{ item.label }}:</span>
+              <span>{{ item.state }}</span>
+              <time v-if="item.updatedAt" :datetime="item.updatedAt">{{ formatStatisticsTime(item.updatedAt) }}</time>
+            </div>
+          </div>
+
           <!-- Usage Stats Card -->
           <div
             v-if="usageStatCells.length > 0"
@@ -417,7 +426,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'
@@ -555,13 +564,16 @@ function getRingOffset(ring: RingItem): number {
   return CIRCUMFERENCE - (Math.min(ring.pct, 100) / 100) * CIRCUMFERENCE
 }
 
+let ringAnimation = 0
 function triggerRingAnimation(items: RingItem[]) {
+  const animation = ++ringAnimation
   ringAnimated.value = false
   displayPcts.value = items.map(() => 0)
 
   nextTick(() => {
     requestAnimationFrame(() => {
       setTimeout(() => {
+        if (animation !== ringAnimation) return
         ringAnimated.value = true
 
         // Animate percentage numbers
@@ -570,6 +582,7 @@ function triggerRingAnimation(items: RingItem[]) {
         const targets = items.map(item => item.isBalance ? 0 : item.pct)
 
         function tick() {
+          if (animation !== ringAnimation) return
           const elapsed = performance.now() - startTime
           const p = Math.min(elapsed / duration, 1)
           const ease = 1 - Math.pow(1 - p, 3)
@@ -778,6 +791,31 @@ const detailRows = computed<DetailRow[]>(() => {
   return rows
 })
 
+interface StatisticsFreshness {
+  state: 'pending' | 'fresh' | 'stale' | 'unavailable'
+  updated_at?: string
+  refreshing?: boolean
+}
+
+const statisticsStatus = computed(() => {
+  const statistics = resultData.value?.statistics as Record<string, StatisticsFreshness> | undefined
+  if (!statistics) return []
+  const labels: Record<string, string> = {
+    total: 'statisticsTotal', today: 'statisticsToday', performance: 'rpmTpm',
+    daily_usage: 'dailyDetail', model_stats: 'modelStats',
+  }
+  return Object.entries(labels).flatMap(([name, label]) => {
+    const meta = statistics[name]
+    if (!meta) return []
+    const states = { pending: 'statisticsPending', fresh: 'statisticsFresh', stale: 'statisticsStale', unavailable: 'statisticsUnavailable' }
+    return [{ name, label: t(`keyUsage.${label}`), state: t(`keyUsage.${states[meta.state] ?? 'statisticsUnavailable'}`), updatedAt: meta.updated_at }]
+  })
+})
+
+function formatStatisticsTime(value: string): string {
+  return new Date(value).toLocaleString(locale.value === 'zh' ? 'zh-CN' : 'en-US')
+}
+
 interface StatCell {
   label: string
   value: string
@@ -798,7 +836,7 @@ const usageStatCells = computed<StatCell[]>(() => {
     { label: t('keyUsage.todayCacheCreation'), value: fmtNum(today.cache_creation_tokens) },
     { label: t('keyUsage.todayCacheRead'), value: fmtNum(today.cache_read_tokens) },
     { label: t('keyUsage.todayCost'), value: usd(today.actual_cost) },
-    { label: t('keyUsage.rpmTpm'), value: `${usage.rpm || 0} / ${usage.tpm || 0}` },
+    { label: t('keyUsage.rpmTpm'), value: `${fmtNum(usage.rpm)} / ${fmtNum(usage.tpm)}` },
     { label: t('keyUsage.totalRequests'), value: fmtNum(total.requests) },
     { label: t('keyUsage.totalInputTokens'), value: fmtNum(total.input_tokens) },
     { label: t('keyUsage.totalOutputTokens'), value: fmtNum(total.output_tokens) },
@@ -806,7 +844,7 @@ const usageStatCells = computed<StatCell[]>(() => {
     { label: t('keyUsage.totalCacheCreation'), value: fmtNum(total.cache_creation_tokens) },
     { label: t('keyUsage.totalCacheRead'), value: fmtNum(total.cache_read_tokens) },
     { label: t('keyUsage.totalCost'), value: usd(total.actual_cost) },
-    { label: t('keyUsage.avgDuration'), value: usage.average_duration_ms ? `${Math.round(usage.average_duration_ms)} ms` : '-' },
+    { label: t('keyUsage.avgDuration'), value: usage.average_duration_ms != null ? `${Math.round(usage.average_duration_ms)} ms` : '-' },
   ]
 })
 
@@ -860,11 +898,54 @@ function getBrowserTimezone(): string {
 
 // ==================== API Query ====================
 
-async function fetchUsage(key: string) {
-  const dateParams = getDateParams()
+let statisticsTimer: ReturnType<typeof setTimeout> | null = null
+let statisticsAbort: AbortController | null = null
+let queryGeneration = 0
+const statisticsRetryDelays = [2000, 4000, 8000, 16000, 30000]
+
+function stopStatisticsRefresh() {
+  queryGeneration++
+  if (statisticsTimer) clearTimeout(statisticsTimer)
+  statisticsTimer = null
+  statisticsAbort?.abort()
+  statisticsAbort = null
+}
+
+watch([apiKey, currentRange, customStartDate, customEndDate, dailyUsageDays], () => {
+  stopStatisticsRefresh()
+  isQuerying.value = false
+  showLoading.value = false
+}, { flush: 'sync' })
+
+function refreshPendingStatistics(key: string, dateParams: string, generation: number, attempt = 0) {
+  const states = resultData.value?.statistics as Record<string, StatisticsFreshness> | undefined
+  if (!states || !Object.values(states).some(s => s.refreshing || s.state === 'pending')) return
+  if (generation !== queryGeneration || attempt >= statisticsRetryDelays.length) return
+  statisticsTimer = setTimeout(async () => {
+    if (generation !== queryGeneration || document.hidden) return
+    const controller = new AbortController()
+    statisticsAbort = controller
+    try {
+      const data = await fetchUsage(key, dateParams, controller.signal)
+      if (generation !== queryGeneration) return
+      resultData.value = data
+      nextTick(() => triggerRingAnimation(ringItems.value))
+      refreshPendingStatistics(key, dateParams, generation, attempt + 1)
+    } catch (err) {
+      if (generation === queryGeneration && !controller.signal.aborted) {
+        appStore.showError((err as Error).message || t('keyUsage.queryFailedRetry'))
+      }
+    } finally {
+      if (statisticsAbort === controller) statisticsAbort = null
+    }
+  }, statisticsRetryDelays[attempt])
+}
+
+async function fetchUsage(key: string, dateParams: string, signal?: AbortSignal) {
   const url = buildGatewayUrl('/v1/usage') + (dateParams ? '?' + dateParams : '')
   const res = await fetch(url, {
     headers: { 'Authorization': 'Bearer ' + key },
+    signal,
   })
   if (!res.ok) {
     const body = await res.json().catch(() => null)
@@ -875,7 +956,6 @@ async function fetchUsage(key: string) {
 }
 
 async function queryKey() {
-  if (isQuerying.value) return
   const key = apiKey.value.trim()
   if (!key) {
     appStore.showInfo(t('keyUsage.enterApiKey'))
@@ -883,12 +963,18 @@ async function queryKey() {
   }
 
   isQuerying.value = true
+  stopStatisticsRefresh()
+  const generation = queryGeneration
+  const controller = new AbortController()
+  statisticsAbort = controller
+  const dateParams = getDateParams()
   showResults.value = true
   showLoading.value = true
   resultData.value = null
 
   try {
-    const data = await fetchUsage(key)
+    const data = await fetchUsage(key, dateParams, controller.signal)
+    if (generation !== queryGeneration) return
     resultData.value = data
     showLoading.value = false
     showDatePicker.value = true
@@ -899,12 +985,16 @@ async function queryKey() {
     })
 
     appStore.showSuccess(t('keyUsage.querySuccess'))
+    refreshPendingStatistics(key, dateParams, generation)
   } catch (err) {
-    showResults.value = false
-    showLoading.value = false
-    appStore.showError((err as Error).message || t('keyUsage.queryFailedRetry'))
+    if (generation === queryGeneration) {
+      showResults.value = false
+      showLoading.value = false
+      appStore.showError((err as Error).message || t('keyUsage.queryFailedRetry'))
+    }
   } finally {
-    isQuerying.value = false
+    if (statisticsAbort === controller) statisticsAbort = null
+    if (generation === queryGeneration) isQuerying.value = false
   }
 }
 
@@ -939,6 +1029,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  ringAnimation++
+  stopStatisticsRefresh()
   if (resetTimer) clearInterval(resetTimer)
 })
 </script>

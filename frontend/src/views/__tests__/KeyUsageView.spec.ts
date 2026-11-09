@@ -214,6 +214,100 @@ describe('KeyUsageView daily detail', () => {
     wrapper.unmount()
   })
 
+  it('shows partial statistics freshness without inventing zero performance', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({
+      mode: 'unrestricted', isValid: true, balance: 12, remaining: 12, unit: 'USD',
+      usage: { total: { requests: 0, actual_cost: 0 }, average_duration_ms: 0 },
+      statistics: {
+        total: { state: 'stale', updated_at: '2026-11-09T00:00:00Z', refreshing: true },
+        today: { state: 'pending', refreshing: true },
+        performance: { state: 'unavailable', refreshing: false },
+        daily_usage: { state: 'pending', refreshing: true },
+      },
+    }) } as Response)
+    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: true, LocaleSwitcher: true, Icon: true } } })
+    await wrapper.find('input').setValue('sk-test-key')
+    await wrapper.find('input').trigger('keydown.enter')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="statistics-freshness"]').text()).toContain('keyUsage.statisticsStale')
+    expect(wrapper.get('[data-testid="statistics-freshness"]').text()).toContain('keyUsage.statisticsPending')
+    expect(wrapper.get('time').attributes('datetime')).toBe('2026-11-09T00:00:00Z')
+    expect(wrapper.text()).toContain('- / -')
+    expect(wrapper.text()).not.toContain('0 / 0')
+    expect(wrapper.text()).toContain('0 ms')
+    expect(wrapper.text()).not.toContain('keyUsage.noDailyUsage')
+    wrapper.unmount()
+  })
+
+  it('refreshes pending statistics then stops when complete', async () => {
+    vi.useFakeTimers()
+    const pending = { mode: 'unrestricted', balance: 12, statistics: { total: { state: 'pending', refreshing: true } } }
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => pending } as Response)
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => ({ ...pending, balance: 11, statistics: { total: { state: 'fresh', refreshing: false } }, usage: { total: { requests: 42 } } }) } as Response)
+    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: true, LocaleSwitcher: true, Icon: true } } })
+    await wrapper.find('input').setValue('sk-test-key')
+    await wrapper.find('input').trigger('keydown.enter')
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(1)
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('42')
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(fetch).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  it('bounds refresh attempts and cancels refresh when the key changes', async () => {
+    vi.useFakeTimers()
+    vi.mocked(fetch).mockResolvedValue({ ok: true, json: async () => ({ statistics: { total: { state: 'pending', refreshing: true } } }) } as Response)
+    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: true, LocaleSwitcher: true, Icon: true } } })
+    await wrapper.find('input').setValue('sk-test-key')
+    await wrapper.find('input').trigger('keydown.enter')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(120000)
+    expect(fetch).toHaveBeenCalledTimes(6)
+    await wrapper.find('input').trigger('keydown.enter')
+    await flushPromises()
+    await wrapper.find('input').setValue('sk-other')
+    await vi.advanceTimersByTimeAsync(60000)
+    expect(fetch).toHaveBeenCalledTimes(7)
+    wrapper.unmount()
+  })
+
+  it('updates ring percentages when a statistics refresh also changes quota usage', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'performance', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] })
+    const quota = (used: number, pending: boolean) => ({ mode: 'quota_limited', quota: { limit: 100, used, remaining: 100-used }, statistics: { total: { state: pending ? 'pending' : 'fresh', refreshing: pending } } })
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => quota(10,true) } as Response)
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: true, json: async () => quota(20,false) } as Response)
+    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: true, LocaleSwitcher: true, Icon: true } } })
+    await wrapper.find('input').setValue('sk-test-key')
+    await wrapper.find('input').trigger('keydown.enter')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(3500)
+    expect(wrapper.get('.text-3xl.tabular-nums').text()).toBe('20%')
+    wrapper.unmount()
+  })
+
+  it('keeps the newest date query when a previous request is still running', async () => {
+    const wrapper = mount(KeyUsageView, { global: { stubs: { RouterLink: true, LocaleSwitcher: true, Icon: true } } })
+    await wrapper.find('input').setValue('sk-test-key')
+    await wrapper.find('input').trigger('keydown.enter')
+    await flushPromises()
+    let finishOld!: (value: Response) => void
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }))
+    await wrapper.findAll('button').find(b => b.text() === '7 Days')!.trigger('click')
+    await wrapper.findAll('button').find(b => b.text() === '30 Days')!.trigger('click')
+    await flushPromises()
+    expect(fetch).toHaveBeenCalledTimes(3)
+    expect(vi.mocked(fetch).mock.calls[1][1]?.signal?.aborted).toBe(true)
+    finishOld({ ok: true, json: async () => ({ balance: 999 }) } as Response)
+    await flushPromises()
+    expect(wrapper.text()).toContain('Daily Detail')
+    expect(wrapper.text()).not.toContain('$999.00')
+    wrapper.unmount()
+  })
+
   it('queries the current local calendar date near midnight', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 6, 13, 0, 30))

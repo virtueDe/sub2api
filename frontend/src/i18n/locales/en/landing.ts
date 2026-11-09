@@ -116,6 +116,14 @@ export default {
 
   // Key Usage Query Page
   keyUsage: {
+    statisticsNotice: 'Balance and quotas update separately. Preparing statistics refresh automatically for a short time; query again later if they are still unavailable.',
+    statisticsTotal: 'All-time statistics',
+    statisticsToday: "Today's statistics",
+    statisticsPending: 'Preparing',
+    statisticsFresh: 'Updated',
+    statisticsStale: 'Showing previous result',
+    statisticsUnavailable: 'Temporarily unavailable',
+
     title: 'API Key Usage',
     subtitle: 'Enter your API Key to view real-time spending and usage status',
     placeholder: 'sk-ant-mirror-xxxxxxxxxxxx',

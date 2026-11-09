@@ -151,7 +151,7 @@ type usageLogRepository struct {
 }
 
 func NewUsageLogRepository(client *dbent.Client, sqlDB *sql.DB) service.UsageLogRepository {
-	return newUsageLogRepositoryWithSQL(client, sqlDB)
+	return &governedUsageLogRepository{usageLogRepository: newUsageLogRepositoryWithSQL(client, sqlDB)}
 }
 
 func newUsageLogRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *usageLogRepository {

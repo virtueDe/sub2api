@@ -116,6 +116,14 @@ export default {
 
   // Key Usage Query Page
   keyUsage: {
+    statisticsNotice: '余额与额度单独更新。统计准备中会短暂自动刷新；如仍未就绪，可稍后重新查询。',
+    statisticsTotal: '累计统计',
+    statisticsToday: '今日统计',
+    statisticsPending: '准备中',
+    statisticsFresh: '已更新',
+    statisticsStale: '显示上次结果',
+    statisticsUnavailable: '暂不可用',
+
     title: 'API Key 用量查询',
     subtitle: '输入您的 API Key 以查看实时消费金额与使用状态',
     placeholder: 'sk-ant-mirror-xxxxxxxxxxxx',

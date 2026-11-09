@@ -547,13 +547,32 @@ func (r *usageLogRepository) getPerformanceStatsByAPIKey(ctx context.Context, ap
 
 // GetAPIKeyDashboardStats 获取指定 API Key 的仪表盘统计（按 api_key_id 过滤）
 func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
-	stats := &UserDashboardStats{}
-	today := timezone.Today()
+	stats, err := r.GetAPIKeyTotalStats(ctx, apiKeyID)
+	if err != nil {
+		return nil, err
+	}
+	today, err := r.GetAPIKeyTodayStats(ctx, apiKeyID)
+	if err != nil {
+		return nil, err
+	}
+	stats.TodayRequests = today.TodayRequests
+	stats.TodayInputTokens = today.TodayInputTokens
+	stats.TodayOutputTokens = today.TodayOutputTokens
+	stats.TodayCacheCreationTokens = today.TodayCacheCreationTokens
+	stats.TodayCacheReadTokens = today.TodayCacheReadTokens
+	stats.TodayTokens = today.TodayTokens
+	stats.TodayCost = today.TodayCost
+	stats.TodayActualCost = today.TodayActualCost
+	performance, err := r.GetAPIKeyPerformanceStats(ctx, apiKeyID)
+	if err != nil {
+		return nil, err
+	}
+	stats.Rpm, stats.Tpm = performance.Rpm, performance.Tpm
+	return stats, nil
+}
 
-	// API Key 维度不需要统计 key 数量，设为 1
-	stats.TotalAPIKeys = 1
-	stats.ActiveAPIKeys = 1
-
+func (r *usageLogRepository) GetAPIKeyTotalStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
+	stats := &UserDashboardStats{TotalAPIKeys: 1, ActiveAPIKeys: 1}
 	// 累计 Token 统计
 	totalStatsQuery := `
 		SELECT
@@ -586,6 +605,12 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 	}
 	stats.TotalTokens = stats.TotalInputTokens + stats.TotalOutputTokens + stats.TotalCacheCreationTokens + stats.TotalCacheReadTokens
 
+	return stats, nil
+}
+
+func (r *usageLogRepository) GetAPIKeyTodayStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
+	stats := &UserDashboardStats{TotalAPIKeys: 1, ActiveAPIKeys: 1}
+	today := timezone.Today()
 	// 今日 Token 统计
 	todayStatsQuery := `
 		SELECT
@@ -616,6 +641,11 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 	}
 	stats.TodayTokens = stats.TodayInputTokens + stats.TodayOutputTokens + stats.TodayCacheCreationTokens + stats.TodayCacheReadTokens
 
+	return stats, nil
+}
+
+func (r *usageLogRepository) GetAPIKeyPerformanceStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
+	stats := &UserDashboardStats{TotalAPIKeys: 1, ActiveAPIKeys: 1}
 	// 性能指标：RPM 和 TPM（最近5分钟，按 API Key 过滤）
 	rpm, tpm, err := r.getPerformanceStatsByAPIKey(ctx, apiKeyID)
 	if err != nil {

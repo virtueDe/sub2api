@@ -114,7 +114,15 @@ func (s *DailyTokenRankingRewardService) SettleRank(ctx context.Context, rewardD
 			_ = s.billingCache.InvalidateUserBalance(ctx, settledEntry.UserID)
 		}
 	}
-	return s.Preview(ctx, preview.Date)
+	// Read the small persisted reward snapshot, including concurrent payments
+	// and frozen candidates, without re-running the expensive ranking query.
+	existing, err := s.rewardRepo.ListByDate(ctx, preview.Date)
+	if err != nil {
+		return nil, err
+	}
+	preview.Entries = mergeDailyTokenRankingRewardEntries(preview.Entries, existing)
+	preview.Settled = dailyTokenRankingRewardsSettled(preview.Entries)
+	return preview, nil
 }
 
 func normalizeDailyTokenRankingRewardDate(raw string) (string, time.Time, time.Time, error) {

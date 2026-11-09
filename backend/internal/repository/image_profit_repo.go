@@ -15,7 +15,7 @@ import (
 type imageProfitRepository struct{ db *sql.DB }
 
 func NewImageProfitRepository(db *sql.DB) service.ImageProfitRepository {
-	return &imageProfitRepository{db: db}
+	return &governedImageProfitRepository{imageProfitRepository: &imageProfitRepository{db: db}}
 }
 
 const procurementPriceColumns = `p.id,p.scope_type,p.scope_id,p.model,p.resolution,p.unit_price_usd,p.effective_at,p.note,p.created_by,p.created_at`

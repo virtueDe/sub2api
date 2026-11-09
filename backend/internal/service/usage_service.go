@@ -62,6 +62,7 @@ type UsageService struct {
 	entClient            *dbent.Client
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	statsCache           usageStatsCache
+	gatewayStats         gatewayStatisticsCache
 }
 
 // NewUsageService 创建使用统计服务实例

@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"go.uber.org/zap"
@@ -138,7 +139,11 @@ func loadUsageStats[T any](ctx context.Context, c *usageStatsCache, key string, 
 		defer cancel()
 		value, err := load(loadCtx)
 		if err != nil {
-			c.finishLoad(scope, err)
+			if errors.Is(err, dbstats.ErrBusy) {
+				c.finishLoad(scope, nil)
+			} else {
+				c.finishLoad(scope, err)
+			}
 			c.logFailure(err)
 			return nil, err
 		}
