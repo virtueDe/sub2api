@@ -22,7 +22,7 @@ func TestAuthIdentityLegacyExternalBackfillMigration(t *testing.T) {
 	require.NoError(t, err)
 
 	prepareLegacyExternalIdentitiesTable(t, tx, ctx)
-	truncateAuthIdentityLegacyFixtureTables(t, tx, ctx)
+	clearAuthIdentityLegacyFixtureTables(t, tx, ctx)
 
 	var linuxDoUserID int64
 	require.NoError(t, tx.QueryRowContext(ctx, `
@@ -196,7 +196,7 @@ func TestAuthIdentityLegacyExternalMigrations_ChainHandlesMalformedAndNonObjectM
 	require.NoError(t, err)
 
 	prepareLegacyExternalIdentitiesTable(t, tx, ctx)
-	truncateAuthIdentityLegacyFixtureTables(t, tx, ctx)
+	clearAuthIdentityLegacyFixtureTables(t, tx, ctx)
 
 	var linuxDoMalformedUserID int64
 	require.NoError(t, tx.QueryRowContext(ctx, `
@@ -362,7 +362,7 @@ func TestAuthIdentityLegacyExternalSafetyMigration_ReportsConflictsAndDowngrades
 	require.NoError(t, err)
 
 	prepareLegacyExternalIdentitiesTable(t, tx, ctx)
-	truncateAuthIdentityLegacyFixtureTables(t, tx, ctx)
+	clearAuthIdentityLegacyFixtureTables(t, tx, ctx)
 
 	userIDs := make([]int64, 0, 8)
 	for _, email := range []string{
@@ -585,7 +585,7 @@ func TestAuthIdentityLegacyExternalBackfillMigration_SkipsAmbiguousCanonicalSubj
 	require.NoError(t, err)
 
 	prepareLegacyExternalIdentitiesTable(t, tx, ctx)
-	truncateAuthIdentityLegacyFixtureTables(t, tx, ctx)
+	clearAuthIdentityLegacyFixtureTables(t, tx, ctx)
 
 	var linuxDoFirstUserID int64
 	require.NoError(t, tx.QueryRowContext(ctx, `
@@ -711,7 +711,7 @@ func TestAuthIdentityLegacyExternalMigrations_ReportAmbiguousCanonicalSubjectsWi
 	require.NoError(t, err)
 
 	prepareLegacyExternalIdentitiesTable(t, tx, ctx)
-	truncateAuthIdentityLegacyFixtureTables(t, tx, ctx)
+	clearAuthIdentityLegacyFixtureTables(t, tx, ctx)
 
 	var linuxDoFirstUserID int64
 	require.NoError(t, tx.QueryRowContext(ctx, `
@@ -845,7 +845,7 @@ func TestAuthIdentityMigrationReportTypeWideningPreflightKeeps109And116SafeBefor
 	require.NoError(t, err)
 
 	prepareLegacyExternalIdentitiesTable(t, tx, ctx)
-	truncateAuthIdentityLegacyFixtureTables(t, tx, ctx)
+	clearAuthIdentityLegacyFixtureTables(t, tx, ctx)
 
 	_, err = tx.ExecContext(ctx, `
 ALTER TABLE auth_identity_migration_reports
@@ -939,21 +939,18 @@ CREATE TABLE IF NOT EXISTS user_external_identities (
 	require.NoError(t, err)
 }
 
-func truncateAuthIdentityLegacyFixtureTables(t *testing.T, tx *sql.Tx, ctx context.Context) {
+func clearAuthIdentityLegacyFixtureTables(t *testing.T, tx *sql.Tx, ctx context.Context) {
 	t.Helper()
 
 	_, err := tx.ExecContext(ctx, `
-TRUNCATE TABLE
-	auth_identity_channels,
-	identity_adoption_decisions,
-	pending_auth_sessions,
-	auth_identities,
-	auth_identity_migration_reports,
-	user_provider_default_grants,
-	user_avatars,
-	user_external_identities,
-	users
-RESTART IDENTITY CASCADE;
+-- Keep usage_logs DELETE triggers active when user deletion cascades into usage.
+-- TRUNCATE is intentionally rejected by the hourly-rollup migration.
+DELETE FROM pending_auth_sessions;
+DELETE FROM auth_identity_migration_reports;
+DELETE FROM user_external_identities;
+DELETE FROM usage_cleanup_tasks;
+DELETE FROM scoped_admin_api_keys;
+DELETE FROM users;
 `)
 	require.NoError(t, err)
 }
