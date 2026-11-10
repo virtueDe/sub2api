@@ -149,6 +149,31 @@ func settlementFixture(t *testing.T) (*usageBillingRepository, *service.UsageSet
 	user := mustCreateUser(t, client, &service.User{Email: uuid.NewString() + "@settlement.test", PasswordHash: "hash", Balance: 100})
 	key := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-" + uuid.NewString(), Name: "settlement"})
 	account := mustCreateAccount(t, client, &service.Account{Name: uuid.NewString(), Type: service.AccountTypeAPIKey})
+	// Settlement tests commit real transactions. Remove only this fixture's
+	// rows so later dashboard and recovery tests cannot observe its bills.
+	t.Cleanup(func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tx, err := integrationDB.BeginTx(cleanupCtx, nil)
+		require.NoError(t, err)
+		defer func() { _ = tx.Rollback() }()
+		for _, cleanup := range []struct {
+			query string
+			id    int64
+		}{
+			{"DELETE FROM usage_logs WHERE user_id=$1", user.ID},
+			{"DELETE FROM batch_image_jobs WHERE user_id=$1", user.ID},
+			{"DELETE FROM usage_settlements WHERE user_id=$1", user.ID},
+			{"DELETE FROM usage_billing_dedup WHERE api_key_id=$1", key.ID},
+			{"DELETE FROM usage_billing_dedup_archive WHERE api_key_id=$1", key.ID},
+			{"DELETE FROM users WHERE id=$1", user.ID},
+			{"DELETE FROM accounts WHERE id=$1", account.ID},
+		} {
+			_, err = tx.ExecContext(cleanupCtx, cleanup.query, cleanup.id)
+			require.NoError(t, err, "cleanup settlement fixture")
+		}
+		require.NoError(t, tx.Commit())
+	})
 	now := time.Now().UTC()
 	id := "settlement:" + uuid.NewString()
 	cmd := service.UsageBillingCommand{RequestID: id, APIKeyID: key.ID, UserID: user.ID, AccountID: account.ID, AccountType: account.Type, Model: "gemini-image", BalanceCost: 1.25, APIKeyQuotaCost: 1.25}
