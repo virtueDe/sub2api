@@ -372,12 +372,13 @@ func TestCaptureUsageBillingBatchImageBalance_ReleasesRemainder(t *testing.T) {
 	mock.ExpectBegin()
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
+	expectBatchImageClaimMissing(mock, service.BatchImageReleaseRequestID("imgbatch_capture"), 7)
 	mock.ExpectQuery(captureBatchImageHoldSQL).
 		WithArgs(1.0, 0.25, int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{"balance", "frozen_balance"}).AddRow(9.75, 0.0))
 	mock.ExpectCommit()
 
-	result, err := captureUsageBillingBatchImageBalance(ctx, tx, &service.BatchImageBalanceHoldCommand{UserID: 42, HoldAmount: 1, ActualAmount: 0.25})
+	result, err := captureUsageBillingBatchImageBalance(ctx, tx, &service.BatchImageBalanceHoldCommand{UserID: 42, APIKeyID: 7, BatchID: "imgbatch_capture", HoldAmount: 1, ActualAmount: 0.25})
 	require.NoError(t, err)
 	require.InDelta(t, 9.75, *result.NewBalance, 0.000001)
 	require.InDelta(t, 0.0, *result.FrozenBalance, 0.000001)
@@ -394,9 +395,10 @@ func TestCaptureUsageBillingBatchImageBalance_RejectsActualCostOverHold(t *testi
 	mock.ExpectBegin()
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
+	expectBatchImageClaimMissing(mock, service.BatchImageReleaseRequestID("imgbatch_over_hold"), 7)
 	mock.ExpectRollback()
 
-	_, err = captureUsageBillingBatchImageBalance(ctx, tx, &service.BatchImageBalanceHoldCommand{UserID: 42, HoldAmount: 0.5, ActualAmount: 1})
+	_, err = captureUsageBillingBatchImageBalance(ctx, tx, &service.BatchImageBalanceHoldCommand{UserID: 42, APIKeyID: 7, BatchID: "imgbatch_over_hold", HoldAmount: 0.5, ActualAmount: 1})
 	require.ErrorIs(t, err, service.ErrBatchImageSettlementCostExceedsHold)
 	require.NoError(t, tx.Rollback())
 	require.NoError(t, mock.ExpectationsWereMet())
@@ -411,6 +413,10 @@ func TestReleaseUsageBillingBatchImageBalance_ReturnsFrozenToAvailable(t *testin
 	mock.ExpectBegin()
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
+	mock.ExpectQuery(`SELECT status FROM batch_image_jobs WHERE batch_id=\$1 FOR UPDATE`).
+		WithArgs("imgbatch_release").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(service.BatchImageJobStatusFailed))
+	expectBatchImageClaimMissing(mock, service.BatchImageCaptureRequestID("imgbatch_release"), 7)
 	mock.ExpectQuery(`SELECT 1\s+FROM usage_billing_dedup\s+WHERE request_id = \$1 AND api_key_id = \$2`).
 		WithArgs(service.BatchImageHoldRequestID("imgbatch_release"), int64(7)).
 		WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
@@ -436,6 +442,10 @@ func TestReleaseUsageBillingBatchImageBalance_SkipsWhenHoldNeverReserved(t *test
 	mock.ExpectBegin()
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
+	mock.ExpectQuery(`SELECT status FROM batch_image_jobs WHERE batch_id=\$1 FOR UPDATE`).
+		WithArgs("imgbatch_phantom").
+		WillReturnRows(sqlmock.NewRows([]string{"status"}).AddRow(service.BatchImageJobStatusFailed))
+	expectBatchImageClaimMissing(mock, service.BatchImageCaptureRequestID("imgbatch_phantom"), 7)
 	// dedup 与归档表均无 hold claim：说明该 job 从未成功冻结，
 	// 释放必须跳过，不得从他人冻结资金池中凭空生成余额。
 	mock.ExpectQuery(`SELECT 1\s+FROM usage_billing_dedup\s+WHERE request_id = \$1 AND api_key_id = \$2`).
@@ -452,4 +462,12 @@ func TestReleaseUsageBillingBatchImageBalance_SkipsWhenHoldNeverReserved(t *test
 	require.Nil(t, result.FrozenBalance)
 	require.NoError(t, tx.Commit())
 	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func expectBatchImageClaimMissing(mock sqlmock.Sqlmock, requestID string, apiKeyID int64) {
+	for _, table := range []string{"usage_billing_dedup", "usage_billing_dedup_archive"} {
+		mock.ExpectQuery(`SELECT 1\s+FROM `+table+`\s+WHERE request_id = \$1 AND api_key_id = \$2`).
+			WithArgs(requestID, apiKeyID).
+			WillReturnError(sql.ErrNoRows)
+	}
 }
