@@ -194,25 +194,10 @@ func (p *BatchImageProviderProcessor) indexAndSettle(ctx context.Context, job *B
 		if errors.Is(err, ErrBatchImageIndexStateConflict) {
 			return BatchImageProcessResult{RequeueAfter: time.Millisecond}, nil
 		}
-		code := "INDEX_PARSE_FAILED"
-		if errors.Is(err, ErrBatchImageDuplicateCustomID) {
-			code = "DUPLICATE_CUSTOM_ID_IN_OUTPUT"
-		}
-		msg := truncateBatchImageMessage(err.Error(), batchImageMaxErrorMessageLength)
-		transitionErr := p.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusFailed, BatchImageTransitionOptions{
-			EventType:    "indexing_failed",
-			EventPayload: map[string]any{"error_code": code},
-			ErrorCode:    batchImageStringPtr(code),
-			ErrorMessage: batchImageOptionalStringPtr(msg),
-		})
-		if transitionErr != nil {
-			return BatchImageProcessResult{}, transitionErr
-		}
-		job.Status = BatchImageJobStatusFailed
-		if err := p.releaseTerminalHold(ctx, job); err != nil {
-			return BatchImageProcessResult{}, err
-		}
-		return BatchImageProcessResult{Terminal: true}, nil
+		// Output already exists. Parsing/storage failures cannot establish that
+		// generation was free; preserve the hold and retry the same output.
+		logger.L().Error("batch_image.indexing_requires_attention", zap.String("batch_id", job.BatchID), zap.Error(err))
+		return BatchImageProcessResult{RequeueAfter: batchImageProviderErrorRequeue}, nil
 	}
 
 	if err := p.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusSettling, BatchImageTransitionOptions{

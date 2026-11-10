@@ -47,6 +47,10 @@ func TestBatchImageBillingRecoveryService_ReleasesStaleUnsubmittedHold(t *testin
 		CreatedAt:       time.Now().Add(-time.Hour),
 		UpdatedAt:       time.Now().Add(-time.Hour),
 	}
+	unknown := *stale
+	unknown.BatchID = "imgbatch_unknown_uploading"
+	unknown.Status = BatchImageJobStatusUploading
+	repo.jobs[unknown.BatchID] = &unknown
 	repo.jobs[stale.BatchID] = stale
 	repo.jobs[active.BatchID] = active
 	billing := &fakeBatchImageBillingRepo{}

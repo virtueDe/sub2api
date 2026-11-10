@@ -43,7 +43,7 @@ func (s *BatchImageBillingRecoveryService) ReleaseStaleUnsubmittedOnce(ctx conte
 	released := 0
 	var lastErr error
 	for _, job := range jobs {
-		if job == nil {
+		if job == nil || job.Status != BatchImageJobStatusCreated {
 			continue
 		}
 		if err := ctx.Err(); err != nil {

@@ -67,7 +67,7 @@ func (r *usageBillingRepository) PrepareSettlement(ctx context.Context, s *servi
 		return fmt.Errorf("%w: snapshot exceeds 60000 bytes", service.ErrUsageSettlementConflict)
 	}
 	result, err := r.db.ExecContext(ctx, `UPDATE usage_settlements SET snapshot=$4::jsonb,state='ready',updated_at=now(),next_attempt_at=now()
- WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 AND state='created' AND snapshot IS NULL`, s.Command.RequestID, s.Command.APIKeyID, s.Command.UserID, string(data))
+ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 AND (state='created' OR (state='needs_review' AND last_error_code='final_facts_missing')) AND snapshot IS NULL`, s.Command.RequestID, s.Command.APIKeyID, s.Command.UserID, string(data))
 	if err != nil {
 		return err
 	}
@@ -79,7 +79,7 @@ func (r *usageBillingRepository) PrepareSettlement(ctx context.Context, s *servi
 		return nil
 	}
 	var same bool
-	err = r.db.QueryRowContext(ctx, `SELECT snapshot=$4::jsonb AND state IN ('ready','charged','complete') FROM usage_settlements WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3`, s.Command.RequestID, s.Command.APIKeyID, s.Command.UserID, string(data)).Scan(&same)
+	err = r.db.QueryRowContext(ctx, `SELECT COALESCE(snapshot=$4::jsonb,false) AND state IN ('ready','charged','complete') FROM usage_settlements WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3`, s.Command.RequestID, s.Command.APIKeyID, s.Command.UserID, string(data)).Scan(&same)
 	if errors.Is(err, sql.ErrNoRows) || err == nil && !same {
 		return service.ErrUsageSettlementConflict
 	}
@@ -102,10 +102,12 @@ func (r *usageBillingRepository) ApplySettlement(ctx context.Context, ref servic
 	defer func() { _ = tx.Rollback() }()
 	var data []byte
 	var state string
-	if err = tx.QueryRowContext(ctx, `SELECT snapshot,state FROM usage_settlements WHERE request_id=$1 AND api_key_id=$2 FOR UPDATE`, ref.RequestID, ref.APIKeyID).Scan(&data, &state); err != nil {
+	var reserved sql.NullFloat64
+	var reservedSub sql.NullInt64
+	if err = tx.QueryRowContext(ctx, `SELECT snapshot,state,reserved_amount,reserved_subscription_id FROM usage_settlements WHERE request_id=$1 AND api_key_id=$2 FOR UPDATE`, ref.RequestID, ref.APIKeyID).Scan(&data, &state, &reserved, &reservedSub); err != nil {
 		return nil, nil, err
 	}
-	if state == "created" || state == "needs_review" {
+	if state != "ready" && state != "charged" && state != "complete" {
 		return nil, nil, service.ErrUsageSettlementNotReady
 	}
 	var snapshot service.UsageSettlementSnapshot
@@ -128,7 +130,24 @@ func (r *usageBillingRepository) ApplySettlement(ctx context.Context, ref servic
 	}
 	result.Applied = applied
 	if applied {
-		if err = r.applyUsageBillingEffects(ctx, tx, &snapshot.Command, result); err != nil {
+		command := snapshot.Command
+		if reserved.Valid {
+			if reservedSub.Valid != (command.SubscriptionID != nil) || (reservedSub.Valid && reservedSub.Int64 != *command.SubscriptionID) {
+				return nil, nil, service.ErrUsageSettlementConflict
+			}
+			if !reservedSub.Valid {
+				var balance float64
+				// Variable token charges can exceed an estimate. Retain the real
+				// liability (including overdraft) instead of dropping the bill.
+				err = tx.QueryRowContext(ctx, `UPDATE users SET balance=balance+$2-$3,frozen_balance=frozen_balance-$2,updated_at=now() WHERE id=$1 AND deleted_at IS NULL AND frozen_balance >= $2 RETURNING balance`, command.UserID, reserved.Float64, command.BalanceCost).Scan(&balance)
+				if err != nil {
+					return nil, nil, err
+				}
+				result.NewBalance, result.BalanceOverdrafted = &balance, balance < 0
+				command.BalanceCost = 0
+			}
+		}
+		if err = r.applyUsageBillingEffects(ctx, tx, &command, result); err != nil {
 			return nil, nil, err
 		}
 		// Transactional outbox survives process loss before cache invalidation.
@@ -138,7 +157,8 @@ func (r *usageBillingRepository) ApplySettlement(ctx context.Context, ref servic
 	}
 	// No $0 placeholder: the charge, actual-cost log and state commit together.
 	log := snapshot.Usage
-	log.ImageGeneration = detail
+	// Enrichment is outside the critical financial transaction.
+	log.ImageGeneration = nil
 	if err = execUsageLogInsertNoResult(ctx, tx, prepareUsageLogInsert(&log)); err != nil {
 		return nil, nil, usageBillingStageError("settlement_usage_log", started, err)
 	}

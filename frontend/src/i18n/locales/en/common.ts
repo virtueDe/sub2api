@@ -59,6 +59,8 @@ export default {
 	    balance: 'Balance',
 	    availableBalance: 'Available balance',
 	    frozenBalance: 'Frozen balance',
+        imageHeldBalance: 'Image generation hold',
+        imageHoldHint: 'Includes batch images. This is a reservation; unused funds are released after settlement.',
 	    totalBalance: 'Total balance',
 	    available: 'Available',
     copiedToClipboard: 'Copied to clipboard',

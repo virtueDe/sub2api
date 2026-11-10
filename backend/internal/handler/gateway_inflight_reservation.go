@@ -30,7 +30,12 @@ func tokenInflightEstimate(model string, body []byte) service.InflightEstimateRe
 		BodyBytes: len(body),
 		MaxTokens: requestMaxOutputTokens(body),
 		Kind:      service.InflightEstimateToken,
+		Units:     max(1, int(gjson.GetBytes(body, "n").Int()), int(gjson.GetBytes(body, "generationConfig.candidateCount").Int())),
 	}
+}
+
+type imageBillingReserver interface {
+	ReserveImageBilling(context.Context, *service.APIKey, *service.UserSubscription, service.InflightEstimateRequest) (context.Context, func(), error)
 }
 
 func inflightNoop() {}
@@ -71,6 +76,16 @@ func reserveInflightBalanceCtx(
 	subscription *service.UserSubscription,
 	req service.InflightEstimateRequest,
 ) (context.Context, func(), error) {
+	if estimator != nil && (req.Kind == service.InflightEstimateImage || service.ImageGenerationCaptureFromContext(ctx) != nil) {
+		if reserver, ok := estimator.(imageBillingReserver); ok {
+			imageReq := req
+			imageReq.Kind = service.InflightEstimateImage
+			reserved, done, err := reserver.ReserveImageBilling(ctx, apiKey, subscription, imageReq)
+			if err != nil || service.UsageSettlementFromContext(reserved) != "" {
+				return reserved, done, err
+			}
+		}
+	}
 	if billing == nil || estimator == nil || apiKey == nil || apiKey.User == nil || !billing.InflightReservationEnabled() {
 		return ctx, inflightNoop, nil
 	}

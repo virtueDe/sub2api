@@ -58,6 +58,9 @@ func beginImageGenerationCapture(c *gin.Context, body []byte, mappedModels ...st
 	if c == nil || c.Request == nil {
 		return func() {}
 	}
+	if strings.HasSuffix(c.Request.URL.Path, ":countTokens") || strings.HasSuffix(c.Request.URL.Path, "/countTokens") {
+		return func() {}
+	}
 	capture := service.ImageGenerationCaptureFromContext(c.Request.Context())
 	if writer, ok := c.Writer.(*imageGenerationWriter); ok && writer.capture == capture {
 		return func() {}
@@ -70,7 +73,7 @@ func beginImageGenerationCapture(c *gin.Context, body []byte, mappedModels ...st
 		resolvedModel, _ := service.ResolvedUpstreamModelFromContext(c.Request.Context())
 		geminiImage := service.IsGeminiImageGenerationModel(model) || service.IsGeminiImageGenerationModel(resolvedModel)
 		for _, mappedModel := range mappedModels {
-			geminiImage = geminiImage || service.IsGeminiImageGenerationModel(mappedModel)
+			geminiImage = geminiImage || service.IsGeminiImageGenerationModel(mappedModel) || service.IsGPTImageGenerationModel(mappedModel)
 		}
 		geminiImage = geminiImage || service.IsGeminiImageGenerationIntent(body, model, resolvedModel)
 		apiKey, _ := middleware.GetAPIKeyFromContext(c)

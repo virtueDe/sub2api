@@ -365,41 +365,24 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		}
 	})
 
-	t.Run("provider failure marks failed and does not enqueue", func(t *testing.T) {
+	t.Run("ambiguous provider failure retains visible hold for reconciliation", func(t *testing.T) {
 		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
 		gemini.submitErr = errors.New("projects/secret-provider-job failed")
 		billing := svc.BillingRepo.(*fakeBatchImageBillingRepo)
-
 		_, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
 		require.ErrorIs(t, err, ErrBatchImageProviderSubmitFailed)
 		require.Empty(t, queue.enqueued)
 		require.Len(t, billing.reserves, 1)
-		require.Len(t, billing.releases, 1)
-		require.Equal(t, BatchImageReleaseRequestID(billing.reserves[0].BatchID), billing.releases[0].RequestID)
+		require.Empty(t, billing.releases)
 		require.Len(t, repo.jobs, 1)
 		for _, job := range repo.jobs {
-			require.Equal(t, BatchImageJobStatusFailed, job.Status)
-			require.Equal(t, "PROVIDER_SUBMIT_FAILED", batchImageDerefString(job.LastErrorCode))
-			require.Equal(t, "upstream provider operation failed", batchImageDerefString(job.LastErrorMessage))
-			require.NotNil(t, job.UserDeletedAt)
-		}
-	})
-
-	t.Run("provider failure with release failure enqueues billing retry", func(t *testing.T) {
-		svc, repo, queue, gemini, _ := newTestBatchImagePublicService(true)
-		gemini.submitErr = errors.New("projects/secret-provider-job failed")
-		billing := svc.BillingRepo.(*fakeBatchImageBillingRepo)
-		billing.releaseErr = errors.New("billing database timeout")
-
-		_, err := svc.Submit(ctx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
-		require.ErrorIs(t, err, ErrBatchImageBillingHoldFailed)
-		require.Len(t, billing.reserves, 1)
-		require.Len(t, billing.releases, 1)
-		require.Len(t, repo.jobs, 1)
-		for _, job := range repo.jobs {
-			require.Equal(t, BatchImageJobStatusFailed, job.Status)
-			require.Equal(t, "BILLING_RELEASE_FAILED", batchImageDerefString(job.LastErrorCode))
-			require.Equal(t, []string{job.BatchID}, queue.enqueued)
+			require.Equal(t, BatchImageJobStatusUploading, job.Status)
+			require.Equal(t, "PROVIDER_SUBMIT_OUTCOME_UNKNOWN", batchImageDerefString(job.LastErrorCode))
+			require.NotContains(t, batchImageDerefString(job.LastErrorMessage), "secret")
+			require.Nil(t, job.UserDeletedAt)
+			_, err = svc.Cancel(ctx, testBatchImageOwner(), job.BatchID)
+			require.ErrorIs(t, err, ErrBatchImageCancelFailed)
+			require.Empty(t, billing.releases)
 		}
 	})
 

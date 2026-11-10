@@ -1626,7 +1626,7 @@ func (s *ServerConfig) Address() string {
 }
 
 func (d *DatabaseConfig) DurableUsageQuota() bool {
-	return d.UsageSettlementEnabled || d.UsageSettlementRecoveryEnabled
+	return d.UsageSettlementEnabled || d.ImageBillingReservationEnabled || d.UsageSettlementRecoveryEnabled
 }
 
 // DatabaseConfig 数据库连接配置
@@ -1636,7 +1636,8 @@ type DatabaseConfig struct {
 	DiagnosticsEnabled         bool   `mapstructure:"diagnostics_enabled"`
 	DiagnosticsDirectory       string `mapstructure:"diagnostics_directory"`
 	// Durable Gemini image settlement requires DB-authoritative platform quota.
-	UsageSettlementEnabled bool `mapstructure:"usage_settlement_enabled"`
+	UsageSettlementEnabled         bool `mapstructure:"usage_settlement_enabled"`
+	ImageBillingReservationEnabled bool `mapstructure:"image_billing_reservation_enabled"`
 	// Runtime DB mode is latched persistently once enabled; disabling intake
 	// does not reactivate old Redis quota snapshots after a restart.
 	UsageSettlementRecoveryEnabled bool `mapstructure:"-"`
@@ -2328,6 +2329,7 @@ func setDefaults() {
 	viper.SetDefault("database.user_platform_quota_flush_batch_size", 1000)
 
 	viper.SetDefault("database.usage_settlement_enabled", false)
+	viper.SetDefault("database.image_billing_reservation_enabled", false)
 	viper.SetDefault("database.statistics_isolation_enabled", false)
 	viper.SetDefault("database.diagnostics_enabled", false)
 	viper.SetDefault("database.diagnostics_directory", "")

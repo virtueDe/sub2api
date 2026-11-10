@@ -60,6 +60,11 @@
         <div
           v-if="user"
           class="group relative hidden items-center gap-2 rounded-xl bg-primary-50 px-3 py-1.5 dark:bg-primary-900/20 sm:flex"
+          tabindex="0"
+          @mouseenter="balanceHovered = true"
+          @mouseleave="balanceHovered = false"
+          @focusin="balanceFocused = true"
+          @focusout="balanceFocused = false"
         >
           <svg
             class="h-4 w-4 text-primary-600 dark:text-primary-400"
@@ -84,7 +89,7 @@
             {{ balanceFrozenLabel }}
           </span>
           <div
-            class="pointer-events-none absolute right-0 top-full mt-2 hidden w-56 rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg group-hover:block dark:border-dark-700 dark:bg-dark-800"
+            class="pointer-events-none absolute right-0 top-full mt-2 hidden w-72 rounded-lg border border-gray-200 bg-white p-3 text-xs shadow-lg group-hover:block group-focus-within:block dark:border-dark-700 dark:bg-dark-800"
           >
             <div class="flex items-center justify-between">
               <span class="text-gray-500 dark:text-dark-400">{{ balanceAvailableText }}</span>
@@ -92,8 +97,9 @@
             </div>
             <div class="mt-2 flex items-center justify-between">
               <span class="text-gray-500 dark:text-dark-400">{{ balanceFrozenText }}</span>
-              <span class="font-medium text-amber-700 dark:text-amber-200">{{ formatHeaderMoney(frozenBalance) }}</span>
+              <span class="font-medium text-amber-700 dark:text-amber-200">{{ formatHeldMoney(frozenBalance) }}</span>
             </div>
+            <p class="mt-1 text-gray-400 dark:text-dark-500">{{ t('common.imageHoldHint') }}</p>
             <div class="mt-2 border-t border-gray-100 pt-2 dark:border-dark-700">
               <div class="flex items-center justify-between">
                 <span class="text-gray-500 dark:text-dark-400">{{ balanceTotalText }}</span>
@@ -164,7 +170,7 @@
                   {{ formatHeaderMoney(availableBalance) }}
                 </div>
                 <div v-if="frozenBalance > 0" class="mt-1 text-xs text-amber-600 dark:text-amber-300">
-                  {{ balanceFrozenText }} {{ formatHeaderMoney(frozenBalance) }}
+                  {{ balanceFrozenText }} {{ formatHeldMoney(frozenBalance) }}
                 </div>
               </div>
 
@@ -266,7 +272,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
@@ -301,9 +307,49 @@ const availableBalance = computed(() => Number(user.value?.balance || 0))
 const frozenBalance = computed(() => Number(user.value?.frozen_balance || 0))
 const totalBalance = computed(() => availableBalance.value + frozenBalance.value)
 const balanceAvailableText = computed(() => t('common.availableBalance') === 'common.availableBalance' ? '可用余额' : t('common.availableBalance'))
-const balanceFrozenText = computed(() => t('common.frozenBalance') === 'common.frozenBalance' ? '冻结金额' : t('common.frozenBalance'))
+const balanceFrozenText = computed(() => t('common.imageHeldBalance'))
 const balanceTotalText = computed(() => t('common.totalBalance') === 'common.totalBalance' ? '总余额' : t('common.totalBalance'))
-const balanceFrozenLabel = computed(() => `${balanceFrozenText.value} ${formatHeaderMoney(frozenBalance.value)}`)
+const balanceFrozenLabel = computed(() => `${balanceFrozenText.value} ${formatHeldMoney(frozenBalance.value)}`)
+
+const balanceHovered = ref(false)
+const balanceFocused = ref(false)
+
+let balanceRefreshTimer: ReturnType<typeof setInterval> | null = null
+let balanceRefreshPending = false
+let lastBalanceRefreshAt = 0
+
+async function refreshBalance() {
+  if (!user.value || document.hidden || balanceRefreshPending || Date.now() - lastBalanceRefreshAt < 5000) return
+  balanceRefreshPending = true
+  lastBalanceRefreshAt = Date.now()
+  try {
+    await authStore.refreshUser()
+  } catch (error) {
+    console.error('Failed to refresh balance:', error)
+  } finally {
+    balanceRefreshPending = false
+  }
+}
+
+function startBalanceRefresh() {
+  void refreshBalance()
+  if (balanceRefreshTimer === null) balanceRefreshTimer = setInterval(() => { void refreshBalance() }, 10000)
+}
+
+function stopBalanceRefresh() {
+  if (balanceRefreshTimer !== null) clearInterval(balanceRefreshTimer)
+  balanceRefreshTimer = null
+}
+
+watch(() => balanceHovered.value || balanceFocused.value || dropdownOpen.value, (visible) => {
+  if (visible) startBalanceRefresh()
+  else stopBalanceRefresh()
+})
+
+function formatHeldMoney(value: number) {
+  if (!Number.isFinite(value)) return '$0.00'
+  return `$${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 8 })}`
+}
 
 // 只在标准模式的管理员下显示新手引导按钮
 const showOnboardingButton = computed(() => {
@@ -410,6 +456,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  stopBalanceRefresh()
   document.removeEventListener('click', handleClickOutside)
 })
 </script>

@@ -172,7 +172,7 @@ SET status = 'failed',
     updated_at = $4,
     version = version + 1
 WHERE batch_id = $1
-  AND status IN ('created', 'uploading')
+  AND status = 'created'
   AND provider_job_name IS NULL
   AND updated_at <= $5`, batchID, code, message, now, cutoff)
 	if err != nil {
@@ -609,7 +609,7 @@ func (r *batchImageRepository) ListStaleUnsubmittedBatchImageJobs(ctx context.Co
 		limit = 100
 	}
 	rows, err := r.sql.QueryContext(ctx, batchImageJobSelectSQL+`
- WHERE status IN ('created', 'uploading')
+ WHERE status = 'created'
    AND provider_job_name IS NULL
    AND COALESCE(hold_amount, estimated_cost, 0) > 0
    AND updated_at <= $1

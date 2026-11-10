@@ -59,6 +59,8 @@ export default {
 	    balance: '余额',
 	    availableBalance: '可用余额',
 	    frozenBalance: '冻结金额',
+        imageHeldBalance: '生图暂扣金额',
+        imageHoldHint: '含批量生图。暂扣不是最终扣费，结算后多余金额自动归还。',
 	    totalBalance: '总余额',
 	    available: '可用',
     copiedToClipboard: '已复制到剪贴板',

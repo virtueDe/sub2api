@@ -202,6 +202,9 @@ func (r *usageBillingRepository) applyBatchImageBalanceHold(
 		}
 	}()
 
+	if err := lockBatchImageBalance(ctx, tx, cmd.BatchID); err != nil {
+		return nil, err
+	}
 	applied, err := r.claimUsageBillingRequest(ctx, tx, cmd.RequestID, cmd.APIKeyID, cmd.RequestFingerprint)
 	if err != nil {
 		return nil, err
@@ -391,6 +394,13 @@ func reserveUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *
 }
 
 func captureUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
+	refunded, err := batchImageHoldClaimExists(ctx, tx, service.BatchImageReleaseRequestID(cmd.BatchID), cmd.APIKeyID)
+	if err != nil {
+		return nil, err
+	}
+	if refunded {
+		return nil, service.ErrUsageSettlementConflict
+	}
 	if cmd.HoldAmount <= 0 && cmd.ActualAmount <= 0 {
 		return &service.BatchImageBalanceHoldResult{}, nil
 	}
@@ -398,7 +408,7 @@ func captureUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *
 		return nil, service.ErrBatchImageSettlementCostExceedsHold
 	}
 	var balance, frozen float64
-	err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		UPDATE users
 		SET balance = balance
 				+ CASE WHEN $1 > $2 THEN $1 - $2 ELSE 0 END
@@ -423,6 +433,21 @@ func captureUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *
 }
 
 func releaseUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
+	var status string
+	if err := tx.QueryRowContext(ctx, `SELECT status FROM batch_image_jobs WHERE batch_id=$1 FOR UPDATE`, cmd.BatchID).Scan(&status); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
+	switch status {
+	case service.BatchImageJobStatusUploading, service.BatchImageJobStatusIndexing, service.BatchImageJobStatusSettling, service.BatchImageJobStatusCompleted, service.BatchImageJobStatusOutputDeleted:
+		return nil, service.ErrUsageSettlementConflict
+	}
+	captured, err := batchImageHoldClaimExists(ctx, tx, service.BatchImageCaptureRequestID(cmd.BatchID), cmd.APIKeyID)
+	if err != nil {
+		return nil, err
+	}
+	if captured {
+		return nil, service.ErrUsageSettlementConflict
+	}
 	if cmd.HoldAmount <= 0 {
 		return &service.BatchImageBalanceHoldResult{}, nil
 	}
@@ -437,7 +462,7 @@ func releaseUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *
 		return &service.BatchImageBalanceHoldResult{}, nil
 	}
 	var balance, frozen float64
-	err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		UPDATE users
 		SET balance = balance + $1,
 			frozen_balance = COALESCE(frozen_balance, 0) - $1,

@@ -284,6 +284,21 @@ func TestBatchImageProviderProcessor_StatusFlow(t *testing.T) {
 		require.Equal(t, BatchImageCounts{SuccessCount: 1}, repo.counts["imgbatch_flow"])
 	})
 
+	t.Run("generated output parse failure retains hold and retries", func(t *testing.T) {
+		repo := newFakeBatchImageRepository()
+		repo.jobs["imgbatch_flow"] = newJob(BatchImageJobStatusIndexing)
+		provider := &fakeProcessorProvider{result: "{broken-json}"}
+		processor := newTestBatchImageProcessor(repo, provider)
+		billing := &fakeBatchImageBillingRepo{}
+		processor.BillingRepo = billing
+		got, err := processor.Process(ctx, "imgbatch_flow")
+		require.NoError(t, err)
+		require.False(t, got.Terminal)
+		require.Equal(t, time.Minute, got.RequeueAfter)
+		require.Equal(t, BatchImageJobStatusIndexing, repo.jobs["imgbatch_flow"].Status)
+		require.Empty(t, billing.releases)
+	})
+
 	t.Run("failed provider marks job failed", func(t *testing.T) {
 		repo := newFakeBatchImageRepository()
 		repo.jobs["imgbatch_flow"] = newJob(BatchImageJobStatusRunning)

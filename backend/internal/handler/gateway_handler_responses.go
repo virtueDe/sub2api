@@ -108,6 +108,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(requestCtx, apiKey.GroupID, reqModel)
+	defer beginImageGenerationCapture(c, body, channelMapping.MappedModel)()
 
 	// Claude Code only restriction: /v1/responses is never a Claude Code
 	// endpoint. With a fallback group the request continues and account selection
@@ -171,6 +172,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	defer inflightRelease()
+	requestCtx = c.Request.Context()
 
 	// Parse request for session hash
 	bodyRef := service.NewRequestBodyRef(body)

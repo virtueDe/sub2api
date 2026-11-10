@@ -192,6 +192,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+	defer beginImageGenerationCapture(c, body, channelMapping.MappedModel)()
 
 	// 设置 max_tokens=1 + haiku 探测请求标识到 context 中
 	// 必须在 SetClaudeCodeClientContext 之前设置，因为 ClaudeCodeValidator 需要读取此标识进行绕过判断
@@ -2544,6 +2545,9 @@ func (h *GatewayHandler) maybeLogCompatibilityFallbackMetrics(reqLog *zap.Logger
 }
 
 func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
+	if runImageSettlementTask(parent, task) {
+		return
+	}
 	if task == nil {
 		return
 	}
@@ -2580,6 +2584,9 @@ func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task serv
 
 // submitMandatoryUsageRecordTask never silently drops billing work on pool overflow.
 func (h *GatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
+	if runImageSettlementTask(parent, task) {
+		return
+	}
 	if task == nil {
 		return
 	}

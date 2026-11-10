@@ -147,7 +147,7 @@ func InitEnt(cfg *config.Config) (*ent.Client, *sql.DB, error) {
 
 	// 创建 Ent 客户端，绑定到已配置的数据库驱动。
 	// Turning off intake must not strand previously persisted financial facts.
-	quotaMode, err := initializeUsageSettlementQuotaMode(migrationCtx, drv.DB(), cfg.Database.UsageSettlementEnabled, cfg.Database.UserPlatformQuotaFlusherEnabled)
+	quotaMode, err := initializeUsageSettlementQuotaMode(migrationCtx, drv.DB(), cfg.Database.UsageSettlementEnabled || cfg.Database.ImageBillingReservationEnabled, cfg.Database.UserPlatformQuotaFlusherEnabled)
 	if err != nil {
 		_ = drv.Close()
 		return nil, nil, fmt.Errorf("initialize durable usage quota mode: %w", err)

@@ -570,7 +570,12 @@ func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, m
 		if pricing == nil {
 			return 0
 		}
-		return (float64(inputTokens)*pricing.InputPricePerToken + float64(outputTokens)*pricing.OutputPricePerToken) * textRate
+		inputPrice, outputPrice := pricing.InputPricePerToken, pricing.OutputPricePerToken
+		if req.Kind == InflightEstimateImage {
+			inputPrice = math.Max(inputPrice, pricing.ImageInputPricePerToken)
+			outputPrice = math.Max(outputPrice, pricing.ImageOutputPricePerToken)
+		}
+		return (float64(inputTokens)*inputPrice + float64(outputTokens)*outputPrice) * textRate
 	}
 
 	var cost float64
@@ -590,7 +595,7 @@ func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, m
 			}
 		}
 		if cost <= 0 {
-			cost = tokenCost()
+			cost = tokenCost() * float64(units)
 		}
 	case InflightEstimateVideo, InflightEstimateTokenVideo:
 		videoPriced = perRequestMode
@@ -644,10 +649,10 @@ func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, m
 		}
 	}
 	if !validCost(cost) {
-		// An explicit free video tariff/multiplier is priced, not an unknown
+		// An explicit free per-request tariff/multiplier is priced, not an unknown
 		// model. Do not reject it under fail_closed_on_unpriced or use a fallback.
-		freeVideo := cost == 0 && videoPriced
-		return 0, freeVideo
+		freeTariff := cost == 0 && (videoPriced || perRequestMode)
+		return 0, freeTariff
 	}
 	return cost, true
 }

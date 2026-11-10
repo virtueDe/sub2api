@@ -86,7 +86,7 @@ export interface User {
   wechat_bound?: boolean
   role: 'admin' | 'user' // User role for authorization
   balance: number // User balance for API usage
-  frozen_balance?: number // Balance currently held by async batch jobs
+  frozen_balance?: number // Wallet funds reserved for image generation, including batch jobs
   concurrency: number // Allowed concurrent requests
   rpm_limit?: number // User-level RPM cap (0 = unlimited); effective as fallback when group has no rpm_limit
   status: 'active' | 'disabled' // Account status

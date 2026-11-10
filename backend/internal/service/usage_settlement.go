@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
@@ -59,6 +60,9 @@ type UsageSettlementRepository interface {
 // BeginGeminiImageSettlement runs before the first upstream attempt of each
 // native child; failover retains this identity, siblings get distinct identities.
 func (s *GatewayService) BeginGeminiImageSettlement(ctx context.Context, key *APIKey) (context.Context, error) {
+	if UsageSettlementFromContext(ctx) != "" {
+		return ctx, nil
+	}
 	if s.cfg == nil || !s.cfg.Database.UsageSettlementEnabled || s.cfg.RunMode == config.RunModeSimple {
 		return ctx, nil
 	}
@@ -146,12 +150,31 @@ func applyDurableUsageSettlement(ctx context.Context, repo UsageSettlementReposi
 	}
 	u.classifyImageRequestType(ctx)
 	snapshot := newUsageSettlementSnapshot(cmd, u, p)
-	if err := prepareUsageSettlementWithRetry(ctx, repo, snapshot); err != nil {
-		return false, fmt.Errorf("prepare settlement: %w", err)
+	var journalPath string
+	var journalErr error
+	if deps.cfg != nil && deps.cfg.Database.ImageBillingReservationEnabled {
+		journalPath, journalErr = saveImageSettlementFacts(deps.cfg, snapshot)
+		if errors.Is(journalErr, ErrUsageSettlementConflict) {
+			return false, journalErr
+		}
+		if journalErr != nil {
+			logger.L().Error("image.settlement_journal_failed", zap.String("request_id", cmd.RequestID), zap.Error(journalErr), zap.Bool(logger.OpsSystemLogSkipField, true))
+		}
 	}
-	snapshot, result, err := repo.ApplySettlement(ctx, UsageSettlementRef{cmd.RequestID, cmd.APIKeyID}, u.ImageGeneration)
+	if err := prepareUsageSettlementWithRetry(ctx, repo, snapshot); err != nil {
+		return false, fmt.Errorf("prepare settlement: %w", errors.Join(err, journalErr))
+	}
+	if journalPath != "" {
+		if err := os.Remove(journalPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			logger.L().Warn("image.settlement_journal_cleanup_failed", zap.Error(err), zap.Bool(logger.OpsSystemLogSkipField, true))
+		}
+	}
+	snapshot, result, err := repo.ApplySettlement(ctx, UsageSettlementRef{cmd.RequestID, cmd.APIKeyID}, nil)
 	if err != nil {
 		return false, err
+	}
+	if deps.deferredService != nil && u.ImageGeneration != nil {
+		deps.deferredService.ScheduleSettlementImageDetail(repo, UsageSettlementRef{cmd.RequestID, cmd.APIKeyID}, u.ImageGeneration)
 	}
 	if result != nil && result.APIKeyQuotaExhausted && p.APIKey != nil {
 		if invalidator, ok := p.APIKeyService.(apiKeyAuthCacheInvalidator); ok {
@@ -177,7 +200,10 @@ func (s *GatewayService) CompleteGeminiImageSettlementDetail(ctx context.Context
 	if !ok {
 		return errors.New("durable usage settlement unavailable")
 	}
-	return repo.UpdateSettlementImageDetail(ctx, UsageSettlementRef{RequestID: UsageSettlementFromContext(ctx), APIKeyID: keyID}, ImageGenerationDetailFromContext(ctx))
+	if s.deferredService != nil {
+		s.deferredService.ScheduleSettlementImageDetail(repo, UsageSettlementRef{RequestID: UsageSettlementFromContext(ctx), APIKeyID: keyID}, ImageGenerationDetailFromContext(ctx))
+	}
+	return nil
 }
 
 func prepareUsageSettlementWithRetry(ctx context.Context, repo UsageSettlementRepository, s *UsageSettlementSnapshot) error {
@@ -221,6 +247,7 @@ func ProvideUsageSettlementWorker(billing UsageBillingRepository, cache *Billing
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		var lastLog time.Time
+		var journalCursor string
 		for {
 			select {
 			case <-ctx.Done():
@@ -228,6 +255,22 @@ func ProvideUsageSettlementWorker(billing UsageBillingRepository, cache *Billing
 			case <-ticker.C:
 			}
 			workCtx, stop := context.WithTimeout(ctx, 15*time.Second)
+			if err := replayImageSettlementFacts(workCtx, cfg, repo, &journalCursor); err != nil && time.Since(lastLog) >= time.Minute {
+				logger.L().Error("image.settlement_journal_recovery_failed", zap.Error(err), zap.Bool(logger.OpsSystemLogSkipField, true))
+			}
+			if releases, ok := billing.(interface {
+				RetryImageSettlementRelease(context.Context, func(context.Context, int64) error) error
+			}); ok {
+				invalidate := func(ctx context.Context, userID int64) error {
+					if cache == nil {
+						return errors.New("reservation cache invalidation unavailable")
+					}
+					return cache.InvalidateUserBalance(ctx, userID)
+				}
+				if err := releases.RetryImageSettlementRelease(workCtx, invalidate); err != nil {
+					logger.L().Warn("image.reservation_release_retry_failed", zap.Error(err), zap.Bool(logger.OpsSystemLogSkipField, true))
+				}
+			}
 			ref, err := repo.ClaimSettlement(workCtx)
 			if err == nil && ref != nil {
 				var snapshot *UsageSettlementSnapshot
