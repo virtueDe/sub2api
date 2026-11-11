@@ -194,3 +194,29 @@ func TestImageReservationCacheFailureDoesNotBlockOtherRefunds(t *testing.T) {
 	require.Error(t, r.RetryImageSettlementRelease(ctx, invalidate))
 	checkImageWallet(t, b.Command.UserID, 100, 0)
 }
+
+func TestImageReservationLateFailureRefundAndFinalFactsProtection(t *testing.T) {
+	ctx := context.Background()
+	r, s, ref := imageReservationFixture(t)
+	require.NoError(t, r.ReserveImageSettlement(ctx, ref, s.Command.UserID, nil, 2))
+	require.NoError(t, r.MarkImageSettlementDispatched(ctx, ref))
+	_, err := integrationDB.Exec(`UPDATE usage_settlements SET created_at=now()-interval '3 hours' WHERE request_id=$1`, ref.RequestID)
+	require.NoError(t, err)
+	_, err = r.ReviewExpiredSettlements(ctx)
+	require.NoError(t, err)
+	// A delayed durable failure record releases the hold without an operator.
+	require.NoError(t, r.ReleaseImageSettlement(ctx, ref))
+	require.NoError(t, r.ReleaseImageSettlement(ctx, ref))
+	checkImageWallet(t, s.Command.UserID, 100, 0)
+	require.ErrorIs(t, r.PrepareSettlement(ctx, s), service.ErrUsageSettlementConflict)
+
+	r, s, ref = imageReservationFixture(t)
+	require.NoError(t, r.ReserveImageSettlement(ctx, ref, s.Command.UserID, nil, 2))
+	require.NoError(t, r.PrepareSettlement(ctx, s))
+	// Known successful output must be charged even if applying the bill is delayed.
+	require.ErrorIs(t, r.ReleaseImageSettlement(ctx, ref), service.ErrUsageSettlementConflict)
+	checkImageWallet(t, s.Command.UserID, 98, 2)
+	_, _, err = r.ApplySettlement(ctx, ref, nil)
+	require.NoError(t, err)
+	checkImageWallet(t, s.Command.UserID, 98.75, 0)
+}

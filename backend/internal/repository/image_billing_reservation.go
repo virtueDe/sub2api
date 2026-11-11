@@ -140,9 +140,10 @@ func reserveImageSubscription(ctx context.Context, tx *sql.Tx, id, userID, keyID
 	return nil
 }
 
-// Persist the proven failure separately so a refund timeout is retryable.
+// Persist the refund decision separately so a database timeout is retryable.
+// Late failure journals may release missing-facts reviews, never finalized bills.
 func (r *usageBillingRepository) ReleaseImageSettlement(ctx context.Context, ref service.UsageSettlementRef) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE usage_settlements SET state='release_pending',last_error_code='upstream_rejected',updated_at=now() WHERE request_id=$1 AND api_key_id=$2 AND state='created' AND snapshot IS NULL AND reserved_amount IS NOT NULL`, ref.RequestID, ref.APIKeyID)
+	_, err := r.db.ExecContext(ctx, `UPDATE usage_settlements SET state='release_pending',last_error_code='image_request_failed',updated_at=now() WHERE request_id=$1 AND api_key_id=$2 AND (state='created' OR (state='needs_review' AND last_error_code='final_facts_missing')) AND snapshot IS NULL AND reserved_amount IS NOT NULL`, ref.RequestID, ref.APIKeyID)
 	if err != nil {
 		return err
 	}

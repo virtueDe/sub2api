@@ -35,11 +35,12 @@ func (s *AntigravityGatewayService) observeAntigravityGeminiSSELine(c *gin.Conte
 	if payload == "" || payload == "[DONE]" {
 		return
 	}
-	// Observe the original payload: ObserveGemini supports both the v1internal
-	// wrapper and direct Gemini response shapes. The main stream handler will
-	// unwrap the same line for business processing, so unwrapping here would be
-	// duplicate work on every SSE event.
+	// The model observer accepts both response shapes. Image accounting needs
+	// the inner Gemini payload to preserve confirmed images across stream errors.
 	observer.ObserveGemini([]byte(payload))
+	if inner, err := unwrapGeminiResponse([]byte(payload)); err == nil {
+		observeGeminiImageOutputs(c, inner)
+	}
 }
 
 // antigravityClientWriter 封装流式响应的客户端写入，自动检测断开并标记。

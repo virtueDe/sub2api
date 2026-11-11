@@ -198,6 +198,7 @@ func (h *GatewayHandler) SystemOne(c *gin.Context) {
 
 		forwardStart := time.Now()
 		result, forwardErr := h.gatewayService.ForwardSystemOne(c.Request.Context(), c, account, body)
+		service.ObserveImageBillingResult(c.Request.Context(), result != nil && result.ImageCount > 0, result != nil && result.ClientDisconnect, forwardErr)
 		if accountRelease != nil {
 			accountRelease()
 		}

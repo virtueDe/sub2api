@@ -318,6 +318,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		} else {
 			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		}
+		service.ObserveImageBillingResult(c.Request.Context(), result != nil && result.ImageCount > 0, result != nil && result.ClientDisconnect, err)
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()

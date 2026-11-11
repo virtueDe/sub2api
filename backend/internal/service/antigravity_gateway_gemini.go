@@ -51,6 +51,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 	ctx = attemptTiming.Context(ctx)
 	defer func() { attemptTiming.End(timingErr) }()
 	beginUpstreamResponseModelObservation(c)
+	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
 	forwardOpts := forwardGeminiOptions{}
 	for _, apply := range options {
@@ -463,6 +464,9 @@ handleSuccess:
 	if isImageGenerationModel(mappedModel) {
 		// Gemini 图片生成 API 每次请求只生成一张图片（API 限制）
 		imageCount = 1
+	}
+	if clientDisconnect {
+		imageCount = observedGeminiImageOutputs(c)
 	}
 
 	return &ForwardResult{

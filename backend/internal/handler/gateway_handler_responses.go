@@ -301,6 +301,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		} else {
 			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
 		}
+		service.ObserveImageBillingResult(c.Request.Context(), result != nil && result.ImageCount > 0, result != nil && result.ClientDisconnect, err)
 
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()

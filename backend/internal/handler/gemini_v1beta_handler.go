@@ -798,6 +798,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		} else {
 			result, err = h.geminiCompatService.ForwardNative(requestCtx, c, account, modelName, action, stream, body)
 		}
+		service.ObserveImageBillingResult(c.Request.Context(), result != nil && result.ImageCount > 0, result != nil && result.ClientDisconnect, err)
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
@@ -885,6 +886,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 		}
 		if service.UsageSettlementFromContext(c.Request.Context()) != "" {
+			if !service.BeginImageBillingSettlement(c.Request.Context()) {
+				return
+			}
 			// Save final financial facts before this native child returns. The n>1
 			// display-details queue and worker drop policy must not delay settlement.
 			usageCtx, cancel := context.WithTimeout(usageRecordContext(c.Request.Context(), context.Background()), 20*time.Second)

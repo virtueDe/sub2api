@@ -17,6 +17,9 @@ func runImageSettlementTask(parent context.Context, task service.UsageRecordTask
 	if task == nil {
 		return true
 	}
+	if !service.BeginImageBillingSettlement(parent) {
+		return true
+	}
 	wrapped, _ := wrapUsageRecordTaskContext(parent, task)
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()

@@ -22,12 +22,16 @@ type ImageBillingReservationRepository interface {
 
 type imageReservationContextKey struct{}
 type imageReservationOutcome struct {
-	mu                sync.Mutex
-	attempts, pending int
-	uncertain         bool
-	dispatched        bool
-	repo              ImageBillingReservationRepository
-	ref               UsageSettlementRef
+	mu                 sync.Mutex
+	attempts, pending  int
+	uncertain          bool
+	dispatched         bool
+	dispatchFailed     bool
+	failedWithoutImage bool
+	imageObserved      bool
+	settling           bool
+	repo               ImageBillingReservationRepository
+	ref                UsageSettlementRef
 }
 
 // A durable dispatch fence distinguishes a pre-upstream crash (safe to refund)
@@ -47,6 +51,7 @@ func BeginImageBillingDispatch(ctx context.Context) error {
 	if err := outcome.repo.MarkImageSettlementDispatched(dbCtx, outcome.ref); err != nil {
 		// Commit-unknown is deliberately retained for investigation.
 		outcome.uncertain = true
+		outcome.dispatchFailed = true
 		return err
 	}
 	outcome.dispatched = true
@@ -62,13 +67,15 @@ func BeginImageBillingUnknownTransport(ctx context.Context) error {
 	if outcome != nil {
 		outcome.mu.Lock()
 		outcome.uncertain = true
+		outcome.failedWithoutImage = false
 		outcome.mu.Unlock()
 	}
 	return nil
 }
 
-// Only explicit rejections of every observed upstream attempt permit refund.
-// Accepted responses, disconnects and ambiguous errors retain the reservation.
+// Failed attempts without a response/image are refunded under the customer
+// billing policy, even when the provider's internal outcome is unknown. Headers
+// alone do not prove image generation; the forwarding result refines this below.
 func ObserveImageBillingAttempt(ctx context.Context) func(*http.Response, error) {
 	outcome, _ := ctx.Value(imageReservationContextKey{}).(*imageReservationOutcome)
 	if outcome == nil {
@@ -77,14 +84,16 @@ func ObserveImageBillingAttempt(ctx context.Context) func(*http.Response, error)
 	outcome.mu.Lock()
 	outcome.attempts++
 	outcome.pending++
+	outcome.failedWithoutImage = false
 	outcome.mu.Unlock()
 	var once sync.Once
 	return func(resp *http.Response, err error) {
 		once.Do(func() {
-			rejected := false
+			rejected := resp == nil && err != nil
 			if err == nil && resp != nil {
 				switch resp.StatusCode {
-				case 400, 401, 403, 404, 405, 413, 415, 422, 429:
+				case 400, 401, 403, 404, 405, 408, 413, 415, 422, 429,
+					http.StatusUnavailableForLegalReasons, http.StatusBadGateway, 499, 524:
 					rejected = true
 				}
 			}
@@ -94,6 +103,39 @@ func ObserveImageBillingAttempt(ctx context.Context) func(*http.Response, error)
 			outcome.mu.Unlock()
 		})
 	}
+}
+
+// ObserveImageBillingResult records the completed forwarding attempt, before
+// retries or billing. A real image takes precedence over a later disconnect.
+// An error without any image permits a refund, including errors inside a 200
+// stream. This does not claim that the provider incurred no internal cost.
+func ObserveImageBillingResult(ctx context.Context, hasImage, clientDisconnected bool, err error) {
+	outcome, _ := ctx.Value(imageReservationContextKey{}).(*imageReservationOutcome)
+	if outcome == nil {
+		return
+	}
+	outcome.mu.Lock()
+	defer outcome.mu.Unlock()
+	outcome.imageObserved = outcome.imageObserved || hasImage
+	outcome.failedWithoutImage = (err != nil || clientDisconnected) && !hasImage
+	outcome.uncertain = outcome.uncertain || err == nil || hasImage
+}
+
+// BeginImageBillingSettlement protects successful output before pricing or
+// persistence can fail. False means a failed image request has no output to bill.
+// Non-image requests keep their existing usage accounting behavior.
+func BeginImageBillingSettlement(ctx context.Context) bool {
+	outcome, _ := ctx.Value(imageReservationContextKey{}).(*imageReservationOutcome)
+	if outcome == nil {
+		return true
+	}
+	outcome.mu.Lock()
+	defer outcome.mu.Unlock()
+	if outcome.failedWithoutImage && !outcome.imageObserved {
+		return false
+	}
+	outcome.settling = true
+	return true
 }
 
 func (s *GatewayService) ReserveImageBilling(ctx context.Context, key *APIKey, sub *UserSubscription, req InflightEstimateRequest) (context.Context, func(), error) {
@@ -154,7 +196,8 @@ func reserveImageBilling(ctx context.Context, cfg *config.Config, billing UsageB
 	return ctx, func() {
 		once.Do(func() {
 			outcome.mu.Lock()
-			rejected := outcome.pending == 0 && !outcome.uncertain && (!outcome.dispatched || outcome.attempts > 0)
+			rejected := outcome.pending == 0 && !outcome.dispatchFailed && !outcome.imageObserved && !outcome.settling &&
+				(outcome.failedWithoutImage || (!outcome.uncertain && (!outcome.dispatched || outcome.attempts > 0)))
 			outcome.mu.Unlock()
 			if !rejected {
 				return
@@ -163,6 +206,11 @@ func reserveImageBilling(ctx context.Context, cfg *config.Config, billing UsageB
 			defer done()
 			if err := repo.ReleaseImageSettlement(releaseCtx, ref); err != nil {
 				logger.L().Error("image.reservation_release_failed", zap.String("request_id", ref.RequestID), zap.Error(err), zap.Bool(logger.OpsSystemLogSkipField, true))
+				if !errors.Is(err, ErrUsageSettlementConflict) {
+					if _, journalErr := saveImageSettlementRelease(cfg, ref); journalErr != nil {
+						logger.L().Error("image.reservation_release_journal_failed", zap.String("request_id", ref.RequestID), zap.Error(journalErr), zap.Bool(logger.OpsSystemLogSkipField, true))
+					}
+				}
 				return
 			}
 			invalidate()

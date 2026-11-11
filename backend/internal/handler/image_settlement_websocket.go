@@ -50,8 +50,7 @@ func (s *imageSettlementTurns) reserve(ctx context.Context, reserver imageBillin
 	if s.turns == nil {
 		s.turns = make(map[int]imageSettlementTurn)
 	}
-	// WebSocket failures do not prove generation failed. The order remains
-	// reserved until final facts arrive or an operator reconciles the outcome.
+	// Finished turns release confirmed failures; unknown outcomes retain the hold.
 	for previous, v := range s.turns {
 		if previous < turn-1 {
 			v.done()

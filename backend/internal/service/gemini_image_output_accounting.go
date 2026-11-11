@@ -57,6 +57,10 @@ func observeGeminiImageOutputs(c *gin.Context, payload []byte) {
 	}
 	if count := countGeminiImageOutputs(payload); count > counter.count {
 		counter.count = count
+		// Retain confirmed output even when a later stream read returns no result.
+		if c.Request != nil {
+			ObserveImageBillingResult(c.Request.Context(), true, false, nil)
+		}
 	}
 }
 
