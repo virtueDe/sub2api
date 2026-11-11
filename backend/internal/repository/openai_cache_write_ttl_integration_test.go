@@ -36,7 +36,13 @@ func TestUsageLogRepositoryCacheWriteTTLRoundTrip(t *testing.T) {
 	for _, mode := range []string{"single", "batch", "best_effort"} {
 		t.Run(mode, func(t *testing.T) {
 			sessionID, upstreamRequestID := "ttl-session-"+mode, "ttl-upstream-"+mode
-			detail := &service.ImageGenerationDetail{Prompt: "cache TTL and image detail"}
+			detail := &service.ImageGenerationDetail{
+				Prompt: "cache TTL and image detail",
+				Images: []service.GeneratedImage{{
+					URL: "https://example.test/ttl.png", MimeType: "image/png",
+					RevisedPrompt: "cache TTL and image detail",
+				}},
+			}
 			log := &service.UsageLog{
 				UserID: user.ID, APIKeyID: key.ID, AccountID: account.ID,
 				RequestID: uuid.NewString(), Model: "gpt-6-luna", InputTokens: 3,
