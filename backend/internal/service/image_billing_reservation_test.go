@@ -6,8 +6,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 	"math"
 	"net/http"
 	"os"
@@ -259,7 +263,7 @@ func TestImageReservationAdmission(t *testing.T) {
 	for _, amount := range []float64{-1, math.NaN(), math.Inf(1)} {
 		r := &imageReservationFake{}
 		_, _, err := reserveImageBilling(context.Background(), cfg, r, nil, func(context.Context, *APIKey, InflightEstimateRequest) (float64, bool) { return amount, true }, key, nil, InflightEstimateRequest{})
-		require.Error(t, err)
+		require.ErrorIs(t, err, ErrBillingServiceUnavailable)
 		require.Zero(t, r.reserved)
 	}
 	r := &imageReservationFake{}
@@ -282,6 +286,50 @@ func TestImageReservationAdmission(t *testing.T) {
 	r.reserveErr = context.DeadlineExceeded
 	_, _, err = reserveImageBilling(context.Background(), cfg, r, nil, price, key, &UserSubscription{ID: 9}, InflightEstimateRequest{})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorIs(t, err, ErrBillingServiceUnavailable)
+}
+
+func TestImageReservationAdmissionErrorClassification(t *testing.T) {
+	cfg := &config.Config{Database: config.DatabaseConfig{ImageBillingReservationEnabled: true}}
+	key := &APIKey{ID: 1, UserID: 2, User: &User{ID: 2}}
+	price := func(context.Context, *APIKey, InflightEstimateRequest) (float64, bool) { return 1, true }
+	for _, cause := range []error{context.DeadlineExceeded, errors.New("sql unavailable"), ErrUsageSettlementConflict,
+		ErrInsufficientBalance, ErrAPIKeyQuotaExhausted, ErrSubscriptionNotFound,
+		ErrDailyLimitExceeded, ErrWeeklyLimitExceeded, ErrMonthlyLimitExceeded} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			r := &imageReservationFake{reserveErr: fmt.Errorf("reservation: %w", cause)}
+			_, _, err := reserveImageBilling(context.Background(), cfg, r, nil, price, key, nil, InflightEstimateRequest{})
+			require.ErrorIs(t, err, cause)
+			if cause == context.DeadlineExceeded || cause == ErrUsageSettlementConflict || cause.Error() == "sql unavailable" {
+				require.ErrorIs(t, err, ErrBillingServiceUnavailable)
+			} else {
+				require.NotErrorIs(t, err, ErrBillingServiceUnavailable)
+			}
+		})
+	}
+	_, _, err := reserveImageBilling(context.Background(), cfg, nil, nil, price, key, nil, InflightEstimateRequest{})
+	require.ErrorIs(t, err, ErrBillingServiceUnavailable)
+	r := &imageReservationFake{}
+	_, _, err = reserveImageBilling(context.Background(), cfg, r, nil, func(context.Context, *APIKey, InflightEstimateRequest) (float64, bool) { return 0, false }, key, nil, InflightEstimateRequest{})
+	require.ErrorIs(t, err, ErrBillingServiceUnavailable)
+	require.Zero(t, r.reserved)
+}
+
+func TestImageReservationFailureLogPreservesRequestCorrelation(t *testing.T) {
+	core, logs := observer.New(zap.ErrorLevel)
+	ctx := logger.IntoContext(context.Background(), zap.New(core).With(zap.String("request_id", "ingress-request")))
+	cfg := &config.Config{Database: config.DatabaseConfig{ImageBillingReservationEnabled: true}}
+	r := &imageReservationFake{reserveErr: context.DeadlineExceeded}
+	_, _, err := reserveImageBilling(ctx, cfg, r, nil,
+		func(context.Context, *APIKey, InflightEstimateRequest) (float64, bool) { return 1, true },
+		&APIKey{ID: 1, UserID: 2, User: &User{ID: 2}}, nil, InflightEstimateRequest{})
+	require.ErrorIs(t, err, ErrBillingServiceUnavailable)
+	entries := logs.FilterMessage("image.reservation_failed").All()
+	require.Len(t, entries, 1)
+	fields := entries[0].ContextMap()
+	require.Equal(t, "ingress-request", fields["request_id"])
+	require.Contains(t, fields["settlement_request_id"], "settlement:")
+	require.Equal(t, context.DeadlineExceeded.Error(), fields["error"])
 }
 
 type imageJournalFake struct {

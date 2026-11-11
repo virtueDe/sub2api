@@ -24,7 +24,6 @@ func TestImageGenerationUsageDetailPersistence(t *testing.T) {
 	for _, path := range []string{"single", "batch", "best effort"} {
 		t.Run(path, func(t *testing.T) {
 			detail := &service.ImageGenerationDetail{Prompt: "画一只猫", RequestParams: map[string]any{"size": "1024x1024", "n": float64(1)}, Images: []service.GeneratedImage{{B64JSON: "aW1hZ2U=", MimeType: "image/png"}}}
-			expected := &service.ImageGenerationDetail{Prompt: "画一只猫", RequestParams: map[string]any{"size": "1024x1024", "n": float64(1)}, Images: []service.GeneratedImage{{MimeType: "image/png"}}}
 			usage := &service.UsageLog{UserID: user.ID, APIKeyID: key.ID, AccountID: account.ID, RequestID: uuid.NewString(), Model: "gpt-image-2", ImageCount: 1, ActualCost: 0.125, ImageGeneration: detail}
 			t.Cleanup(func() {
 				_, err := integrationDB.ExecContext(ctx, "DELETE FROM usage_logs WHERE request_id = $1 AND api_key_id = $2", usage.RequestID, key.ID)
@@ -44,8 +43,8 @@ func TestImageGenerationUsageDetailPersistence(t *testing.T) {
 			}
 			saved, err := repo.GetByID(ctx, usage.ID)
 			require.NoError(t, err)
-			require.True(t, saved.HasImageGeneration)
-			require.Equal(t, expected, saved.ImageGeneration)
+			require.False(t, saved.HasImageGeneration)
+			require.Nil(t, saved.ImageGeneration)
 			require.Equal(t, "aW1hZ2U=", detail.Images[0].B64JSON, "persistence must not mutate response data")
 			require.Equal(t, usage.ImageCount, saved.ImageCount)
 			require.Equal(t, usage.ActualCost, saved.ActualCost)
@@ -56,11 +55,11 @@ func TestImageGenerationUsageDetailPersistence(t *testing.T) {
 			require.False(t, inserted)
 			saved, err = repo.GetByID(ctx, usage.ID)
 			require.NoError(t, err)
-			require.Equal(t, expected, saved.ImageGeneration)
+			require.Nil(t, saved.ImageGeneration)
 			list, _, err := repo.ListByUser(ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 20})
 			require.NoError(t, err)
 			for _, item := range list {
-				require.True(t, item.HasImageGeneration)
+				require.False(t, item.HasImageGeneration)
 				require.Nil(t, item.ImageGeneration, "large image payloads must stay out of list responses")
 			}
 			require.NoError(t, repo.Delete(ctx, usage.ID))
@@ -82,9 +81,14 @@ func TestImageGenerationErrorDetailPersistence(t *testing.T) {
 	})
 	saved, err := repo.GetErrorLogByID(ctx, id)
 	require.NoError(t, err)
-	expected := &service.ImageGenerationDetail{Prompt: "cat", RequestParams: map[string]any{"n": float64(2)}, Images: []service.GeneratedImage{{MimeType: "image/png", Partial: true}}}
-	require.Equal(t, expected, saved.ImageGeneration)
+	require.Nil(t, saved.ImageGeneration)
 	require.Equal(t, "cGFydGlhbA==", detail.Images[0].B64JSON, "persistence must not mutate response data")
+	// Existing details remain readable until the separately approved cleanup.
+	_, err = integrationDB.ExecContext(ctx, `UPDATE ops_error_logs SET image_generation='{"prompt":"historical","request_params":{},"images":[]}'::jsonb WHERE id=$1`, id)
+	require.NoError(t, err)
+	saved, err = repo.GetErrorLogByID(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, "historical", saved.ImageGeneration.Prompt)
 }
 
 func TestImageRequestTypePersistenceAndStatistics(t *testing.T) {

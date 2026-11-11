@@ -1,11 +1,14 @@
 package handler
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
 
+	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -48,11 +51,30 @@ func TestBillingErrorDetails_BillingServiceUnavailableMapsTo503(t *testing.T) {
 	require.Equal(t, 0, retryAfter, "non-RPM errors should not set Retry-After")
 }
 
-func TestBillingErrorDetails_UnknownErrorFallsBackTo403(t *testing.T) {
+func TestBillingErrorDetails_InsufficientBalanceRemains403(t *testing.T) {
 	status, code, msg, _ := billingErrorDetails(service.ErrInsufficientBalance)
 	require.Equal(t, http.StatusForbidden, status)
 	require.Equal(t, "billing_error", code)
 	require.NotEmpty(t, msg)
+}
+
+func TestBillingErrorDetails_InternalFailuresReturnSafe503(t *testing.T) {
+	for _, err := range []error{
+		context.DeadlineExceeded,
+		fmt.Errorf("load authoritative platform quota: %w", context.DeadlineExceeded),
+		errors.New("database connection failed: private SQL details"),
+		pkgerrors.InternalServer("INTERNAL_BILLING", "private SQL details"),
+		service.ErrBillingServiceUnavailable.WithCause(errors.New("private SQL details")),
+		service.ErrUsageSettlementConflict,
+	} {
+		t.Run(err.Error(), func(t *testing.T) {
+			status, code, message, retryAfter := billingErrorDetails(err)
+			require.Equal(t, http.StatusServiceUnavailable, status)
+			require.Equal(t, "billing_service_error", code)
+			require.Equal(t, pkgerrors.Message(service.ErrBillingServiceUnavailable), message)
+			require.Zero(t, retryAfter)
+		})
+	}
 }
 
 func TestExtractQuotaResetSeconds_T19_HappyPath(t *testing.T) {

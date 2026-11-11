@@ -1,169 +1,52 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"mime/multipart"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestImageGenerationCapturePreservesRequestAndRedactsCredentials(t *testing.T) {
-	capture := NewImageGenerationCapture("application/json", []byte(`{"prompt":"画一只猫","size":"1024x1024","n":2,"extra":{"api_key":"private"},"image_url":"data:image/png;base64,input"}`))
-	detail := capture.Snapshot()
-	require.Equal(t, "画一只猫", detail.Prompt)
+func TestImageGenerationCaptureKeepsBillingMarkerWithoutDetails(t *testing.T) {
+	request := []byte(`{"prompt":"private prompt","image":"data:image/png;base64,input","size":"1024x1024"}`)
+	response := []byte(`{"data":[{"b64_json":"output","url":"https://example.test/image.png"}]}`)
+	originalRequest, originalResponse := string(request), string(response)
+	for _, contentType := range []string{"application/json", "multipart/form-data; boundary=test"} {
+		capture := NewImageGenerationCapture(contentType, request)
+		require.NotNil(t, capture)
+		for _, streaming := range []bool{false, true} {
+			capture.ObserveResponse(response[:10], streaming)
+			capture.ObserveResponse(response[10:], streaming)
+		}
+		ctx := WithImageGenerationCapture(context.Background(), capture)
+		require.Same(t, capture, ImageGenerationCaptureFromContext(ctx))
+		require.Nil(t, capture.Snapshot())
+		require.Nil(t, ImageGenerationDetailFromContext(ctx))
+		require.Equal(t, originalRequest, string(request))
+		require.Equal(t, originalResponse, string(response))
+	}
+}
+
+func TestImageGenerationPersistenceRejectsDirectDetails(t *testing.T) {
+	detail := &ImageGenerationDetail{Prompt: "private", RequestParams: map[string]any{"size": "1024x1024"}, Images: []GeneratedImage{{URL: "https://example.test/image.png", B64JSON: "image"}}}
+	require.Nil(t, ImageGenerationDetailJSON(detail))
+	require.Nil(t, ImageGenerationDetailJSON(nil))
+	require.Nil(t, ImageGenerationDetailFromContext(WithImageGenerationDetail(context.Background(), detail)))
+	require.Equal(t, "private", detail.Prompt)
+	require.Equal(t, "image", detail.Images[0].B64JSON)
+}
+
+func TestParseImageGenerationDetailRetainsHistoricalReadCompatibility(t *testing.T) {
+	detail, err := ParseImageGenerationDetail(`{"prompt":"historic","request_params":{"size":"1024x1024"},"images":[{"url":"https://example.test/old.png","b64_json":"old"}]}`)
+	require.NoError(t, err)
+	require.Equal(t, "historic", detail.Prompt)
 	require.Equal(t, "1024x1024", detail.RequestParams["size"])
-	require.Equal(t, json.Number("2"), detail.RequestParams["n"])
-	extra, ok := detail.RequestParams["extra"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "[REDACTED]", extra["api_key"])
-	require.Equal(t, "[IMAGE_DATA_OMITTED]", detail.RequestParams["image_url"])
-	require.Empty(t, detail.Images)
-}
-
-func TestImageGenerationCaptureMultipartRequest(t *testing.T) {
-	var body bytes.Buffer
-	w := multipart.NewWriter(&body)
-	require.NoError(t, w.WriteField("prompt", "edit this cat"))
-	require.NoError(t, w.WriteField("size", "1024x1024"))
-	file, err := w.CreateFormFile("image", "cat.png")
-	require.NoError(t, err)
-	_, err = file.Write([]byte("input image bytes"))
-	require.NoError(t, err)
-	require.NoError(t, w.Close())
-	detail := NewImageGenerationCapture(w.FormDataContentType(), body.Bytes()).Snapshot()
-	require.Equal(t, "edit this cat", detail.Prompt)
-	files, ok := detail.RequestParams["image"].([]any)
-	require.True(t, ok)
-	require.Len(t, files, 1)
-	fileInfo, ok := files[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "cat.png", fileInfo["filename"])
-	require.EqualValues(t, 17, fileInfo["size"])
-}
-
-func TestImageGenerationCaptureResponseFormats(t *testing.T) {
-	tests := []struct {
-		name, response, image, mime string
-		stream, partial             bool
-	}{
-		{"openai JSON", `{"data":[{"url":"https://example.com/cat.png","revised_prompt":"a cat"}]}`, "https://example.com/cat.png", "image/png", false, false},
-		{"gemini JSON", `{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/jpeg","data":"aW1hZ2U="}}]}}]}`, "aW1hZ2U=", "image/jpeg", false, false},
-		{"responses final", "data: {\"type\":\"response.image_generation_call.completed\",\"result\":\"ZmluYWw=\"}\n\n", "ZmluYWw=", "image/png", true, false},
-		{"multiline SSE", "data: {\"type\":\"image_generation.completed\",\ndata: \"b64_json\":\"ZmluYWw=\"}\n\n", "ZmluYWw=", "image/png", true, false},
-		{"partial before error", "data: {\"type\":\"image_generation.partial_image\",\"b64_json\":\"cGFydGlhbA==\"}\n\ndata: {\"type\":\"error\",\"error\":{\"message\":\"failed\"}}\n\n", "cGFydGlhbA==", "image/png", true, true},
-		{"unterminated SSE", "data: {\"type\":\"response.image_generation_call.completed\",\"result\":\"ZmluYWw=\"}", "ZmluYWw=", "image/png", true, false},
-		{"markdown", `{"output":[{"type":"message","content":[{"type":"output_text","text":"![cat](https://example.com/cat.png)"}]}]}`, "https://example.com/cat.png", "image/png", false, false},
+	require.Equal(t, "old", detail.Images[0].B64JSON)
+	for _, empty := range []string{"", "null"} {
+		got, err := ParseImageGenerationDetail(empty)
+		require.NoError(t, err)
+		require.Nil(t, got)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			capture := NewImageGenerationCapture("application/json", []byte(`{"prompt":"cat"}`))
-			// Deliberately split inside JSON and SSE lines, as the writer can do.
-			for i := 0; i < len(tt.response); i += 7 {
-				end := min(i+7, len(tt.response))
-				capture.ObserveResponse([]byte(tt.response[i:end]), tt.stream)
-			}
-			detail := capture.Snapshot()
-			require.Len(t, detail.Images, 1)
-			image := detail.Images[0]
-			require.Empty(t, image.B64JSON)
-			if !tt.stream && (tt.name == "openai JSON" || tt.name == "markdown") {
-				require.Equal(t, tt.image, image.URL)
-			} else {
-				require.Empty(t, image.URL)
-			}
-			require.Equal(t, tt.mime, image.MimeType)
-			require.Equal(t, tt.partial, image.Partial)
-		})
-	}
-}
-
-func TestImageGenerationCaptureGeminiFileData(t *testing.T) {
-	capture := NewImageGenerationCapture("application/json", []byte(`{"prompt":"tree"}`))
-	capture.ObserveResponse([]byte(`{"candidates":[{"content":{"parts":[{"fileData":{"mimeType":"image/png","fileUri":"https://example.test/a.png"}},{"file_data":{"mime_type":"image/jpeg","file_uri":"https://example.test/b.jpg"}},{"fileData":{"mimeType":"audio/mp3","fileUri":"https://example.test/c.mp3"}}]}}]}`), false)
-	images := capture.Snapshot().Images
-	require.Len(t, images, 2)
-	require.Equal(t, "https://example.test/a.png", images[0].URL)
-	require.Equal(t, "https://example.test/b.jpg", images[1].URL)
-}
-
-func TestImageGenerationCaptureFinalReplacesPartialAndDeduplicates(t *testing.T) {
-	capture := NewImageGenerationCapture("application/json", []byte(`{"prompt":"cat"}`))
-	capture.ObserveResponse([]byte("data: {\"type\":\"response.image_generation_call.partial_image\",\"output_index\":0,\"partial_image_b64\":\"partial\"}\n\n"), true)
-	first := capture.Snapshot()
-	capture.ObserveResponse([]byte("data: {\"type\":\"response.image_generation_call.completed\",\"output_index\":0,\"result\":\"final\"}\n\ndata: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"image_generation_call\",\"result\":\"final\"}}\n\n"), true)
-	require.Empty(t, first.Images[0].B64JSON)
-	require.True(t, first.Images[0].Partial)
-	final := capture.Snapshot()
-	require.Len(t, final.Images, 1)
-	require.Empty(t, final.Images[0].B64JSON)
-	require.False(t, final.Images[0].Partial)
-}
-
-func TestImageGenerationCaptureContext(t *testing.T) {
-	capture := NewImageGenerationCapture("application/json", []byte(`{"contents":[{"parts":[{"text":"cat"}]}]}`))
-	ctx := WithImageGenerationCapture(context.Background(), capture)
-	require.Equal(t, "cat", ImageGenerationDetailFromContext(ctx).Prompt)
-	require.Equal(t, capture.Snapshot(), ImageGenerationDetailFromContext(ctx))
-}
-
-func TestImageGenerationCapturePreservesIdenticalOutputs(t *testing.T) {
-	for _, streaming := range []bool{false, true} {
-		capture := NewImageGenerationCapture("application/json", []byte(`{"prompt":"cat","n":2}`))
-		response := `{"data":[{"b64_json":"same"},{"b64_json":"same"}]}`
-		if streaming {
-			response = "data: " + response + "\n\n"
-		}
-		capture.ObserveResponse([]byte(response), streaming)
-		if streaming {
-			// A cumulative SSE frame repeats the same two outputs.
-			capture.ObserveResponse([]byte(response), true)
-		}
-		require.Len(t, capture.Snapshot().Images, 2)
-	}
-	// Separate Gemini native calls may return identical image bytes.
-	capture := NewImageGenerationCapture("application/json", []byte(`{"prompt":"cat","n":2}`))
-	response := []byte(`{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"same"}}]}}]}`)
-	capture.ObserveResponse(response, false)
-	capture.ObserveResponse(response, false)
-	require.Len(t, capture.Snapshot().Images, 2)
-}
-
-func TestImageGenerationCaptureFiltersOnlyLogCopy(t *testing.T) {
-	body := []byte(`{"prompt":"参考 data:image/png;base64,aGVsbG8= 画猫","image":["data:image/png;base64,aGVsbG8="],"messages":[{"content":[{"image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}],"n":2}`)
-	original := append([]byte(nil), body...)
-	capture := NewImageGenerationCapture("application/json", body)
-	capture.ObserveResponse([]byte(`{"data":[{"b64_json":"keep-output"}]}`), false)
-	detail := capture.Snapshot()
-	require.Equal(t, original, body)
-	require.Equal(t, "参考 [IMAGE_DATA_OMITTED] 画猫", detail.Prompt)
-	require.NotContains(t, ImageGenerationDetailJSON(detail), "aGVsbG8=")
-	require.NotContains(t, ImageGenerationDetailJSON(detail), "keep-output")
-	require.Equal(t, json.Number("2"), detail.RequestParams["n"])
-}
-
-func TestImageGenerationCapturePreservesLargeNumbers(t *testing.T) {
-	detail := NewImageGenerationCapture("application/json", []byte(`{"prompt":"cat","seed":9007199254740993,"strength":0.1234567890123456789}`)).Snapshot()
-	require.Equal(t, json.Number("9007199254740993"), detail.RequestParams["seed"])
-	require.Contains(t, ImageGenerationDetailJSON(detail), `"seed":9007199254740993`)
-	require.Contains(t, ImageGenerationDetailJSON(detail), `"strength":0.1234567890123456789`)
-}
-
-func TestImageGenerationPersistenceFiltersDirectDetailsWithoutMutating(t *testing.T) {
-	detail := &ImageGenerationDetail{
-		Prompt: "draw a cat", RequestParams: map[string]any{"seed": json.Number("9007199254740993"), "quality": "high", "image": "data:image/png;base64,aGVsbG8="},
-		Images: []GeneratedImage{{B64JSON: "output-bytes", URL: "https://cdn.test/cat.png", MimeType: "image/png", RevisedPrompt: "a cat", Partial: true}},
-	}
-	stored, ok := ImageGenerationDetailJSON(detail).(string)
-	require.True(t, ok)
-	require.NotContains(t, stored, "output-bytes")
-	require.NotContains(t, stored, "aGVsbG8=")
-	require.Contains(t, stored, `"seed":9007199254740993`)
-	require.Contains(t, stored, `"quality":"high"`)
-	require.Contains(t, stored, `"url":"https://cdn.test/cat.png"`)
-	require.Contains(t, stored, `"partial":true`)
-	require.Equal(t, "output-bytes", detail.Images[0].B64JSON)
-	require.Equal(t, "data:image/png;base64,aGVsbG8=", detail.RequestParams["image"])
+	_, err = ParseImageGenerationDetail("invalid")
+	require.Error(t, err)
 }

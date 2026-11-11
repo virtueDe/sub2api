@@ -1333,7 +1333,7 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 		v, dbErr = res.Val, res.Err
 	case <-ctx.Done():
 		if durable {
-			return ctx.Err()
+			return ErrBillingServiceUnavailable.WithCause(ctx.Err())
 		}
 		// 当前 caller 的 ctx 被取消：fail-open，不阻断 (此请求已无意义)。
 		logger.LegacyPrintf("service.billing_cache", "Warning: user platform quota check ctx cancelled user=%d platform=%s: %v (fail-open)", userID, platform, ctx.Err())
@@ -1341,7 +1341,7 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 	}
 	if dbErr != nil {
 		if durable {
-			return fmt.Errorf("load authoritative platform quota: %w", dbErr)
+			return ErrBillingServiceUnavailable.WithCause(fmt.Errorf("load authoritative platform quota: %w", dbErr))
 		}
 		logger.LegacyPrintf("service.billing_cache", "Warning: load user platform quota failed user=%d platform=%s: %v (fail-open)", userID, platform, dbErr)
 		return nil

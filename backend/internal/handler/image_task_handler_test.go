@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -24,6 +25,49 @@ import (
 type asyncImageMemoryStore struct {
 	mu    sync.RWMutex
 	tasks map[string]*service.ImageTaskRecord
+}
+
+func TestAsyncImageFailureUsesGatewayAttribution(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tc := range []struct {
+		name, errorType, message, code, phase, owner, source string
+		status, upstreamStatus                               int
+		businessLimited                                      bool
+	}{
+		{name: "local billing", status: 503, errorType: "billing_service_error", message: "Billing service temporarily unavailable. Please retry later.", phase: "internal", owner: "platform", source: "gateway"},
+		{name: "local internal", status: 500, errorType: "api_error", message: "internal error", phase: "internal", owner: "platform", source: "gateway"},
+		{name: "balance", status: 403, errorType: "billing_error", message: "Insufficient account balance", phase: "request", owner: "client", source: "client_request", businessLimited: true},
+		{name: "quota", status: 429, errorType: "rate_limit_exceeded", message: "Daily usage quota exhausted for this platform", phase: "request", owner: "client", source: "client_request", businessLimited: true},
+		{name: "upstream type", status: 503, errorType: "upstream_error", message: "upstream unavailable", phase: "upstream", owner: "provider", source: "upstream_http"},
+		{name: "upstream context", status: 503, errorType: "api_error", message: "unavailable", upstreamStatus: 503, phase: "upstream", owner: "provider", source: "upstream_http"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &ingressRejectOpsRepo{}
+			ops := service.NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			h := &AsyncImageHandler{ops: ops}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			ctx := context.WithValue(context.Background(), ctxkey.RequestID, "async-ingress-id")
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", nil).WithContext(ctx)
+			if tc.upstreamStatus > 0 {
+				c.Set(service.OpsUpstreamStatusCodeKey, tc.upstreamStatus)
+			}
+			body, err := json.Marshal(map[string]string{"type": tc.errorType, "message": tc.message, "code": tc.code})
+			require.NoError(t, err)
+			h.recordAsyncFailure("imgtask_test", service.PlatformOpenAI, c, tc.status, body)
+			require.Len(t, repo.entries, 1)
+			entry := repo.entries[0]
+			require.Equal(t, tc.phase, entry.ErrorPhase)
+			require.Equal(t, tc.owner, entry.ErrorOwner)
+			require.Equal(t, tc.source, entry.ErrorSource)
+			require.Equal(t, tc.businessLimited, entry.IsBusinessLimited)
+			require.Equal(t, "async-ingress-id", entry.RequestID)
+			require.Contains(t, entry.ErrorMessage, "[task_id=imgtask_test]")
+			if tc.upstreamStatus > 0 {
+				require.NotNil(t, entry.UpstreamStatusCode)
+				require.Equal(t, tc.upstreamStatus, *entry.UpstreamStatusCode)
+			}
+		})
+	}
 }
 
 func TestAsyncGeminiValidationPreservesErrors(t *testing.T) {

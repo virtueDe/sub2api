@@ -14,37 +14,26 @@ type DeferredService struct {
 	interval    time.Duration
 
 	lastUsedUpdates sync.Map
-	imageDetails    chan settlementImageDetailTask
-	imageDetailsMu  sync.Mutex
-}
-
-type settlementImageDetailTask struct {
-	repo   UsageSettlementRepository
-	ref    UsageSettlementRef
-	detail *ImageGenerationDetail
 }
 
 // NewDeferredService creates a new DeferredService instance
 func NewDeferredService(accountRepo AccountRepository, timingWheel *TimingWheelService, interval time.Duration) *DeferredService {
 	return &DeferredService{
-		accountRepo:  accountRepo,
-		timingWheel:  timingWheel,
-		interval:     interval,
-		imageDetails: make(chan settlementImageDetailTask, 128),
+		accountRepo: accountRepo,
+		timingWheel: timingWheel,
+		interval:    interval,
 	}
 }
 
 // Start starts the deferred service
 func (s *DeferredService) Start() {
 	s.timingWheel.ScheduleRecurring("deferred:last_used", s.interval, s.flushLastUsed)
-	s.timingWheel.ScheduleRecurring("deferred:image_details", time.Second, s.flushSettlementImageDetails)
 	log.Printf("[DeferredService] Started (interval: %v)", s.interval)
 }
 
 // Stop stops the deferred service
 func (s *DeferredService) Stop() {
 	s.timingWheel.Cancel("deferred:last_used")
-	s.timingWheel.Cancel("deferred:image_details")
 	s.flushLastUsed()
 	log.Printf("[DeferredService] Service stopped")
 }
@@ -53,43 +42,8 @@ func (s *DeferredService) ScheduleLastUsedUpdate(accountID int64) {
 	s.lastUsedUpdates.Store(accountID, time.Now())
 }
 
-// Bounded, best-effort display enrichment. No synchronous fallback on overflow.
-func (s *DeferredService) ScheduleSettlementImageDetail(repo UsageSettlementRepository, ref UsageSettlementRef, detail *ImageGenerationDetail) {
-	if s == nil || repo == nil || detail == nil {
-		return
-	}
-	encoded, ok := ImageGenerationDetailJSON(detail).(string)
-	if !ok || len(encoded) > 65536 {
-		return
-	}
-	copy, err := ParseImageGenerationDetail(encoded)
-	if err != nil {
-		return
-	}
-	select {
-	case s.imageDetails <- settlementImageDetailTask{repo, ref, copy}:
-	default:
-		log.Printf("[DeferredService] image detail queue full; bill retained request_id=%s", ref.RequestID)
-	}
-}
-func (s *DeferredService) flushSettlementImageDetails() {
-	if !s.imageDetailsMu.TryLock() {
-		return
-	}
-	defer s.imageDetailsMu.Unlock()
-	for i := 0; i < 8; i++ {
-		select {
-		case task := <-s.imageDetails:
-			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-			err := task.repo.UpdateSettlementImageDetail(ctx, task.ref, task.detail)
-			cancel()
-			if err != nil {
-				log.Printf("[DeferredService] image detail failed request_id=%s: %v", task.ref.RequestID, err)
-			}
-		default:
-			return
-		}
-	}
+// Keep compatibility with settlement callers without queuing or retaining images.
+func (s *DeferredService) ScheduleSettlementImageDetail(_ UsageSettlementRepository, _ UsageSettlementRef, _ *ImageGenerationDetail) {
 }
 
 func (s *DeferredService) flushLastUsed() {

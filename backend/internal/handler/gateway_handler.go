@@ -2477,12 +2477,10 @@ func extractQuotaResetSeconds(err error) int {
 }
 
 func billingErrorDetails(err error) (status int, code, message string, retryAfter int) {
-	if errors.Is(err, service.ErrBillingServiceUnavailable) {
-		msg := pkgerrors.Message(err)
-		if msg == "" {
-			msg = "Billing service temporarily unavailable. Please retry later."
-		}
-		return http.StatusServiceUnavailable, "billing_service_error", msg, 0
+	// Unknown dependency errors are internal failures, never business rejections.
+	// Keep the cause in server logs and return only the public billing message.
+	if pkgerrors.Code(err) >= http.StatusInternalServerError {
+		return http.StatusServiceUnavailable, "billing_service_error", pkgerrors.Message(service.ErrBillingServiceUnavailable), 0
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit5hExceeded) {
 		msg := pkgerrors.Message(err)

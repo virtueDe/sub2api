@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
@@ -99,6 +100,79 @@ func TestUsageKeyRollupMutationCoverageAndBoundaries(t *testing.T) {
 	require.Equal(t, 0.8, total.TotalActualCost)
 	_, err = conn.ExecContext(ctx, "TRUNCATE usage_logs_default")
 	require.ErrorContains(t, err, "TRUNCATE is disabled")
+}
+
+func TestUsageKeyRollupHourlyTrendMatchesDetail(t *testing.T) {
+	conn, _ := usageRollupFixture(t)
+	ctx := context.Background()
+	_, err := conn.ExecContext(ctx, `INSERT INTO usage_logs(created_at,api_key_id,user_id,input_tokens,output_tokens,actual_cost,total_cost) VALUES
+ ('2026-11-09 23:10Z',7,8,10,1,0.1,0.2),('2026-11-09 23:40Z',7,8,20,2,0.2,0.4),
+ ('2026-11-10 00:10Z',7,8,30,3,0.3,0.6),('2026-11-10 01:10Z',9,8,40,4,0.4,0.8),
+ ('2026-11-10 01:40Z',7,8,50,5,0.5,1),('2026-11-10 00:10Z',10,11,60,6,0.6,1.2)`)
+	require.NoError(t, err)
+	start := time.Date(2026, 11, 9, 23, 30, 0, 0, time.UTC)
+	end := start.Add(2 * time.Hour)
+	repo := newUsageLogRepositoryWithSQL(nil, conn)
+	repo.rollupReads = true
+	_, err = repo.GetUsageTrendWithUsageFilters(ctx, start, end, "hour", usagestats.UsageLogFilters{UserID: 8})
+	require.ErrorIs(t, err, errUsageRollupNotReady, "hourly queries must honor readiness instead of scanning detail")
+	drainUsageRollups(t, conn)
+	for _, filters := range []usagestats.UsageLogFilters{{UserID: 8}, {APIKeyID: 7}, {UserID: 8, APIKeyID: 7}} {
+		for _, granularity := range []string{"hour", "day"} {
+			repo.rollupReads = false
+			detail, err := repo.GetUsageTrendWithUsageFilters(ctx, start, end, granularity, filters)
+			require.NoError(t, err)
+			repo.rollupReads = true
+			rollup, err := repo.GetUsageTrendWithUsageFilters(ctx, start, end, granularity, filters)
+			require.NoError(t, err)
+			require.NotEmpty(t, rollup)
+			require.Equal(t, detail, rollup, "granularity=%s filters=%+v", granularity, filters)
+		}
+	}
+	// The configured key canary must still exclude a user-wide query.
+	repo.rollupKeys = []int64{7}
+	_, err = conn.ExecContext(ctx, `INSERT INTO usage_logs(created_at,api_key_id,user_id) VALUES('2026-11-10 00:20Z',7,8)`)
+	require.NoError(t, err)
+	_, err = repo.GetUsageTrendWithUsageFilters(ctx, start, end, "hour", usagestats.UsageLogFilters{UserID: 8, APIKeyID: 7})
+	require.ErrorIs(t, err, errUsageRollupNotReady)
+	_, err = repo.GetUsageTrendWithUsageFilters(ctx, start, end, "hour", usagestats.UsageLogFilters{UserID: 8})
+	require.NoError(t, err)
+}
+
+func TestUsageKeyRollupTrendTimezoneTransitions(t *testing.T) {
+	for _, tc := range []struct{ name, zone, start, end, first, second string }{
+		{"half-hour DST", "Australia/Lord_Howe", "2026-04-04T14:45:00Z", "2026-04-04T16:15:00Z", "2026-04-04T15:10:00Z", "2026-04-04T15:40:00Z"},
+		{"half-hour midnight", "Australia/Lord_Howe", "2026-04-04T14:45:00Z", "2026-04-05T14:15:00Z", "2026-04-05T13:10:00Z", "2026-04-05T13:40:00Z"},
+		{"non-hour transition", "America/Goose_Bay", "2010-11-07T03:00:00Z", "2010-11-07T04:00:00Z", "2010-11-07T03:00:30Z", "2010-11-07T03:10:00Z"},
+		{"repeated hour", "America/New_York", "2026-11-01T05:00:00Z", "2026-11-01T08:00:00Z", "2026-11-01T05:10:00Z", "2026-11-01T06:10:00Z"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			useGroupUsageRepositoryTestTimezone(t, tc.zone)
+			conn, _ := usageRollupFixture(t)
+			ctx := context.Background()
+			_, err := conn.ExecContext(ctx, "SELECT set_config('TimeZone', $1, false)", tc.zone)
+			require.NoError(t, err)
+			t.Cleanup(func() { _, _ = conn.ExecContext(ctx, "RESET TimeZone") })
+			_, err = conn.ExecContext(ctx, `INSERT INTO usage_logs(created_at,api_key_id,user_id,input_tokens,actual_cost) VALUES ($1,7,8,10,0.1),($2,7,8,20,0.2)`, tc.first, tc.second)
+			require.NoError(t, err)
+			drainUsageRollups(t, conn)
+			start, err := time.Parse(time.RFC3339, tc.start)
+			require.NoError(t, err)
+			end, err := time.Parse(time.RFC3339, tc.end)
+			require.NoError(t, err)
+			repo := newUsageLogRepositoryWithSQL(nil, conn)
+			for _, granularity := range []string{"hour", "day"} {
+				repo.rollupReads = false
+				detail, err := repo.GetUsageTrendWithUsageFilters(ctx, start, end, granularity, usagestats.UsageLogFilters{APIKeyID: 7})
+				require.NoError(t, err)
+				repo.rollupReads = true
+				rollup, err := repo.GetUsageTrendWithUsageFilters(ctx, start, end, granularity, usagestats.UsageLogFilters{APIKeyID: 7})
+				require.NoError(t, err)
+				require.NotEmpty(t, rollup)
+				require.Equal(t, detail, rollup, granularity)
+			}
+		})
+	}
 }
 
 func TestUsageKeyRollupLateCommitCannotBeSkipped(t *testing.T) {

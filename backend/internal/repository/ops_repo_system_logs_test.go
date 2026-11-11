@@ -44,7 +44,10 @@ func TestBuildOpsSystemLogsWhere_WithClientRequestIDAndUserID(t *testing.T) {
 	if !contains(where, "l.host = $") {
 		t.Fatalf("where should include host condition: %s", where)
 	}
-	if !contains(where, "COALESCE(l.client_request_id,'') = $") {
+	if !contains(where, "l.request_id = $") || contains(where, "COALESCE(l.request_id,'') =") {
+		t.Fatalf("request_id should use its ordinary column index: %s", where)
+	}
+	if !contains(where, "l.client_request_id = $") || contains(where, "COALESCE(l.client_request_id,'') =") {
 		t.Fatalf("where should include client_request_id condition: %s", where)
 	}
 	if !contains(where, "l.user_id = $") {
@@ -88,7 +91,7 @@ func TestBuildOpsSystemLogsCleanupWhere_WithClientRequestIDAndUserID(t *testing.
 	if !contains(where, "l.host = $") {
 		t.Fatalf("where should include host condition: %s", where)
 	}
-	if !contains(where, "COALESCE(l.client_request_id,'') = $") {
+	if !contains(where, "l.client_request_id = $") || contains(where, "COALESCE(l.client_request_id,'') =") {
 		t.Fatalf("where should include client_request_id condition: %s", where)
 	}
 	if !contains(where, "l.user_id = $") {
@@ -101,4 +104,11 @@ func TestBuildOpsSystemLogsCleanupWhere_WithClientRequestIDAndUserID(t *testing.
 
 func contains(s string, sub string) bool {
 	return strings.Contains(s, sub)
+}
+
+func TestBuildOpsSystemLogsWhere_EmptyRequestIDsDoNotFilterNulls(t *testing.T) {
+	where, args, constrained := buildOpsSystemLogsWhere(&service.OpsSystemLogFilter{RequestID: "  ", ClientRequestID: "\t"})
+	if constrained || len(args) != 0 || strings.Contains(where, "request_id") {
+		t.Fatalf("empty IDs must not introduce a filter: %s %#v", where, args)
+	}
 }

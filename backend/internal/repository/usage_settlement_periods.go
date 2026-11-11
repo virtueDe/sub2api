@@ -15,7 +15,7 @@ func incrementSettlementSubscription(ctx context.Context, tx *sql.Tx, id int64, 
 	var sub service.UserSubscription
 	err := tx.QueryRowContext(ctx, `SELECT us.starts_at,us.expires_at,us.daily_window_start,us.weekly_window_start,us.monthly_window_start
  FROM user_subscriptions us JOIN groups g ON g.id=us.group_id
- WHERE us.id=$1 AND us.deleted_at IS NULL AND g.deleted_at IS NULL FOR UPDATE OF us`, id).
+ WHERE us.id=$1 AND us.deleted_at IS NULL AND g.deleted_at IS NULL FOR NO KEY UPDATE OF us`, id).
 		Scan(&sub.StartsAt, &sub.ExpiresAt, &sub.DailyWindowStart, &sub.WeeklyWindowStart, &sub.MonthlyWindowStart)
 	if err == sql.ErrNoRows {
 		return service.ErrSubscriptionNotFound

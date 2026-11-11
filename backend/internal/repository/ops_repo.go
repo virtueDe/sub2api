@@ -1003,11 +1003,11 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	// Exact correlation keys (preferred for request↔upstream linkage).
 	if rid := strings.TrimSpace(filter.RequestID); rid != "" {
 		args = append(args, rid)
-		clauses = append(clauses, "COALESCE(e.request_id,'') = $"+itoa(len(args)))
+		clauses = append(clauses, "e.request_id = $"+itoa(len(args)))
 	}
 	if crid := strings.TrimSpace(filter.ClientRequestID); crid != "" {
 		args = append(args, crid)
-		clauses = append(clauses, "COALESCE(e.client_request_id,'') = $"+itoa(len(args)))
+		clauses = append(clauses, "e.client_request_id = $"+itoa(len(args)))
 	}
 
 	if q := strings.TrimSpace(filter.Query); q != "" {
@@ -1113,12 +1113,12 @@ func buildOpsSystemLogsWhere(filter *service.OpsSystemLogFilter) (string, []any,
 		}
 		if v := strings.TrimSpace(filter.RequestID); v != "" {
 			args = append(args, v)
-			clauses = append(clauses, "COALESCE(l.request_id,'') = $"+itoa(len(args)))
+			clauses = append(clauses, "l.request_id = $"+itoa(len(args)))
 			hasConstraint = true
 		}
 		if v := strings.TrimSpace(filter.ClientRequestID); v != "" {
 			args = append(args, v)
-			clauses = append(clauses, "COALESCE(l.client_request_id,'') = $"+itoa(len(args)))
+			clauses = append(clauses, "l.client_request_id = $"+itoa(len(args)))
 			hasConstraint = true
 		}
 		if filter.UserID != nil && *filter.UserID > 0 {

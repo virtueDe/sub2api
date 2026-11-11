@@ -12,8 +12,8 @@ import (
 
 type imageGenerationUsageQueueKey struct{}
 
-// Gemini n>1 uses several native calls for one public request. Wait until all
-// output is collected before freezing that request's persisted details.
+// Gemini n>1 uses several native calls for one public request. Retain billing
+// reservations until the child usage tasks have been submitted.
 type imageGenerationUsageQueue struct {
 	tasks []func()
 }
@@ -42,18 +42,6 @@ func delayImageGenerationUsageTask(parent context.Context, task service.UsageRec
 	return true
 }
 
-type imageGenerationWriter struct {
-	gin.ResponseWriter
-	capture *service.ImageGenerationCapture
-}
-
-func (w *imageGenerationWriter) Write(data []byte) (int, error) {
-	w.capture.ObserveResponse(data, strings.Contains(w.Header().Get("Content-Type"), "text/event-stream"))
-	return w.ResponseWriter.Write(data)
-}
-
-func (w *imageGenerationWriter) WriteString(data string) (int, error) { return w.Write([]byte(data)) }
-
 func beginImageGenerationCapture(c *gin.Context, body []byte, mappedModels ...string) func() {
 	if c == nil || c.Request == nil {
 		return func() {}
@@ -62,7 +50,7 @@ func beginImageGenerationCapture(c *gin.Context, body []byte, mappedModels ...st
 		return func() {}
 	}
 	capture := service.ImageGenerationCaptureFromContext(c.Request.Context())
-	if writer, ok := c.Writer.(*imageGenerationWriter); ok && writer.capture == capture {
+	if capture != nil {
 		return func() {}
 	}
 	if capture == nil {
@@ -84,7 +72,5 @@ func beginImageGenerationCapture(c *gin.Context, body []byte, mappedModels ...st
 		capture = service.NewImageGenerationCapture(c.GetHeader("Content-Type"), body)
 		c.Request = c.Request.WithContext(service.WithImageGenerationCapture(c.Request.Context(), capture))
 	}
-	original := c.Writer
-	c.Writer = &imageGenerationWriter{ResponseWriter: original, capture: capture}
-	return func() { c.Writer = original }
+	return func() {}
 }

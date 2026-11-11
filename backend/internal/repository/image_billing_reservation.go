@@ -39,15 +39,16 @@ func (r *usageBillingRepository) ReserveImageSettlement(ctx context.Context, ref
 	}
 	defer release()
 	defer func() { _ = tx.Rollback() }()
-	// Same payer lock order as settlement: subscription, user, API key.
+	// Serialize payer/quota changes without blocking usage-log foreign-key checks.
+	// These operations never change the referenced parent keys.
 	if subID != nil {
 		var id int64
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM user_subscriptions WHERE id=$1 FOR UPDATE`, *subID).Scan(&id); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT id FROM user_subscriptions WHERE id=$1 FOR NO KEY UPDATE`, *subID).Scan(&id); err != nil {
 			return err
 		}
 	}
 	var balance float64
-	if err := tx.QueryRowContext(ctx, `SELECT balance FROM users WHERE id=$1 AND deleted_at IS NULL AND status='active' FOR UPDATE`, userID).Scan(&balance); err != nil {
+	if err := tx.QueryRowContext(ctx, `SELECT balance FROM users WHERE id=$1 AND deleted_at IS NULL AND status='active' FOR NO KEY UPDATE`, userID).Scan(&balance); err != nil {
 		return err
 	}
 	var oldAmount sql.NullFloat64
@@ -70,7 +71,7 @@ func (r *usageBillingRepository) ReserveImageSettlement(ctx context.Context, ref
 		}
 	}
 	var quota, used float64
-	err = tx.QueryRowContext(ctx, `SELECT quota,quota_used FROM api_keys WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL AND status='active' AND (expires_at IS NULL OR expires_at>now()) FOR UPDATE`, ref.APIKeyID, userID).Scan(&quota, &used)
+	err = tx.QueryRowContext(ctx, `SELECT quota,quota_used FROM api_keys WHERE id=$1 AND user_id=$2 AND deleted_at IS NULL AND status='active' AND (expires_at IS NULL OR expires_at>now()) FOR NO KEY UPDATE`, ref.APIKeyID, userID).Scan(&quota, &used)
 	if err != nil {
 		return err
 	}
@@ -104,7 +105,7 @@ func reserveImageSubscription(ctx context.Context, tx *sql.Tx, id, userID, keyID
  us.daily_usage_usd,us.weekly_usage_usd,us.monthly_usage_usd,g.daily_limit_usd,g.weekly_limit_usd,g.monthly_limit_usd
  FROM user_subscriptions us JOIN groups g ON g.id=us.group_id
  WHERE us.id=$1 AND us.user_id=$2 AND us.status='active' AND us.starts_at<=now() AND us.expires_at>now() AND us.deleted_at IS NULL AND g.deleted_at IS NULL
- AND EXISTS(SELECT 1 FROM api_keys k WHERE k.id=$3 AND k.group_id=us.group_id AND k.user_id=us.user_id) FOR UPDATE OF us`, id, userID, keyID).
+ AND EXISTS(SELECT 1 FROM api_keys k WHERE k.id=$3 AND k.group_id=us.group_id AND k.user_id=us.user_id) FOR NO KEY UPDATE OF us`, id, userID, keyID).
 		Scan(&sub.StartsAt, &sub.ExpiresAt, &sub.DailyWindowStart, &sub.WeeklyWindowStart, &sub.MonthlyWindowStart, &sub.DailyUsageUSD, &sub.WeeklyUsageUSD, &sub.MonthlyUsageUSD, &dl, &wl, &ml)
 	if errors.Is(err, sql.ErrNoRows) {
 		return service.ErrSubscriptionNotFound

@@ -127,14 +127,26 @@ func nullableUsageTime(t time.Time) any {
 	return t
 }
 func rollupTrendAligned(start, end time.Time, granularity string) bool {
-	if granularity != "day" || end.Sub(start) > 366*24*time.Hour {
+	if (granularity != "day" && granularity != "hour") || end.Sub(start) > 366*24*time.Hour {
 		return false
 	}
-	for t := start.In(timezone.Location()); !t.After(end); t = t.AddDate(0, 0, 1) {
+	// Check every timezone interval, including transitions inside a short range.
+	// Daily sampling can miss a switch from a whole-hour to a half-hour offset.
+	for t := start.In(timezone.Location()); t.Before(end); {
 		_, offset := t.Zone()
 		if offset%3600 != 0 {
 			return false
 		}
+		_, next := t.ZoneBounds()
+		if next.IsZero() || !next.Before(end) {
+			break
+		}
+		// Some timezone extrapolations return a non-advancing bound. Decline
+		// rollups rather than loop forever or assign a split UTC hour one label.
+		if !next.After(t) || !next.Equal(next.UTC().Truncate(time.Hour)) {
+			return false
+		}
+		t = next
 	}
 	return true
 }
@@ -160,7 +172,7 @@ func (r *usageLogRepository) readUsageRollup(ctx context.Context, userID, keyID 
 }
 
 func (r *usageLogRepository) readUsageRollupTrend(ctx context.Context, userID, keyID int64, start, end time.Time, granularity string) ([]TrendDataPoint, error) {
-	// A UTC hour crossing a local day boundary cannot be assigned to one date.
+	// A UTC hour crossing a local bucket boundary cannot be assigned to one bucket.
 	// The caller only uses this path when its server timezone has whole-hour offsets.
 	rows, err := r.sql.QueryContext(ctx, usageKeyRollupCTE+`SELECT COALESCE((SELECT ok FROM ready),false),date,requests,input_tokens,output_tokens,cache_creation_tokens,cache_read_tokens,total_tokens,cost,actual_cost FROM (SELECT TO_CHAR(created_at,'`+safeDateFormat(granularity)+`') AS date,
  SUM(requests) requests,SUM(input_tokens) input_tokens,SUM(output_tokens) output_tokens,SUM(cache_creation_tokens) cache_creation_tokens,SUM(cache_read_tokens) cache_read_tokens,SUM(input_tokens+output_tokens+cache_creation_tokens+cache_read_tokens) total_tokens,SUM(total_cost) cost,SUM(actual_cost) actual_cost FROM data GROUP BY date) t

@@ -197,15 +197,8 @@ func (r *usageBillingRepository) CompleteSettlement(ctx context.Context, ref ser
 }
 
 func (r *usageBillingRepository) UpdateSettlementImageDetail(ctx context.Context, ref service.UsageSettlementRef, detail *service.ImageGenerationDetail) error {
-	if detail == nil {
-		return nil
-	}
-	data, ok := service.ImageGenerationDetailJSON(detail).(string)
-	if !ok || data == "" {
-		return errors.New("serialize settlement image detail failed")
-	}
-	_, err := r.db.ExecContext(ctx, `UPDATE usage_logs SET image_generation=$3::jsonb WHERE request_id=$1 AND api_key_id=$2`, ref.RequestID, ref.APIKeyID, data)
-	return err
+	// Historical details remain readable, but new billing never enriches image data.
+	return nil
 }
 func (r *usageBillingRepository) ClaimSettlement(ctx context.Context) (*service.UsageSettlementRef, error) {
 	var ref service.UsageSettlementRef

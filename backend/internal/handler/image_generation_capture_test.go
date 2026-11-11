@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestImageGenerationCaptureSurvivesDetachedBillingAndFreezesAtSubmission(t *testing.T) {
+func TestImageGenerationCaptureDoesNotRetainDetailsInDetachedBilling(t *testing.T) {
 	capture := service.NewImageGenerationCapture("application/json", []byte(`{"prompt":"cat"}`))
 	capture.ObserveResponse([]byte(`{"data":[{"b64_json":"first"}]}`), false)
 	parent := service.WithImageGenerationCapture(context.Background(), capture)
@@ -21,9 +21,7 @@ func TestImageGenerationCaptureSurvivesDetachedBillingAndFreezesAtSubmission(t *
 	defer abandon()
 	capture.ObserveResponse([]byte(`{"data":[{"b64_json":"second"}]}`), false)
 	task(context.Background())
-	require.NotNil(t, saved)
-	require.Len(t, saved.Images, 1)
-	require.Empty(t, saved.Images[0].B64JSON)
+	require.Nil(t, saved)
 }
 
 func TestBeginImageGenerationCaptureMappedGeminiModel(t *testing.T) {
@@ -36,9 +34,8 @@ func TestBeginImageGenerationCaptureMappedGeminiModel(t *testing.T) {
 	require.Nil(t, service.ImageGenerationCaptureFromContext(c.Request.Context()))
 	defer beginImageGenerationCapture(c, body, "gemini-2.5-flash-image")()
 	detail := service.ImageGenerationDetailFromContext(c.Request.Context())
-	require.NotNil(t, detail)
-	require.Equal(t, "cat", detail.Prompt)
-	require.Equal(t, "my-image", detail.RequestParams["model"])
+	require.NotNil(t, service.ImageGenerationCaptureFromContext(c.Request.Context()))
+	require.Nil(t, detail)
 }
 
 func TestBeginImageGenerationCaptureIntent(t *testing.T) {
@@ -64,7 +61,7 @@ func TestBeginImageGenerationCaptureIntent(t *testing.T) {
 	}
 }
 
-func TestImageGenerationUsageQueueFreezesAllGeminiOutputsWithoutDeadlockingSyncBilling(t *testing.T) {
+func TestImageGenerationUsageQueueSubmitsBillingWithoutImageDetails(t *testing.T) {
 	capture := service.NewImageGenerationCapture("application/json", []byte(`{"prompt":"cat","n":2}`))
 	queue := &imageGenerationUsageQueue{}
 	ctx := context.WithValue(service.WithImageGenerationCapture(context.Background(), capture), imageGenerationUsageQueueKey{}, queue)
@@ -80,13 +77,26 @@ func TestImageGenerationUsageQueueFreezesAllGeminiOutputsWithoutDeadlockingSyncB
 	queue.flush()
 	require.Len(t, records, 2)
 	for _, detail := range records {
-		require.Len(t, detail.Images, 2)
-		require.Empty(t, detail.Images[0].B64JSON)
-		require.Empty(t, detail.Images[1].B64JSON)
+		require.Nil(t, detail)
 	}
 }
 
-func TestImageGenerationErrorDetailsSurviveQueueOverflow(t *testing.T) {
+func TestBeginImageGenerationCapturePreservesClientResponse(t *testing.T) {
+	for _, response := range []string{`{"data":[{"b64_json":"client-image"}]}`, "data: {\"data\":[{\"url\":\"https://example.test/image.png\"}]}\n\n"} {
+		writer := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(writer)
+		c.Request = httptest.NewRequest("POST", "/v1/images/generations", nil)
+		done := beginImageGenerationCapture(c, []byte(`{"model":"gpt-image-2","prompt":"private"}`))
+		_, err := c.Writer.WriteString(response)
+		require.NoError(t, err)
+		done()
+		require.Equal(t, response, writer.Body.String())
+		require.NotNil(t, service.ImageGenerationCaptureFromContext(c.Request.Context()))
+		require.Nil(t, service.ImageGenerationDetailFromContext(c.Request.Context()))
+	}
+}
+
+func TestImageGenerationErrorMetadataSurvivesQueueOverflow(t *testing.T) {
 	for _, limit := range []string{"byte budget", "full queue"} {
 		t.Run(limit, func(t *testing.T) {
 			setupOpsErrorLogTestQueue(t, 1)
@@ -105,7 +115,8 @@ func TestImageGenerationErrorDetailsSurviveQueueOverflow(t *testing.T) {
 			}
 			enqueueOpsErrorLog(ops, &service.OpsInsertErrorLogInput{ImageGeneration: detail, ErrorType: "upstream_error"})
 			require.Len(t, repo.entries, 1)
-			require.Equal(t, detail, repo.entries[0].ImageGeneration)
+			require.Nil(t, repo.entries[0].ImageGeneration)
+			require.Equal(t, "upstream_error", repo.entries[0].ErrorType)
 			require.Equal(t, int64(0), OpsErrorLogDroppedTotal())
 			require.Equal(t, int64(1), OpsErrorLogProcessedTotal())
 			require.Equal(t, int64(0), OpsErrorLogQueueLength())

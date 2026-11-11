@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -157,11 +158,11 @@ func reserveImageBilling(ctx context.Context, cfg *config.Config, billing UsageB
 	}
 	repo, ok := billing.(ImageBillingReservationRepository)
 	if !ok || key == nil || key.User == nil {
-		return ctx, noop, errors.New("image billing reservation unavailable")
+		return ctx, noop, ErrBillingServiceUnavailable.WithCause(errors.New("image billing reservation unavailable"))
 	}
 	amount, priced := estimate(ctx, key, req)
 	if !priced || amount < 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
-		return ctx, noop, errors.New("image billing price unavailable")
+		return ctx, noop, ErrBillingServiceUnavailable.WithCause(errors.New("image billing price unavailable"))
 	}
 	amount = QuantizeUsageBillingAmount(amount)
 	var subID *int64
@@ -176,7 +177,10 @@ func reserveImageBilling(ctx context.Context, cfg *config.Config, billing UsageB
 	err := repo.ReserveImageSettlement(reserveCtx, ref, key.UserID, subID, amount)
 	cancel()
 	if err != nil {
-		logger.L().Error("image.reservation_failed", zap.String("request_id", ref.RequestID), zap.Error(err), zap.Bool(logger.OpsSystemLogSkipField, true))
+		logger.FromContext(ctx).Error("image.reservation_failed", zap.String("settlement_request_id", ref.RequestID), zap.Error(err), zap.Bool(logger.OpsSystemLogSkipField, true))
+		if pkgerrors.Code(err) >= http.StatusInternalServerError {
+			return ctx, noop, ErrBillingServiceUnavailable.WithCause(err)
+		}
 		return ctx, noop, err
 	}
 	outcome := &imageReservationOutcome{repo: repo, ref: ref}

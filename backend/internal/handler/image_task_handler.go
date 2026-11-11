@@ -7,8 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"mime"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -372,18 +370,10 @@ func (h *AsyncImageHandler) recordAsyncFailure(taskID, platform string, taskCtx 
 			errorType = strings.TrimSpace(payload.Code)
 		}
 	}
-	if statusCode == http.StatusTooManyRequests {
-		errorType = "rate_limit_error"
-	}
-	switch errorType {
-	case "invalid_request", "invalid_request_error":
-		errorType = "invalid_request_error"
-	case "service_unavailable", "service_unavailable_error", "server_error":
-		errorType = "service_unavailable_error"
-	}
-	if statusCode >= 500 && errorType == "api_error" {
-		errorType = "service_unavailable_error"
-	}
+	errorType = normalizeOpsErrorType(errorType, payload.Code)
+	// Use the same attribution as synchronous requests, before adding task metadata.
+	// A local billing 503 must not become a provider failure based on status alone.
+	phase, businessLimited, owner, source := classifyOpsErrorLog(taskCtx, errorType, message, payload.Code, statusCode)
 	requestID, _ := taskCtx.Request.Context().Value(ctxkey.RequestID).(string)
 	clientRequestID, _ := taskCtx.Request.Context().Value(ctxkey.ClientRequestID).(string)
 	if strings.TrimSpace(requestID) == "" {
@@ -416,17 +406,6 @@ func (h *AsyncImageHandler) recordAsyncFailure(taskID, platform string, taskCtx 
 		requestPath = "/images"
 	}
 	message += " [task_id=" + taskID + "]"
-	if summary := asyncImageRequestSummary(taskCtx); summary != "" {
-		message += " params=" + summary
-	}
-	phase, source, owner := "internal", "gateway", "platform"
-	if errorType == "invalid_request_error" || statusCode == http.StatusBadRequest {
-		phase, source, owner = "request", "client_request", "client"
-	} else if statusCode == http.StatusUnauthorized {
-		phase, source, owner = "auth", "gateway", "platform"
-	} else if statusCode == http.StatusTooManyRequests || statusCode >= 500 {
-		phase, source, owner = "upstream", "upstream_http", "provider"
-	}
 	entry := &service.OpsInsertErrorLogInput{
 		ImageGeneration: service.ImageGenerationDetailFromContext(taskCtx.Request.Context()),
 		RequestID:       requestID, ClientRequestID: clientRequestID,
@@ -434,7 +413,8 @@ func (h *AsyncImageHandler) recordAsyncFailure(taskID, platform string, taskCtx 
 		Platform: resolveOpsPlatform(taskCtx.Request.Context(), apiKey, platform), Model: model,
 		RequestPath: requestPath, InboundEndpoint: requestPath, Stream: false,
 		ErrorPhase: phase, ErrorType: errorType, ErrorSource: source, ErrorOwner: owner,
-		Severity: "error", StatusCode: statusCode, ErrorMessage: message,
+		IsBusinessLimited: businessLimited,
+		Severity:          classifyOpsSeverity(errorType, statusCode), StatusCode: statusCode, ErrorMessage: message,
 		ErrorBody: string(taskErr), UserAgent: taskCtx.GetHeader("User-Agent"), CreatedAt: time.Now(),
 	}
 	if v, ok := taskCtx.Get(opsRequestTypeKey); ok {
@@ -451,107 +431,10 @@ func (h *AsyncImageHandler) recordAsyncFailure(taskID, platform string, taskCtx 
 			entry.AccountID = &value
 		}
 	}
+	applyOpsUpstreamFieldsFromContext(taskCtx, entry)
+	suppressOpsUpstreamAttributionForLocalModelConfiguration(taskCtx, entry)
 	if err := h.ops.RecordError(context.Background(), entry); err != nil {
 		logger.L().Warn("image_task.ops_error_store_failed", zap.String("task_id", taskID), zap.Error(err))
-	}
-}
-
-// asyncImageRequestSummary keeps only fields useful for diagnosing validation
-// and upstream capability errors. Prompts, image data and credentials are not persisted.
-func asyncImageRequestSummary(c *gin.Context) string {
-	if c == nil || c.Request == nil || c.Request.GetBody == nil {
-		return ""
-	}
-	body, err := c.Request.GetBody()
-	if err != nil {
-		return ""
-	}
-	defer func() {
-		if closeErr := body.Close(); closeErr != nil {
-			logger.L().Warn("image_task.request_summary_close_failed", zap.Error(closeErr))
-		}
-	}()
-	data, readErr := io.ReadAll(io.LimitReader(body, 512<<10))
-	if readErr != nil {
-		return ""
-	}
-	return summarizeImageRequestBytes(c.GetHeader("Content-Type"), data)
-}
-
-func summarizeImageRequestBytes(contentType string, data []byte) string {
-	keep := map[string]any{}
-	if strings.HasPrefix(strings.ToLower(contentType), "multipart/") {
-		_, params, err := mime.ParseMediaType(contentType)
-		boundary := params["boundary"]
-		if err != nil || boundary == "" {
-			return ""
-		}
-		reader := multipart.NewReader(bytes.NewReader(data), boundary)
-		for {
-			part, nextErr := reader.NextPart()
-			if nextErr == io.EOF {
-				break
-			}
-			if nextErr != nil {
-				return ""
-			}
-			name := part.FormName()
-			if part.FileName() != "" || !isAsyncImageSummaryField(name) {
-				continue
-			}
-			value, readErr := io.ReadAll(io.LimitReader(part, 512))
-			if readErr == nil {
-				keep[name] = strings.TrimSpace(string(value))
-			}
-		}
-	} else {
-		var raw map[string]any
-		if json.Unmarshal(data, &raw) != nil {
-			return ""
-		}
-		for _, key := range []string{"model", "size", "quality", "n", "response_format", "background", "moderation", "aspect_ratio", "aspectRatio"} {
-			if value, ok := raw[key]; ok {
-				keep[key] = value
-			}
-		}
-	}
-	if len(keep) == 0 {
-		return ""
-	}
-	encoded, _ := json.Marshal(keep)
-	return string(encoded)
-}
-
-func captureImageRequestSummary(c *gin.Context) {
-	if c == nil || c.Request == nil || c.Request.Body == nil || c.Request.URL == nil {
-		return
-	}
-	path := strings.ToLower(c.Request.URL.Path)
-	if !strings.Contains(path, "/images/") {
-		return
-	}
-	data, err := io.ReadAll(io.LimitReader(c.Request.Body, 512<<10))
-	// Restore the bytes consumed for inspection so the gateway sees the original body.
-	c.Request.Body = io.NopCloser(io.MultiReader(bytes.NewReader(data), c.Request.Body))
-	if err != nil {
-		return
-	}
-	// Keep a bounded, sanitized request snapshot for errors rejected before the
-	// image handler reads the body. The handler captures the full body when reached.
-	if len(data) < 512<<10 && (json.Valid(data) || isMultipartImagesContentType(c.GetHeader("Content-Type"))) {
-		c.Set("ops_image_request_capture", service.NewImageGenerationCapture(c.GetHeader("Content-Type"), data))
-	}
-	if summary := summarizeImageRequestBytes(c.GetHeader("Content-Type"), data); summary != "" {
-		c.Set(opsImageRequestSummaryKey, summary)
-	}
-}
-
-func isAsyncImageSummaryField(name string) bool {
-	switch strings.TrimSpace(name) {
-	case "model", "size", "quality", "n", "response_format", "background", "moderation", "aspect_ratio", "aspectRatio":
-		return true
-	default:
-		return false
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/stretchr/testify/require"
 )
 
 // fakeIncrCache 仅记录 IncrUserPlatformQuotaUsageCache 被调用的参数。
@@ -63,10 +64,25 @@ func TestIncrementUserPlatformQuotaUsage_SyncCallsCache(t *testing.T) {
 // fakeQuotaRepo 实现 UserPlatformQuotaRepository 最小子集
 type fakeQuotaRepo struct {
 	rec *UserPlatformQuotaRecord
+	err error
 }
 
 func (f *fakeQuotaRepo) GetByUserPlatform(_ context.Context, _ int64, _ string) (*UserPlatformQuotaRecord, error) {
-	return f.rec, nil
+	return f.rec, f.err
+}
+
+func TestDurablePlatformQuotaDependencyFailureIsBillingUnavailable(t *testing.T) {
+	for _, cause := range []error{context.DeadlineExceeded, errors.New("database unavailable")} {
+		t.Run(cause.Error(), func(t *testing.T) {
+			s := newServiceForPreflight(t, &fakeQuotaRepo{err: cause}, nil)
+			s.cfg.Database.ImageBillingReservationEnabled = true
+			err := s.checkUserPlatformQuotaEligibility(context.Background(), 1, "openai")
+			require.ErrorIs(t, err, cause)
+			require.ErrorIs(t, err, ErrBillingServiceUnavailable)
+			s.cfg.Database.ImageBillingReservationEnabled = false
+			require.NoError(t, s.checkUserPlatformQuotaEligibility(context.Background(), 1, "openai"))
+		})
+	}
 }
 
 func (f *fakeQuotaRepo) BulkInsertInitial(_ context.Context, _ []UserPlatformQuotaRecord) error {

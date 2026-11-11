@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBuildOpsErrorLogsWhere_QueryUsesQualifiedColumns(t *testing.T) {
@@ -28,6 +29,21 @@ func TestBuildOpsErrorLogsWhere_QueryUsesQualifiedColumns(t *testing.T) {
 	if !strings.Contains(where, "e.error_message ILIKE $") {
 		t.Fatalf("where should include qualified error_message condition: %s", where)
 	}
+}
+
+func TestBuildOpsErrorLogsWhere_ExactCorrelationUsesIndexedColumns(t *testing.T) {
+	where, args := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+		RequestID: "  request-1  ", ClientRequestID: "  client-1  ", Owner: "PLATFORM", Phase: "internal",
+	})
+	require.Contains(t, where, "e.request_id = $")
+	require.Contains(t, where, "e.client_request_id = $")
+	require.NotContains(t, where, "COALESCE(e.request_id")
+	require.NotContains(t, where, "COALESCE(e.client_request_id")
+	require.Contains(t, args, "request-1")
+	require.Contains(t, args, "client-1")
+	require.Contains(t, args, "platform")
+	where, _ = buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{RequestID: " ", ClientRequestID: " "})
+	require.NotContains(t, where, "request_id")
 }
 
 func TestBuildOpsErrorLogsWhere_UserQueryUsesExistsSubquery(t *testing.T) {
