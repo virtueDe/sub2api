@@ -1,6 +1,10 @@
 package service
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+)
 
 func TestResolveOpenAIForwardModel(t *testing.T) {
 	tests := []struct {
@@ -296,11 +300,14 @@ func TestResolveOpenAIForwardMappedModels_CompactMappingPrecedence(t *testing.T)
 }
 
 func TestCanonicalOpenAIAccountSchedulingModelMatchesForwardSemantics(t *testing.T) {
+	originalMapping := xai.RuntimeModelMappingOptions()
+	t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(originalMapping) })
 	tests := []struct {
-		name    string
-		account *Account
-		model   string
-		want    string
+		name           string
+		account        *Account
+		model          string
+		want           string
+		crossClientMap bool
 	}{
 		{
 			name:    "OpenAI OAuth applies Codex alias normalization",
@@ -322,10 +329,18 @@ func TestCanonicalOpenAIAccountSchedulingModelMatchesForwardSemantics(t *testing
 			model:   "gpt-5.6",
 			want:    "gpt-5.6",
 		},
+		{
+			name:           "Grok OAuth follows explicit cross-client mapping",
+			account:        &Account{Platform: PlatformGrok, Type: AccountTypeOAuth},
+			model:          "gpt-5.6",
+			want:           "grok-4.6",
+			crossClientMap: true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			xai.SetRuntimeModelMappingOptions(xai.ModelMappingOptions{DefaultText: "grok-4.6", EnableCrossClientMap: tt.crossClientMap})
 			if got := canonicalOpenAIAccountSchedulingModel(tt.account, tt.model); got != tt.want {
 				t.Fatalf("canonical scheduling model = %q, want %q", got, tt.want)
 			}

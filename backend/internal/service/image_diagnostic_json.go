@@ -52,9 +52,10 @@ func imageDiagnosticTokenEnd(raw string, start int) int {
 	for i := start; i < len(raw); i++ {
 		ch := raw[i]
 		if quoted {
-			if ch == '\\' {
+			switch ch {
+			case '\\':
 				i++
-			} else if ch == '"' {
+			case '"':
 				quoted = false
 				if depth == 0 {
 					return i + 1

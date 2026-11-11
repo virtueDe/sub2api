@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -53,6 +54,8 @@ func (r *imageDiagnosticRepo) GetValue(_ context.Context, key string) (string, e
 }
 
 func TestImageDiagnosticPolicyDefaultsAndSelectedUsers(t *testing.T) {
+	originalMapping := xai.RuntimeModelMappingOptions()
+	t.Cleanup(func() { xai.SetRuntimeModelMappingOptions(originalMapping) })
 	ctx := context.Background()
 	repo := &imageDiagnosticRepo{values: map[string]string{}}
 	svc := NewSettingService(repo, &config.Config{})
@@ -113,7 +116,8 @@ func TestImageDiagnosticCaptureMetadataAndOwner(t *testing.T) {
 	require.Len(t, detail.Images, 1)
 	require.Empty(t, detail.Images[0].B64JSON)
 	require.Nil(t, ImageGenerationDetailJSONForUser(detail, 8))
-	encoded := ImageGenerationDetailJSONForUser(detail, 7).(string)
+	encoded, ok := ImageGenerationDetailJSONForUser(detail, 7).(string)
+	require.True(t, ok)
 	require.NotContains(t, encoded, "secret")
 	require.NotContains(t, encoded, "private-image")
 	parsed, err := ParseImageGenerationDetail(encoded)
@@ -122,7 +126,8 @@ func TestImageDiagnosticCaptureMetadataAndOwner(t *testing.T) {
 	detail.RequestParams["api_key"] = "secret"
 	detail.RequestParams["images"] = []any{"data:image/png;base64,hidden"}
 	detail.Images[0].B64JSON = "private-image"
-	encoded = ImageGenerationDetailJSON(detail).(string)
+	encoded, ok = ImageGenerationDetailJSON(detail).(string)
+	require.True(t, ok)
 	require.NotContains(t, encoded, "secret")
 	require.NotContains(t, encoded, "base64")
 	require.NotContains(t, encoded, "private-image")
@@ -144,7 +149,9 @@ func TestImageDiagnosticCaptureBoundsAndStreaming(t *testing.T) {
 	require.True(t, detail.Truncated)
 	require.Len(t, detail.Images, 1)
 	require.LessOrEqual(t, len(c.buffer), imageCaptureFrameBytes)
-	require.LessOrEqual(t, len(ImageGenerationDetailJSON(detail).(string)), imageDetailMaxBytes)
+	encoded, ok := ImageGenerationDetailJSON(detail).(string)
+	require.True(t, ok)
+	require.LessOrEqual(t, len(encoded), imageDetailMaxBytes)
 	for i := 0; i < 100; i++ {
 		c.ObserveResponse([]byte(`{"data":[{"url":"https://example.test/a.png"}]}`), false)
 	}
@@ -205,7 +212,10 @@ func TestImageDiagnosticMultipartMultipleImagesAndMask(t *testing.T) {
 	require.Equal(t, "edit cat", detail.Prompt)
 	require.Len(t, detail.RequestParams["images"], 3)
 	require.Len(t, detail.RequestParams["mask"], 1)
-	file := detail.RequestParams["images"].([]any)[0].(map[string]any)
+	images, ok := detail.RequestParams["images"].([]any)
+	require.True(t, ok)
+	file, ok := images[0].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "cat.png", file["filename"])
 	require.Equal(t, float64(len("image-binary-secret")), file["size"])
 	require.NotContains(t, ImageGenerationDetailJSON(detail), "image-binary-secret")
