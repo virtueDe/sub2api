@@ -74,8 +74,10 @@ func TestUsageLogRepositoryCacheWriteTTLRoundTrip(t *testing.T) {
 			require.Equal(t, &sessionID, stored.SessionID)
 			require.Equal(t, &upstreamRequestID, stored.UpstreamRequestID)
 			require.True(t, stored.NativeCompactionV2)
-			require.True(t, stored.HasImageGeneration)
-			require.Equal(t, detail, stored.ImageGeneration)
+			// Cache accounting and image billing metadata survive detail retirement.
+			require.False(t, stored.HasImageGeneration)
+			require.Nil(t, stored.ImageGeneration)
+			require.Equal(t, log.ImageCount, stored.ImageCount)
 			require.Equal(t, service.RequestTypeImageSync, stored.RequestType)
 		})
 	}
