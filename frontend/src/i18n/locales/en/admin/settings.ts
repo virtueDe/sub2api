@@ -14,6 +14,17 @@ export default {
         payment: 'Payment',
       },
       features: {
+        imageDiagnostics: {
+          title: 'Image generation diagnostics',
+          description: 'Capture details for selected users to investigate generation failures, parameters, and results. Off by default.',
+          enabled: 'Record image details for selected users',
+          enabledHint: 'Applies to new requests after saving; other instances sync within about 30 seconds. Turning off stops new records and keeps existing details.',
+          users: 'Users to investigate',
+          usersHint: '{count} / 50 selected. Search by email, select multiple users, or remove them. Only selected users are recorded.',
+          empty: 'No users selected. No image details will be recorded.',
+          storageHint: 'Records prompts, common parameters, input image metadata, and output image links, up to 64 KiB per record. Image Base64 is excluded. Large responses are marked as truncated, and image links may expire. Billing is unaffected. Turn off after troubleshooting.',
+        },
+
         checkin: {
           title: 'Daily Check-in',
           description: 'Configure the balance reward and trigger condition for daily user check-ins.',

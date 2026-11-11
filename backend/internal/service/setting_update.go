@@ -47,6 +47,7 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
+	s.invalidateImageDiagnosticPolicy()
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
 }
@@ -77,6 +78,7 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
+	s.invalidateImageDiagnosticPolicy()
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
 }
@@ -487,6 +489,17 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, fmt.Errorf("marshal image force URL response account ids: %w", err)
 	}
 	updates[SettingKeyImageForceURLResponseAccountIDs] = string(forceURLAccountIDsJSON)
+	ids, err := validateImageDiagnosticUserIDs(settings.ImageDiagnosticUserIDs)
+	if err != nil {
+		return nil, err
+	}
+	settings.ImageDiagnosticUserIDs = ids
+	diagnosticIDs, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	updates[SettingKeyImageDiagnosticEnabled] = strconv.FormatBool(settings.ImageDiagnosticEnabled)
+	updates[SettingKeyImageDiagnosticUserIDs] = string(diagnosticIDs)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)

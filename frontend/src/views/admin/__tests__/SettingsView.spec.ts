@@ -568,6 +568,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         ImageAccountSelector: true,
+        OpenAIFastPolicyUserSelector: true,
         BackupSettings: true,
       },
     },
@@ -1507,6 +1508,43 @@ describe("admin SettingsView payment visible method controls", () => {
       image_force_url_response_enabled: true,
       image_force_url_response_account_ids: [7, 9],
     }));
+  });
+
+  it("keeps image diagnostics off by default and saves selected users", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.findAll("button").find((node) => node.text().includes("admin.settings.tabs.features"))!.trigger("click");
+    const card = wrapper.get('[data-testid="image-diagnostic-settings"]');
+    const toggle = card.get('input[type="checkbox"]');
+    expect((toggle.element as HTMLInputElement).checked).toBe(false);
+    expect(card.findComponent({ name: "OpenAIFastPolicyUserSelector" }).exists()).toBe(false);
+    await toggle.setValue(true);
+    const selector = card.getComponent({ name: "OpenAIFastPolicyUserSelector" });
+    expect(selector.props("modelValue")).toEqual([]);
+    expect(selector.props("excludeDeleted")).toBe(true);
+    expect(selector.props("maxSelected")).toBe(50);
+    expect(card.text()).toContain("admin.settings.features.imageDiagnostics.empty");
+    selector.vm.$emit("update:modelValue", [7, 9]);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      image_diagnostic_enabled: true,
+      image_diagnostic_user_ids: [7, 9],
+    }));
+  });
+
+  it("loads diagnostic users and retains them while disabled", async () => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, image_diagnostic_enabled: true, image_diagnostic_user_ids: [7, 9] });
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.findAll("button").find((node) => node.text().includes("admin.settings.tabs.features"))!.trigger("click");
+    const card = wrapper.get('[data-testid="image-diagnostic-settings"]');
+    expect(card.getComponent({ name: "OpenAIFastPolicyUserSelector" }).props("modelValue")).toEqual([7, 9]);
+    await card.get('input[type="checkbox"]').setValue(false);
+    expect(card.findComponent({ name: "OpenAIFastPolicyUserSelector" }).exists()).toBe(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({ image_diagnostic_enabled: false, image_diagnostic_user_ids: [7, 9] }));
   });
 
   it("loads forced image URL response accounts and retains the selection when disabled", async () => {

@@ -771,6 +771,8 @@ export interface SystemSettings {
   model_plaza_description: string;
   ai_creation_studio_enabled: boolean;
   plugin_management_enabled: boolean;
+  image_diagnostic_enabled: boolean;
+  image_diagnostic_user_ids: number[];
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: boolean;
@@ -1103,6 +1105,8 @@ export interface UpdateSettingsRequest {
   model_plaza_description?: string;
   ai_creation_studio_enabled?: boolean;
   plugin_management_enabled?: boolean;
+  image_diagnostic_enabled?: boolean;
+  image_diagnostic_user_ids?: number[];
 
   // Affiliate (邀请返利) feature switch
   affiliate_enabled?: boolean;

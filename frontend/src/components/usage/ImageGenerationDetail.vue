@@ -4,6 +4,8 @@
       {{ t('usage.imageDetail.notRecorded') }}
     </p>
     <template v-else>
+      <p v-if="detail.metadata_only" class="rounded-lg bg-gray-50 p-3 text-xs text-gray-500 dark:bg-dark-900 dark:text-dark-400">{{ t('usage.imageDetail.metadataOnly') }}</p>
+      <p v-if="detail.truncated" class="text-xs text-amber-600 dark:text-amber-400">{{ t('usage.imageDetail.truncated') }}</p>
       <div>
         <h3 class="font-medium text-gray-700 dark:text-dark-200">{{ t('usage.imageDetail.prompt') }}</h3>
         <pre class="mt-2 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 dark:bg-dark-900">{{ detail.prompt || '-' }}</pre>

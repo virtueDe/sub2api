@@ -12,6 +12,36 @@ import (
 
 type imageGenerationUsageQueueKey struct{}
 
+func newImageCaptureForRequest(c *gin.Context, body []byte) *service.ImageGenerationCapture {
+	apiKey, _ := middleware.GetAPIKeyFromContext(c)
+	var userID int64
+	if apiKey != nil {
+		userID = apiKey.UserID
+	}
+	return service.NewImageGenerationCaptureForUser(c.Request.Context(), userID, c.GetHeader("Content-Type"), body)
+}
+
+type imageGenerationWriter struct {
+	gin.ResponseWriter
+	capture *service.ImageGenerationCapture
+}
+
+func (w *imageGenerationWriter) Write(data []byte) (int, error) {
+	n, err := w.ResponseWriter.Write(data)
+	if n > 0 {
+		w.capture.ObserveResponse(data[:min(n, len(data))], strings.Contains(w.Header().Get("Content-Type"), "text/event-stream"))
+	}
+	return n, err
+}
+
+func (w *imageGenerationWriter) WriteString(data string) (int, error) {
+	n, err := w.ResponseWriter.WriteString(data)
+	if n > 0 {
+		w.capture.ObserveResponseString(data[:min(n, len(data))], strings.Contains(w.Header().Get("Content-Type"), "text/event-stream"))
+	}
+	return n, err
+}
+
 // Gemini n>1 uses several native calls for one public request. Retain billing
 // reservations until the child usage tasks have been submitted.
 type imageGenerationUsageQueue struct {
@@ -50,7 +80,7 @@ func beginImageGenerationCapture(c *gin.Context, body []byte, mappedModels ...st
 		return func() {}
 	}
 	capture := service.ImageGenerationCaptureFromContext(c.Request.Context())
-	if capture != nil {
+	if writer, ok := c.Writer.(*imageGenerationWriter); ok && writer.capture == capture {
 		return func() {}
 	}
 	if capture == nil {
@@ -69,8 +99,13 @@ func beginImageGenerationCapture(c *gin.Context, body []byte, mappedModels ...st
 		if !service.IsImageGenerationIntentForPlatform(c.Request.URL.Path, model, body, platform) && !geminiImage {
 			return func() {}
 		}
-		capture = service.NewImageGenerationCapture(c.GetHeader("Content-Type"), body)
+		capture = newImageCaptureForRequest(c, body)
 		c.Request = c.Request.WithContext(service.WithImageGenerationCapture(c.Request.Context(), capture))
 	}
-	return func() {}
+	if !capture.Enabled() {
+		return func() {}
+	}
+	original := c.Writer
+	c.Writer = &imageGenerationWriter{ResponseWriter: original, capture: capture}
+	return func() { capture.FinishResponse(); c.Writer = original }
 }

@@ -393,6 +393,8 @@ type UpdateSettingsRequest struct {
 	ImageUpstreamResponsePassthroughAccountIDs *[]int64 `json:"image_upstream_response_passthrough_account_ids"`
 	ImageForceURLResponseEnabled               *bool    `json:"image_force_url_response_enabled"`
 	ImageForceURLResponseAccountIDs            *[]int64 `json:"image_force_url_response_account_ids"`
+	ImageDiagnosticEnabled                     *bool    `json:"image_diagnostic_enabled"`
+	ImageDiagnosticUserIDs                     *[]int64 `json:"image_diagnostic_user_ids"`
 
 	// OpenAI fast/flex policy (optional, only updated when provided)
 	OpenAIFastPolicySettings *dto.OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
@@ -2150,6 +2152,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ImageUpstreamResponsePassthroughAccountIDs
 		}(),
+		ImageDiagnosticEnabled: func() bool {
+			if req.ImageDiagnosticEnabled != nil {
+				return *req.ImageDiagnosticEnabled
+			}
+			return previousSettings.ImageDiagnosticEnabled
+		}(),
+		ImageDiagnosticUserIDs: func() []int64 {
+			if req.ImageDiagnosticUserIDs != nil {
+				return *req.ImageDiagnosticUserIDs
+			}
+			return previousSettings.ImageDiagnosticUserIDs
+		}(),
 		ImageForceURLResponseEnabled: func() bool {
 			if req.ImageForceURLResponseEnabled != nil {
 				return *req.ImageForceURLResponseEnabled
@@ -2482,6 +2496,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ImageUpstreamResponsePassthroughAccountIDs:             updatedSettings.ImageUpstreamResponsePassthroughAccountIDs,
 		ImageForceURLResponseEnabled:                           updatedSettings.ImageForceURLResponseEnabled,
 		ImageForceURLResponseAccountIDs:                        updatedSettings.ImageForceURLResponseAccountIDs,
+		ImageDiagnosticEnabled:                                 updatedSettings.ImageDiagnosticEnabled,
+		ImageDiagnosticUserIDs:                                 updatedSettings.ImageDiagnosticUserIDs,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 updatedSettings.EnableClaudeOAuthSystemPromptInjection,

@@ -107,7 +107,7 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 	// The detached execution context carries the same capture so failures and
 	// partial output are saved even after the submit response has returned.
-	capture := service.NewImageGenerationCapture(c.GetHeader("Content-Type"), body)
+	capture := newImageCaptureForRequest(c, body)
 	c.Request = c.Request.WithContext(service.WithImageGenerationCapture(c.Request.Context(), capture))
 	if !service.GroupAllowsImageGeneration(apiKey.Group) {
 		imageTaskJSONError(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())

@@ -5,6 +5,13 @@ import ImageGenerationDetail from '../ImageGenerationDetail.vue'
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 describe('ImageGenerationDetail', () => {
+  it('explains metadata-only and truncated diagnostic records', () => {
+    const wrapper = mount(ImageGenerationDetail, { props: { detail: {
+      prompt: 'cat', request_params: {}, images: [], metadata_only: true, truncated: true,
+    } } })
+    expect(wrapper.text()).toContain('usage.imageDetail.metadataOnly')
+    expect(wrapper.text()).toContain('usage.imageDetail.truncated')
+  })
   it('distinguishes historical records from failed requests without images', async () => {
     const wrapper = mount(ImageGenerationDetail, { props: { detail: null } })
     expect(wrapper.text()).toContain('usage.imageDetail.notRecorded')

@@ -470,8 +470,10 @@ func (s *OpsService) prepareErrorLogInput(ctx context.Context, entry *OpsInsertE
 	if s.opsRepo == nil {
 		return nil, false, nil
 	}
-	// Image detail collection is retired, including manually constructed entries.
-	entry.ImageGeneration = nil
+	// Only an authenticated, explicitly selected user's capture may be persisted.
+	if entry.UserID == nil || ImageGenerationDetailOwner(entry.ImageGeneration) != *entry.UserID {
+		entry.ImageGeneration = nil
+	}
 
 	// Ensure timestamps are always populated.
 	if entry.CreatedAt.IsZero() {

@@ -168,7 +168,12 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullInt64(input.TimeToFirstTokenMs),
 		input.CreatedAt,
 		opsNullString(input.APIKeyPrefix),
-		service.ImageGenerationDetailJSON(input.ImageGeneration),
+		service.ImageGenerationDetailJSONForUser(input.ImageGeneration, func() int64 {
+			if input.UserID != nil {
+				return *input.UserID
+			}
+			return 0
+		}()),
 	}
 }
 

@@ -1859,6 +1859,8 @@ export interface GeneratedImage {
 }
 
 export interface ImageGenerationDetail {
+  metadata_only?: boolean
+  truncated?: boolean
   prompt: string
   request_params: Record<string, unknown>
   images: GeneratedImage[]

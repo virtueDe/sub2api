@@ -380,6 +380,8 @@ type SystemSettings struct {
 	ImageUpstreamResponsePassthroughAccountIDs []int64 `json:"image_upstream_response_passthrough_account_ids"`
 	ImageForceURLResponseEnabled               bool    `json:"image_force_url_response_enabled"`
 	ImageForceURLResponseAccountIDs            []int64 `json:"image_force_url_response_account_ids"`
+	ImageDiagnosticEnabled                     bool    `json:"image_diagnostic_enabled"`
+	ImageDiagnosticUserIDs                     []int64 `json:"image_diagnostic_user_ids"`
 }
 
 type DefaultSubscriptionSetting struct {

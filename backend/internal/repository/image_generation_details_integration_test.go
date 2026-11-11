@@ -8,11 +8,101 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+type diagnosticPersistenceSettings struct {
+	service.SettingRepository
+	userID int64
+}
+
+func (r diagnosticPersistenceSettings) GetMultiple(context.Context, []string) (map[string]string, error) {
+	return map[string]string{service.SettingKeyImageDiagnosticEnabled: "true", service.SettingKeyImageDiagnosticUserIDs: fmt.Sprintf("[%d]", r.userID)}, nil
+}
+
+func TestImageDiagnosticAuthorizedPersistenceAndSettlementIsolation(t *testing.T) {
+	ctx := context.Background()
+	client := testEntClient(t)
+	repo := newUsageLogRepositoryWithSQL(client, integrationDB)
+	user := mustCreateUser(t, client, &service.User{Email: "diagnostic-" + uuid.NewString() + "@example.test"})
+	key := mustCreateApiKey(t, client, &service.APIKey{UserID: user.ID, Key: "sk-diagnostic-" + uuid.NewString(), Name: "images"})
+	account := mustCreateAccount(t, client, &service.Account{Name: "diagnostic-" + uuid.NewString()})
+	settings := service.NewSettingService(diagnosticPersistenceSettings{userID: user.ID}, &config.Config{})
+	captureCtx := service.WithImageDiagnosticSettings(ctx, settings)
+	capture := service.NewImageGenerationCaptureForUser(captureCtx, user.ID, "application/json", []byte(`{"prompt":"draw a cat"}`))
+	capture.ObserveResponse([]byte(`{"data":[{"url":"https://example.test/cat.png","b64_json":"private-binary"}]}`), false)
+	detail := capture.Snapshot()
+	require.NotNil(t, detail)
+	settlements := NewUsageBillingRepository(client, integrationDB).(service.UsageSettlementRepository)
+	for _, path := range []string{"single", "batch", "best effort"} {
+		t.Run(path, func(t *testing.T) {
+			usage := &service.UsageLog{UserID: user.ID, APIKeyID: key.ID, AccountID: account.ID, RequestID: uuid.NewString(), Model: "gpt-image-2", ImageCount: 1, ActualCost: 0.125, ImageGeneration: detail}
+			t.Cleanup(func() {
+				_, err := integrationDB.ExecContext(ctx, "DELETE FROM usage_logs WHERE request_id=$1 AND api_key_id=$2", usage.RequestID, key.ID)
+				require.NoError(t, err)
+			})
+			switch path {
+			case "single":
+				_, err := repo.createSingle(ctx, integrationDB, usage)
+				require.NoError(t, err)
+			case "batch":
+				_, err := repo.Create(ctx, usage)
+				require.NoError(t, err)
+			case "best effort":
+				require.NoError(t, repo.CreateBestEffort(ctx, usage))
+				require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT id FROM usage_logs WHERE request_id=$1 AND api_key_id=$2", usage.RequestID, key.ID).Scan(&usage.ID))
+			}
+			saved, err := repo.GetByID(ctx, usage.ID)
+			require.NoError(t, err)
+			require.True(t, saved.HasImageGeneration)
+			require.Equal(t, "draw a cat", saved.ImageGeneration.Prompt)
+			require.Empty(t, saved.ImageGeneration.Images[0].B64JSON)
+			require.Equal(t, "https://example.test/cat.png", saved.ImageGeneration.Images[0].URL)
+			items, _, err := repo.ListByUser(ctx, user.ID, pagination.PaginationParams{Page: 1, PageSize: 20})
+			require.NoError(t, err)
+			for _, item := range items {
+				require.Nil(t, item.ImageGeneration, "lists never load details")
+			}
+			// The deferred enrichment can only update a row owned by the authorized user.
+			_, err = integrationDB.ExecContext(ctx, "UPDATE usage_logs SET image_generation=NULL WHERE id=$1", usage.ID)
+			require.NoError(t, err)
+			otherSettings := service.NewSettingService(diagnosticPersistenceSettings{userID: user.ID + 100000}, &config.Config{})
+			other := service.NewImageGenerationCaptureForUser(service.WithImageDiagnosticSettings(ctx, otherSettings), user.ID+100000, "application/json", []byte(`{"prompt":"wrong user"}`)).Snapshot()
+			ref := service.UsageSettlementRef{RequestID: usage.RequestID, APIKeyID: key.ID}
+			require.NoError(t, settlements.UpdateSettlementImageDetail(ctx, ref, other))
+			saved, err = repo.GetByID(ctx, usage.ID)
+			require.NoError(t, err)
+			require.Nil(t, saved.ImageGeneration)
+			require.NoError(t, settlements.UpdateSettlementImageDetail(ctx, ref, detail))
+			saved, err = repo.GetByID(ctx, usage.ID)
+			require.NoError(t, err)
+			require.Equal(t, "draw a cat", saved.ImageGeneration.Prompt)
+			require.Equal(t, 0.125, saved.ActualCost)
+			require.Equal(t, 1, saved.ImageCount)
+		})
+	}
+	ops := NewOpsRepository(integrationDB)
+	for _, owner := range []*int64{&user.ID, nil} {
+		id, err := ops.InsertErrorLog(ctx, &service.OpsInsertErrorLogInput{UserID: owner, RequestID: uuid.NewString(), ErrorPhase: "billing", ErrorType: "billing_error", Severity: "error", StatusCode: 503, CreatedAt: time.Now(), ImageGeneration: detail})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_, err := integrationDB.ExecContext(ctx, "DELETE FROM ops_error_logs WHERE id=$1", id)
+			require.NoError(t, err)
+		})
+		saved, err := ops.GetErrorLogByID(ctx, id)
+		require.NoError(t, err)
+		if owner == nil {
+			require.Nil(t, saved.ImageGeneration)
+		} else {
+			require.Equal(t, "draw a cat", saved.ImageGeneration.Prompt)
+			require.Empty(t, saved.ImageGeneration.Images[0].B64JSON)
+		}
+	}
+}
 
 func TestImageGenerationUsageDetailPersistence(t *testing.T) {
 	ctx := context.Background()

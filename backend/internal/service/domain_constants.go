@@ -591,6 +591,8 @@ const (
 	SettingKeyImageUpstreamResponsePassthroughAccountIDs = "image_upstream_response_passthrough_account_ids"
 	SettingKeyImageForceURLResponseEnabled               = "image_force_url_response_enabled"
 	SettingKeyImageForceURLResponseAccountIDs            = "image_force_url_response_account_ids"
+	SettingKeyImageDiagnosticEnabled                     = "image_diagnostic_enabled"
+	SettingKeyImageDiagnosticUserIDs                     = "image_diagnostic_user_ids"
 
 	// SettingKeyUpstreamBillingProbeSettings stores the global enable switch and interval
 	// for probing remote Sub2API API-key billing metadata.

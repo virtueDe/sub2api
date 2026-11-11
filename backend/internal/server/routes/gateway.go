@@ -34,7 +34,12 @@ func RegisterGatewayRoutes(
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize, bodyMemoryBudget)
 	clientRequestID := middleware.ClientRequestID()
 	opsErrorLogger := handler.OpsErrorLoggerMiddleware(opsService)
-	endpointNorm := handler.InboundEndpointMiddleware()
+	normalizeEndpoint := handler.InboundEndpointMiddleware()
+	endpointNorm := func(c *gin.Context) {
+		// Every gateway alias shares policy context; authorization happens after auth.
+		c.Request = c.Request.WithContext(service.WithImageDiagnosticSettings(c.Request.Context(), settingService))
+		normalizeEndpoint(c)
+	}
 	compositeTarget := compositeTargetPlatformMiddleware(compositeResolver)
 	compositeGeminiTarget := compositeGeminiTargetPlatformMiddleware(compositeResolver)
 

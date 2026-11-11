@@ -7737,6 +7737,29 @@
           </div>
         </div>
 
+        <div class="card" data-testid="image-diagnostic-settings">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('admin.settings.features.imageDiagnostics.title') }}</h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.settings.features.imageDiagnostics.description') }}</p>
+          </div>
+          <div class="space-y-5 p-6">
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <label for="image-diagnostic-enabled" class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.features.imageDiagnostics.enabled') }}</label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.features.imageDiagnostics.enabledHint') }}</p>
+              </div>
+              <Toggle id="image-diagnostic-enabled" v-model="form.image_diagnostic_enabled" data-testid="image-diagnostic-toggle" />
+            </div>
+            <div v-if="form.image_diagnostic_enabled">
+              <label class="input-label">{{ t('admin.settings.features.imageDiagnostics.users') }}</label>
+              <OpenAIFastPolicyUserSelector v-model="form.image_diagnostic_user_ids" :exclude-deleted="true" :max-selected="50" data-testid="image-diagnostic-users" />
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.features.imageDiagnostics.usersHint', { count: form.image_diagnostic_user_ids.length }) }}</p>
+              <p v-if="form.image_diagnostic_user_ids.length === 0" class="mt-2 text-sm text-amber-600 dark:text-amber-400">{{ t('admin.settings.features.imageDiagnostics.empty') }}</p>
+            </div>
+            <p class="rounded-lg bg-gray-50 p-3 text-xs leading-relaxed text-gray-500 dark:bg-dark-900 dark:text-gray-400">{{ t('admin.settings.features.imageDiagnostics.storageHint') }}</p>
+          </div>
+        </div>
+
         <!-- Affiliate (邀请返利) feature card -->
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -10341,6 +10364,8 @@ const form = reactive<SettingsForm>({
   ai_creation_studio_enabled: false,
   // Plugin management menu visibility; plugin runtime is unaffected.
   plugin_management_enabled: false,
+  image_diagnostic_enabled: false,
+  image_diagnostic_user_ids: [] as number[],
   // Affiliate (邀请返利) feature switch
   affiliate_enabled: false,
   // Allow user view error requests
@@ -12179,6 +12204,8 @@ async function saveSettings() {
       model_plaza_description: form.model_plaza_description,
       ai_creation_studio_enabled: form.ai_creation_studio_enabled,
       plugin_management_enabled: form.plugin_management_enabled,
+      image_diagnostic_enabled: form.image_diagnostic_enabled,
+      image_diagnostic_user_ids: form.image_diagnostic_user_ids,
       // Affiliate (邀请返利) feature switch
       affiliate_enabled: form.affiliate_enabled,
       allow_user_view_error_requests: form.allow_user_view_error_requests,

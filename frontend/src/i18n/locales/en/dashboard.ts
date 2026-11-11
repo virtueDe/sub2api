@@ -334,6 +334,8 @@ export default {
   // Usage
   usage: {
     imageDetail: {
+      metadataOnly: 'This record contains diagnostic metadata, not image binaries. Image links may have expired.',
+      truncated: 'Some content exceeded the capture limit and was omitted. This does not indicate a generation failure.',
       title: 'Image generation details',
       action: 'Details',
       prompt: 'Prompt',

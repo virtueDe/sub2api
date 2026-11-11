@@ -360,6 +360,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ImageUpstreamResponsePassthroughAccountIDs:             settings.ImageUpstreamResponsePassthroughAccountIDs,
 		ImageForceURLResponseEnabled:                           settings.ImageForceURLResponseEnabled,
 		ImageForceURLResponseAccountIDs:                        settings.ImageForceURLResponseAccountIDs,
+		ImageDiagnosticEnabled:                                 settings.ImageDiagnosticEnabled,
+		ImageDiagnosticUserIDs:                                 settings.ImageDiagnosticUserIDs,
 		EnableMetadataPassthrough:                              settings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       settings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 settings.EnableClaudeOAuthSystemPromptInjection,

@@ -38,6 +38,7 @@
         v-model="searchQuery"
         type="text"
         autocomplete="off"
+        :disabled="Boolean(maxSelected && selectedUserIds.length >= maxSelected)"
         class="input input-sm w-full pl-9"
         :placeholder="t('admin.settings.openaiFastPolicy.userSearchPlaceholder')"
         @input="debounceSearch"
@@ -88,6 +89,8 @@ import Icon from "@/components/icons/Icon.vue";
 
 const props = defineProps<{
   modelValue: number[];
+  excludeDeleted?: boolean;
+  maxSelected?: number;
 }>();
 
 const emit = defineEmits<{
@@ -111,7 +114,7 @@ const selectedUserIds = computed(() =>
 const availableResults = computed(() => {
   const selected = new Set(selectedUserIds.value);
   return searchResults.value
-    .filter((user) => !selected.has(user.id))
+    .filter((user) => !selected.has(user.id) && (!props.excludeDeleted || !user.deleted))
     .sort((a, b) => Number(a.deleted) - Number(b.deleted));
 });
 
@@ -159,6 +162,7 @@ function debounceSearch(): void {
 }
 
 function selectUser(user: SimpleUser): void {
+  if ((props.excludeDeleted && user.deleted) || (props.maxSelected && selectedUserIds.value.length >= props.maxSelected)) return;
   selectedUsers.value = { ...selectedUsers.value, [user.id]: user };
   emit("update:modelValue", [...selectedUserIds.value, user.id]);
   clearPendingSearch();

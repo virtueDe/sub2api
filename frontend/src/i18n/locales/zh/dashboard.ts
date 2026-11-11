@@ -339,6 +339,8 @@ export default {
   // Usage
   usage: {
     imageDetail: {
+      metadataOnly: '此记录仅保存排障信息，不包含图片二进制；图片链接可能已失效。',
+      truncated: '部分内容超过采集上限，已省略；这不表示图片生成失败。',
       title: '生图记录详情',
       action: '详情',
       prompt: '提示词',

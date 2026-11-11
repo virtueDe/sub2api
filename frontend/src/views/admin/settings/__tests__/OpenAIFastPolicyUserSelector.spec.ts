@@ -109,4 +109,41 @@ describe('OpenAIFastPolicyUserSelector', () => {
     await wrapper.get('button[aria-label="Remove user"]').trigger('click')
     expect(wrapper.emitted('update:modelValue')).toEqual([[[]]])
   })
+
+  it('excludes deleted search results only when requested', async () => {
+    mockSearchUsers.mockResolvedValue([
+      { id: 7, email: 'deleted@example.com', deleted: true },
+      { id: 9, email: 'active@example.com', deleted: false },
+    ])
+    for (const excludeDeleted of [true, false]) {
+      const wrapper = mount(OpenAIFastPolicyUserSelector, {
+        props: { modelValue: [], excludeDeleted },
+        global: { stubs: { Icon: true } },
+      })
+      await wrapper.get('input').trigger('focus')
+      await wrapper.get('input').setValue('e')
+      await wrapper.get('input').trigger('input')
+      vi.advanceTimersByTime(300)
+      await flushPromises()
+      expect(wrapper.text()).toContain('active@example.com')
+      expect(wrapper.text().includes('deleted@example.com')).toBe(!excludeDeleted)
+      wrapper.unmount()
+    }
+  })
+
+  it('caps the selected users and enables searching again after removal', async () => {
+    mockGetUserById.mockImplementation((id: number) => Promise.resolve({ id, email: `user${id}@example.com` }))
+    const ids = Array.from({ length: 50 }, (_, index) => index + 1)
+    const wrapper = mount(OpenAIFastPolicyUserSelector, {
+      props: { modelValue: ids, maxSelected: 50, excludeDeleted: true },
+      global: { stubs: { Icon: true } },
+    })
+    await flushPromises()
+    expect((wrapper.get('input').element as HTMLInputElement).disabled).toBe(true)
+    await wrapper.findAll('button[aria-label="Remove user"]')[0]!.trigger('click')
+    const remaining = wrapper.emitted('update:modelValue')![0]![0] as number[]
+    expect(remaining).toHaveLength(49)
+    await wrapper.setProps({ modelValue: remaining })
+    expect((wrapper.get('input').element as HTMLInputElement).disabled).toBe(false)
+  })
 })

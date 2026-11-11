@@ -1409,7 +1409,7 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 			log.CacheCreation30mTokens,
 			log.CacheCreation12hTokens,
 			createdAt,
-			service.ImageGenerationDetailJSON(log.ImageGeneration),
+			service.ImageGenerationDetailJSONForUser(log.ImageGeneration, log.UserID),
 		},
 	}
 }
