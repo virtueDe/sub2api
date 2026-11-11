@@ -646,9 +646,9 @@ export default {
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
       upstreamRequestIdHeader: 'Upstream ID',
-      upstreamRequestIdHeaderPlaceholder: 'Leave empty to record nothing',
+      upstreamRequestIdHeaderPlaceholder: 'Leave empty to detect common response headers',
       upstreamRequestIdHeaderHelp: {
-        intro: 'Name of the response header in which the direct upstream declares its request ID. The value is recorded in the "Upstream ID" column of the usage log; leave empty to record nothing.',
+        intro: 'Leave empty to detect common upstream request ID response headers and record the value in the "Upstream ID" column. When a header name is specified, only that header is read; a missing header leaves the ID empty. For relays such as sub2api, specify the header shown in the examples below.',
         examplesTitle: 'Common values',
         sub2apiNote: 'Matches the request ID column of its usage log',
         official: '{platform} official API'

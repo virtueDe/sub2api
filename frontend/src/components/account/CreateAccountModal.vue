@@ -4287,7 +4287,7 @@ const oauthStepTitle = computed(() => {
 })
 
 // Platform-specific hints for API Key type
-// 上游ID：直接上游声明请求标识的响应头名，留空不记录。
+// 上游ID：自定义响应头名；留空由后端自动识别常见响应头。
 const upstreamRequestIdHeader = ref('')
 const withUpstreamRequestIdHeader = <T extends Record<string, unknown> | undefined>(extra: T): T | Record<string, unknown> => {
   const name = upstreamRequestIdHeader.value.trim()

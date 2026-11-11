@@ -8,21 +8,49 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestUpstreamRequestIDFromHeaders_UnconfiguredAccountRecordsNothing(t *testing.T) {
+func TestUpstreamRequestIDFromHeaders_AutomaticHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		platform string
+		header   string
+	}{
+		{PlatformOpenAI, "X-Request-ID"},
+		{PlatformAnthropic, "Request-ID"},
+		{PlatformGemini, "X-Goog-Request-ID"},
+		{PlatformAntigravity, "X-Goog-Request-ID"},
+		{PlatformGrok, "Xai-Request-ID"},
+	} {
+		t.Run(tc.platform, func(t *testing.T) {
+			h := http.Header{}
+			h.Set("X-Client-Request-ID", "client-correlation-only")
+			h.Set("X-Request-ID", "generic-request")
+			h.Set(tc.header, " provider-request ")
+			account := &Account{Platform: tc.platform}
+			require.Equal(t, "provider-request", UpstreamRequestIDFromHeaders(account, h))
+			account.Extra = map[string]any{AccountExtraUpstreamRequestIDHeader: "   "}
+			require.Equal(t, "provider-request", UpstreamRequestIDFromHeaders(account, h))
+
+			h.Set("X-Oneapi-Request-ID", "relay-request")
+			require.Equal(t, "relay-request", UpstreamRequestIDFromHeaders(account, h), "prefer the direct relay's request ID")
+		})
+	}
+}
+
+func TestUpstreamRequestIDFromHeaders_AutomaticMissingHeaders(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-Client-Request-ID", "sub2api-client")
-	h.Set("X-Request-ID", "sub2api-local")
-	h.Set("X-Oneapi-Request-Id", "oneapi-1")
-	h.Set("Request-Id", "req_official")
-	h.Set("xai-request-id", "xai-1")
-	h.Set("x-goog-request-id", "goog-1")
 
 	require.Equal(t, "", UpstreamRequestIDFromHeaders(nil, h))
 	for _, platform := range []string{PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok} {
-		require.Equal(t, "", UpstreamRequestIDFromHeaders(&Account{Platform: platform}, h), platform)
+		account := &Account{Platform: platform}
+		require.Equal(t, "", UpstreamRequestIDFromHeaders(account, h), "do not infer an upstream ID from client correlation")
+		require.Equal(t, "", UpstreamRequestIDFromHeaders(account, nil))
 	}
-	blank := &Account{Platform: PlatformOpenAI, Extra: map[string]any{AccountExtraUpstreamRequestIDHeader: "   "}}
-	require.Equal(t, "", UpstreamRequestIDFromHeaders(blank, h))
+	h.Set("X-Request-ID", " generic-request ")
+	require.Equal(t, "", UpstreamRequestIDFromHeaders(nil, h))
+	require.Equal(t, "generic-request", UpstreamRequestIDFromHeaders(&Account{Platform: PlatformGemini}, h))
+	h.Set("X-Request-ID", "  ")
+	h.Set("Request-ID", "alternate-request")
+	require.Equal(t, "alternate-request", UpstreamRequestIDFromHeaders(&Account{}, h))
 }
 
 func TestUpstreamRequestIDFromHeaders_ReadsOnlyConfiguredHeader(t *testing.T) {
@@ -51,11 +79,14 @@ func TestUsageUpstreamRequestIDPtr(t *testing.T) {
 	require.Nil(t, usageUpstreamRequestIDPtr(account, h, true))
 	require.Nil(t, usageUpstreamRequestIDPtr(account, http.Header{}, false))
 	require.Nil(t, usageUpstreamRequestIDPtr(nil, h, false))
-	require.Nil(t, usageUpstreamRequestIDPtr(&Account{}, h, false))
+	require.Nil(t, usageUpstreamRequestIDPtr(&Account{}, h, true))
+	require.Equal(t, usageUpstreamRequestIDPtr(account, h, false), usageUpstreamRequestIDPtr(&Account{}, h, false))
 
 	got := usageUpstreamRequestIDPtr(account, h, false)
 	require.NotNil(t, got)
 	require.Len(t, *got, maxUsageUpstreamRequestIDLen)
+	h.Set("X-Request-ID", strings.Repeat("图", 100))
+	require.Equal(t, optionalTrimmedStringPtr(strings.Repeat("图", 42)), usageUpstreamRequestIDPtr(&Account{}, h, false))
 }
 
 func TestValidateUpstreamRequestIDHeaderExtra(t *testing.T) {

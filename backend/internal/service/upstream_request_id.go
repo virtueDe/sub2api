@@ -10,7 +10,7 @@ import (
 )
 
 // AccountExtraUpstreamRequestIDHeader 是账户 extra 中的键，值为直接上游声明请求标识的响应头名。
-// 未指定时不记录上游请求标识。
+// 未指定时自动读取常见的上游请求标识响应头。
 const AccountExtraUpstreamRequestIDHeader = "upstream_request_id_header"
 
 const (
@@ -28,16 +28,38 @@ func UpstreamRequestIDHeaderName(account *Account) string {
 }
 
 // UpstreamRequestIDFromHeaders 从直接上游的响应头解析请求标识。
-// 只读账户指定的头；账户未指定头名时恒为空串。
+// 配置头名时只读指定响应头；否则优先中继自身的 ID、平台官方 ID，
+// 再读取通用请求 ID。只使用上游响应头，不推断客户端或本地结算 ID。
 func UpstreamRequestIDFromHeaders(account *Account, h http.Header) string {
-	if len(h) == 0 {
+	if account == nil || len(h) == 0 {
 		return ""
 	}
-	name := UpstreamRequestIDHeaderName(account)
-	if name == "" {
-		return ""
+	if name := UpstreamRequestIDHeaderName(account); name != "" {
+		return strings.TrimSpace(h.Get(name))
 	}
-	return strings.TrimSpace(h.Get(name))
+	if id := strings.TrimSpace(h.Get("X-Oneapi-Request-Id")); id != "" {
+		return id
+	}
+	var officialHeader string
+	switch account.Platform {
+	case PlatformAnthropic:
+		officialHeader = "Request-Id"
+	case PlatformGemini, PlatformAntigravity:
+		officialHeader = "X-Goog-Request-Id"
+	case PlatformGrok:
+		officialHeader = "Xai-Request-Id"
+	}
+	if officialHeader != "" {
+		if id := strings.TrimSpace(h.Get(officialHeader)); id != "" {
+			return id
+		}
+	}
+	for _, name := range []string{"X-Request-Id", "Request-Id"} {
+		if id := strings.TrimSpace(h.Get(name)); id != "" {
+			return id
+		}
+	}
+	return ""
 }
 
 // usageUpstreamRequestIDPtr 生成落库到 usage_logs.upstream_request_id 的值。

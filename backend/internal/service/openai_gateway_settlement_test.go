@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,13 +38,15 @@ func TestOpenAIGatewayServiceRecordUsage_ImageFactsSurviveDatabaseTimeout(t *tes
 
 	err := svc.RecordUsage(ctx, &OpenAIRecordUsageInput{
 		Result: &OpenAIForwardResult{
-			RequestID: "upstream-image-response",
-			Model:     "gpt-5.1", ImageCount: 1,
+			RequestID:       "upstream-image-response",
+			UpstreamHeaders: http.Header{"X-Request-Id": {"upstream-image-response"}},
+			Model:           "gpt-5.1", ImageCount: 1,
 			Usage: OpenAIUsage{InputTokens: 1000, OutputTokens: 600, ImageOutputTokens: 100},
 		},
 		APIKey: &APIKey{ID: 1004, UserID: 2004, Key: "credential-must-not-persist", GroupID: &groupID,
 			Group: &Group{ID: groupID, RateMultiplier: 1, Platform: PlatformOpenAI}},
 		User: &User{ID: 2004}, Account: &Account{ID: 3004},
+		UserAgent: "image-client/1.0", IPAddress: "203.0.113.10", SessionID: "image-session",
 	})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Equal(t, 3, repo.prepares)
@@ -65,6 +68,11 @@ func TestOpenAIGatewayServiceRecordUsage_ImageFactsSurviveDatabaseTimeout(t *tes
 	require.Equal(t, snapshot.Command.BalanceCost, snapshot.Usage.ActualCost)
 	require.Equal(t, 1, snapshot.Usage.ImageCount)
 	require.Equal(t, 100, snapshot.Usage.ImageOutputTokens)
+	require.Equal(t, optionalTrimmedStringPtr("image-client/1.0"), snapshot.Usage.UserAgent)
+	require.Equal(t, optionalTrimmedStringPtr("203.0.113.10"), snapshot.Usage.IPAddress)
+	require.Equal(t, optionalTrimmedStringPtr("image-session"), snapshot.Usage.SessionID)
+	require.Equal(t, optionalTrimmedStringPtr("upstream-image-response"), snapshot.Usage.UpstreamRequestID)
+	require.Equal(t, UsageSettlementFromContext(ctx), snapshot.Usage.RequestID, "upstream ID must not replace the billing identity")
 	require.Equal(t, repo.prepared.Command.RequestFingerprint, snapshot.Command.RequestFingerprint)
 
 	cursor := ""

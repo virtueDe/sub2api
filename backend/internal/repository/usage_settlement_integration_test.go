@@ -191,6 +191,8 @@ func settlementFixture(t *testing.T) (*usageBillingRepository, *service.UsageSet
 func TestUsageSettlementAtomicRecovery(t *testing.T) {
 	ctx := context.Background()
 	r, s := settlementFixture(t)
+	userAgent, ipAddress, sessionID, upstreamID := "image-client/1.0", "2001:db8::1", "image-session", "upstream-image"
+	s.Usage.UserAgent, s.Usage.IPAddress, s.Usage.SessionID, s.Usage.UpstreamRequestID = &userAgent, &ipAddress, &sessionID, &upstreamID
 	ref := service.UsageSettlementRef{RequestID: s.Command.RequestID, APIKeyID: s.Command.APIKeyID}
 	_, _, err := r.ApplySettlement(ctx, ref, nil)
 	require.ErrorIs(t, err, service.ErrUsageSettlementNotReady)
@@ -218,6 +220,9 @@ func TestUsageSettlementAtomicRecovery(t *testing.T) {
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT count(*),max(actual_cost) FROM usage_logs WHERE request_id=$1 AND api_key_id=$2", ref.RequestID, ref.APIKeyID).Scan(&count, &actual))
 	require.Equal(t, 1, count)
 	require.Equal(t, 1.25, actual)
+	var savedUserAgent, savedIP, savedSessionID, savedUpstreamID string
+	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT user_agent,ip_address,session_id,upstream_request_id FROM usage_logs WHERE request_id=$1 AND api_key_id=$2", ref.RequestID, ref.APIKeyID).Scan(&savedUserAgent, &savedIP, &savedSessionID, &savedUpstreamID))
+	require.Equal(t, []string{userAgent, ipAddress, sessionID, upstreamID}, []string{savedUserAgent, savedIP, savedSessionID, savedUpstreamID})
 	require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT daily_usage_usd FROM user_platform_quotas WHERE user_id=$1 AND platform=$2", s.Command.UserID, s.Platform).Scan(&platform))
 	require.Equal(t, 1.25, platform)
 	require.NoError(t, r.CompleteSettlement(ctx, ref))

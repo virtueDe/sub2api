@@ -770,9 +770,9 @@ export default {
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: '您的 Claude Console API Key',
       upstreamRequestIdHeader: '上游ID',
-      upstreamRequestIdHeaderPlaceholder: '留空不记录',
+      upstreamRequestIdHeaderPlaceholder: '留空自动识别常见响应头',
       upstreamRequestIdHeaderHelp: {
-        intro: '填写直接上游在响应头中声明请求标识的头名，记录到用量明细的“上游ID”列；留空则不记录。',
+        intro: '留空时自动读取常见的上游请求ID响应头，记录到用量明细的“上游ID”列。填写头名后只读取指定响应头；上游未返回时保持为空。对接 sub2api 等中转平台时，可按下方示例指定头名。',
         examplesTitle: '常见取值',
         sub2apiNote: '对应对方用量明细的请求ID列',
         official: '{platform} 官方 API'

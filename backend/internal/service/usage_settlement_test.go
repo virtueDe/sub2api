@@ -6,10 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Wei-Shaw/sub2api/internal/config"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/stretchr/testify/require"
 )
@@ -26,16 +27,47 @@ func TestUsageSettlementIdentityAndSafeFacts(t *testing.T) {
 	}
 	cmd := &UsageBillingCommand{RequestID: "settlement:child-a", BalanceCost: 0.000078125}
 	cmd.Normalize()
-	s := newUsageSettlementSnapshot(cmd, &UsageLog{CreatedAt: time.Now(), ActualCost: 0.000078125, APIKey: &APIKey{Key: "credential-must-not-persist"}, User: &User{PasswordHash: "password-must-not-persist"}}, &postUsageBillingParams{Cost: &CostBreakdown{ActualCost: 0.000078125}})
+	userAgent, ipAddress, sessionID, upstreamID := "image-client/1.0", "2001:db8::1", "session-a", "upstream-a"
+	s := newUsageSettlementSnapshot(cmd, &UsageLog{
+		CreatedAt: time.Now(), ActualCost: 0.000078125,
+		UserAgent: &userAgent, IPAddress: &ipAddress, SessionID: &sessionID, UpstreamRequestID: &upstreamID,
+		APIKey:          &APIKey{Key: "credential-must-not-persist"},
+		User:            &User{PasswordHash: "password-must-not-persist"},
+		ImageGeneration: &ImageGenerationDetail{Prompt: "prompt-must-not-persist", Images: []GeneratedImage{{B64JSON: "image-must-not-persist"}}},
+	}, &postUsageBillingParams{Cost: &CostBreakdown{ActualCost: 0.000078125}})
 	data, err := json.Marshal(s)
 	require.NoError(t, err)
 	require.NotContains(t, string(data), "credential-must-not-persist")
 	require.NotContains(t, string(data), "password-must-not-persist")
+	require.NotContains(t, string(data), "prompt-must-not-persist")
+	require.NotContains(t, string(data), "image-must-not-persist")
 	var decoded UsageSettlementSnapshot
 	require.NoError(t, json.Unmarshal(data, &decoded))
 	decoded.Command.Normalize()
 	require.Equal(t, cmd.RequestFingerprint, decoded.Command.RequestFingerprint)
 	require.Equal(t, 0.00007813, decoded.Command.BalanceCost)
+	require.Equal(t, &userAgent, decoded.Usage.UserAgent)
+	require.Equal(t, &ipAddress, decoded.Usage.IPAddress)
+	require.Equal(t, &sessionID, decoded.Usage.SessionID)
+	require.Equal(t, &upstreamID, decoded.Usage.UpstreamRequestID)
+}
+
+func TestUsageSettlementSnapshotBoundsUserAgent(t *testing.T) {
+	userAgent := strings.Repeat("图", 30000)
+	u := &UsageLog{UserAgent: &userAgent}
+	s := newUsageSettlementSnapshot(&UsageBillingCommand{}, u, &postUsageBillingParams{Cost: &CostBreakdown{}})
+	require.NotNil(t, s.Usage.UserAgent)
+	require.Equal(t, strings.Repeat("图", 170), *s.Usage.UserAgent)
+	require.Len(t, *u.UserAgent, 90000, "snapshot must not modify the caller's usage log")
+	data, err := json.Marshal(s)
+	require.NoError(t, err)
+	require.Less(t, len(data), 60000, "client metadata must not exhaust the financial snapshot budget")
+
+	empty := newUsageSettlementSnapshot(&UsageBillingCommand{}, &UsageLog{}, &postUsageBillingParams{Cost: &CostBreakdown{}})
+	require.Nil(t, empty.Usage.UserAgent)
+	require.Nil(t, empty.Usage.IPAddress)
+	require.Nil(t, empty.Usage.SessionID)
+	require.Nil(t, empty.Usage.UpstreamRequestID)
 }
 
 type settlementTestRepository struct {

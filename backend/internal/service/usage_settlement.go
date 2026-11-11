@@ -97,9 +97,16 @@ func newUsageSettlementSnapshot(cmd *UsageBillingCommand, u *UsageLog, p *postUs
 		AccountRateMultiplier: u.AccountRateMultiplier, AccountStatsCost: u.AccountStatsCost,
 		BillingType: u.BillingType, RequestType: u.RequestType, Stream: u.Stream, OpenAIWSMode: u.OpenAIWSMode, NativeCompactionV2: u.NativeCompactionV2,
 		DurationMs: u.DurationMs, FirstTokenMs: u.FirstTokenMs, UpstreamRequestID: u.UpstreamRequestID, CacheTTLOverridden: u.CacheTTLOverridden,
+		UserAgent: u.UserAgent, IPAddress: u.IPAddress, SessionID: u.SessionID,
 		ImageCount: u.ImageCount, ImageSize: u.ImageSize, ImageInputSize: u.ImageInputSize, ImageOutputSize: u.ImageOutputSize,
 		ImageSizeSource: u.ImageSizeSource, ImageSizeBreakdown: u.ImageSizeBreakdown, MediaType: u.MediaType, HasImageGeneration: u.HasImageGeneration,
 		CreatedAt: u.CreatedAt,
+	}
+	if v.UserAgent != nil {
+		// Match usage_logs.user_agent's limit without letting a client header
+		// overflow the financial snapshot or abort the atomic charge/log insert.
+		userAgent := truncateString(*v.UserAgent, 512)
+		v.UserAgent = &userAgent
 	}
 	if v.CreatedAt.IsZero() {
 		v.CreatedAt = time.Now().UTC()
