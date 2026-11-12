@@ -17,7 +17,7 @@ func (r *usageBillingRepository) SettleBatchImage(ctx context.Context, expected 
 	if expected == nil || cmd == nil || usage == nil || params.Now == nil || expected.BatchID != cmd.BatchID || params.BatchID != cmd.BatchID {
 		return service.ErrUsageSettlementConflict
 	}
-	tx, release, err := beginUsageBillingTransaction(ctx, r.db)
+	tx, release, err := beginPayerBillingTransaction(ctx, r.db, cmd.UserID, false)
 	if err != nil {
 		return err
 	}
@@ -30,20 +30,24 @@ func (r *usageBillingRepository) SettleBatchImage(ctx context.Context, expected 
 	if err != nil {
 		return err
 	}
+	if job.UserID != cmd.UserID || job.APIKeyID == nil || *job.APIKeyID != cmd.APIKeyID ||
+		usage.ActualCost != cmd.ActualAmount || usage.RequestID != cmd.RequestID || usage.APIKeyID != cmd.APIKeyID || usage.UserID != cmd.UserID || job.AccountID == nil || usage.AccountID != *job.AccountID {
+		return service.ErrUsageSettlementConflict
+	}
 	if job.Status == service.BatchImageJobStatusCompleted {
 		if job.ActualCost != nil && *job.ActualCost == cmd.ActualAmount && job.ManifestHash != nil && *job.ManifestHash == params.ManifestHash {
 			return nil
 		}
 		return service.ErrUsageSettlementConflict
 	}
-	if job.Status != service.BatchImageJobStatusSettling || job.UserID != cmd.UserID || job.APIKeyID == nil || *job.APIKeyID != cmd.APIKeyID || service.BuildBatchImageSettlementManifestHash(job) != params.ManifestHash {
+	if job.Status != service.BatchImageJobStatusSettling || service.BuildBatchImageSettlementManifestHash(job) != params.ManifestHash {
 		return service.ErrUsageSettlementConflict
 	}
 	held := job.EstimatedCost
 	if job.HoldAmount != nil {
 		held = *job.HoldAmount
 	}
-	if service.QuantizeUsageBillingAmount(held) != cmd.HoldAmount || usage.ActualCost != cmd.ActualAmount || usage.RequestID != cmd.RequestID || usage.APIKeyID != cmd.APIKeyID || usage.UserID != cmd.UserID || job.AccountID == nil || usage.AccountID != *job.AccountID {
+	if service.QuantizeUsageBillingAmount(held) != cmd.HoldAmount {
 		return service.ErrUsageSettlementConflict
 	}
 	if job.PricingSnapshotVersion >= 1 && service.QuantizeUsageBillingAmount(float64(job.SuccessCount)*job.BillableUnitPrice) != cmd.ActualAmount {

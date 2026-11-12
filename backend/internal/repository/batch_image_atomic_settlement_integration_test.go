@@ -45,6 +45,12 @@ func TestBatchImageAtomicCapture(t *testing.T) {
 			}
 			require.NoError(t, r.SettleBatchImage(ctx, job, cmd, usage, params))
 			require.NoError(t, r.SettleBatchImage(ctx, job, cmd, usage, params))
+			wrongPayer := *cmd
+			wrongPayer.UserID++
+			require.ErrorIs(t, r.SettleBatchImage(ctx, job, &wrongPayer, usage, params), service.ErrUsageSettlementConflict)
+			wrongUsage := *usage
+			wrongUsage.RequestID += ":wrong"
+			require.ErrorIs(t, r.SettleBatchImage(ctx, job, cmd, &wrongUsage, params), service.ErrUsageSettlementConflict)
 			checkImageWallet(t, job.UserID, 98.75, 0)
 			var state string
 			var cost float64

@@ -94,7 +94,11 @@ func (r *usageBillingRepository) ApplySettlement(ctx context.Context, ref servic
 			dbstats.TriggerBillingFailure()
 		}
 	}()
-	tx, release, err := beginUsageBillingTransaction(ctx, r.db)
+	payer, err := r.settlementPayer(ctx, ref)
+	if err != nil {
+		return nil, nil, err
+	}
+	tx, release, err := beginPayerBillingTransaction(ctx, r.db, payer, false)
 	if err != nil {
 		return nil, nil, usageBillingStageError("settlement_begin", started, err)
 	}
@@ -104,8 +108,12 @@ func (r *usageBillingRepository) ApplySettlement(ctx context.Context, ref servic
 	var state string
 	var reserved sql.NullFloat64
 	var reservedSub sql.NullInt64
-	if err = tx.QueryRowContext(ctx, `SELECT snapshot,state,reserved_amount,reserved_subscription_id FROM usage_settlements WHERE request_id=$1 AND api_key_id=$2 FOR UPDATE`, ref.RequestID, ref.APIKeyID).Scan(&data, &state, &reserved, &reservedSub); err != nil {
+	var userID int64
+	if err = tx.QueryRowContext(ctx, `SELECT snapshot,state,reserved_amount,reserved_subscription_id,user_id FROM usage_settlements WHERE request_id=$1 AND api_key_id=$2 FOR UPDATE`, ref.RequestID, ref.APIKeyID).Scan(&data, &state, &reserved, &reservedSub, &userID); err != nil {
 		return nil, nil, err
+	}
+	if userID != payer {
+		return nil, nil, service.ErrUsageSettlementConflict
 	}
 	if state != "ready" && state != "charged" && state != "complete" {
 		return nil, nil, service.ErrUsageSettlementNotReady
@@ -117,7 +125,7 @@ func (r *usageBillingRepository) ApplySettlement(ctx context.Context, ref servic
 	if err = validateSettlement(&snapshot); err != nil {
 		return nil, nil, err
 	}
-	if snapshot.Command.RequestID != ref.RequestID || snapshot.Command.APIKeyID != ref.APIKeyID {
+	if snapshot.Command.RequestID != ref.RequestID || snapshot.Command.APIKeyID != ref.APIKeyID || snapshot.Command.UserID != payer {
 		return nil, nil, service.ErrUsageSettlementConflict
 	}
 	result := &service.UsageBillingApplyResult{}

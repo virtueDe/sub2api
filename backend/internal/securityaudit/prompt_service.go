@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 )
 
 type PromptService struct {
@@ -108,8 +110,12 @@ func (s *PromptService) EffectiveMode() Mode {
 	return s.config.EffectiveMode()
 }
 
-func (s *PromptService) Enqueue(_ context.Context, req Request) error {
+func (s *PromptService) Enqueue(requestCtx context.Context, req Request) error {
 	if s == nil || s.enqueuer == nil || s.EffectiveMode() != ModeAsync {
+		return nil
+	}
+	cfg, ok := s.config.Active()
+	if !ok || cfg.EffectiveMode() != ModeAsync || !cfg.IncludesGroup(req.GroupID) {
 		return nil
 	}
 	select {
@@ -128,10 +134,21 @@ func (s *PromptService) Enqueue(_ context.Context, req Request) error {
 		<-s.enqueueSlots
 		return errors.New("prompt audit service not started")
 	}
+	req = req.promptRequest()
+	memoryCtx, releaseMemory := httputil.WithRequestBodyMemoryScope(requestCtx)
+	if err := httputil.ReserveImageWorkingMemory(memoryCtx, len(req.Body), 4); err != nil {
+		releaseMemory()
+		<-s.enqueueSlots
+		if s.metrics != nil {
+			s.metrics.IncDropped()
+		}
+		return err
+	}
 	requestCopy := req.Clone()
 	s.enqueueWG.Add(1)
 	go func() {
 		defer s.enqueueWG.Done()
+		defer releaseMemory()
 		defer func() { <-s.enqueueSlots }()
 		ctx, cancel := context.WithTimeout(background, 2*time.Second)
 		defer cancel()
@@ -157,6 +174,7 @@ func (s *PromptService) Evaluate(ctx context.Context, req Request) (*PromptDecis
 	if cfg.EffectiveMode() != ModeBlocking || !cfg.IncludesGroup(req.GroupID) {
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil
 	}
+	req = req.promptRequest()
 	snapshot, err := ExtractBlockingPromptSnapshot(req, cfg.BlockingLatestTurnOnly)
 	if errors.Is(err, ErrNoPromptText) {
 		return &PromptDecision{Kind: DecisionAllow, AllowNextStage: true}, nil

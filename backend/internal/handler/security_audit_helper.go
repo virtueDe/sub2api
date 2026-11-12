@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"net/http"
 	"strings"
+	"sync"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -66,7 +68,33 @@ func (h *OpenAIGatewayHandler) checkSecurityAuditStage(c *gin.Context, reqLog *z
 	return runSecurityAudit(c, reqLog, h.securityAuditCoordinator, h.contentModerationService, apiKey, subject, protocol, model, body, stage)
 }
 
-func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securityaudit.Coordinator, legacy *service.ContentModerationService, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, body []byte, stage string) (timingDecision *securityaudit.Decision) {
+func (h *OpenAIGatewayHandler) checkSecurityAuditLazy(c *gin.Context, reqLog *zap.Logger, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, bodyBytes int, buildBody func(bool) []byte) *securityaudit.Decision {
+	if h == nil || c == nil || c.Request == nil {
+		return nil
+	}
+	ctx, release := httputil.WithRequestBodyMemoryScope(c.Request.Context())
+	defer release()
+	var once sync.Once
+	var memoryErr error
+	request := c.Request
+	c.Request = request.WithContext(ctx)
+	defer func() { c.Request = request }()
+	decision := runSecurityAudit(c, reqLog, h.securityAuditCoordinator, h.contentModerationService, apiKey, subject, protocol, model, nil, "http", func(images bool) []byte {
+		once.Do(func() { memoryErr = httputil.ReserveImageWorkingMemory(ctx, bodyBytes, 8) })
+		if memoryErr != nil {
+			return nil
+		}
+		return buildBody(images)
+	})
+	if memoryErr != nil {
+		c.Set(securityAuditCompletedContextKey, false)
+		c.Header("Retry-After", "1")
+		return &securityaudit.Decision{Kind: securityaudit.DecisionUnavailable, HTTPStatus: http.StatusServiceUnavailable, ErrorCode: "image_memory_capacity", ClientMessage: "Image processing capacity is exhausted; retry later"}
+	}
+	return decision
+}
+
+func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securityaudit.Coordinator, legacy *service.ContentModerationService, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol, model string, body []byte, stage string, builders ...func(bool) []byte) (timingDecision *securityaudit.Decision) {
 	if c == nil || c.Request == nil {
 		return nil
 	}
@@ -79,7 +107,7 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 		}
 	}
 	if coordinator == nil {
-		legacyDecision := runContentModeration(c, reqLog, legacy, apiKey, subject, protocol, model, body)
+		legacyDecision := runContentModeration(c, reqLog, legacy, apiKey, subject, protocol, model, body, builders...)
 		if legacyDecision == nil {
 			return nil
 		}
@@ -98,6 +126,9 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 		return &decision
 	}
 	request := buildSecurityAuditRequest(c, apiKey, subject, protocol, model, body, stage)
+	if len(builders) > 0 {
+		request.BuildBody = builders[0]
+	}
 	if isSecurityAuditWebSocketStage(request.Stage) {
 		if turnNo, ok := securityAuditWSTurn(c); ok {
 			bodyHash := sha256.Sum256(body)

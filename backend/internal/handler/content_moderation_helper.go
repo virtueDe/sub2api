@@ -38,11 +38,14 @@ func clientRequestedUsageFields(c *gin.Context, mapping service.ChannelMappingRe
 	return mapping.ToUsageFields(clientRequestedModel(c, fallbackModel), upstreamModel)
 }
 
-func runContentModeration(c *gin.Context, reqLog *zap.Logger, svc *service.ContentModerationService, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol string, model string, body []byte) *service.ContentModerationDecision {
+func runContentModeration(c *gin.Context, reqLog *zap.Logger, svc *service.ContentModerationService, apiKey *service.APIKey, subject middleware2.AuthSubject, protocol string, model string, body []byte, builders ...func(bool) []byte) *service.ContentModerationDecision {
 	if svc == nil || c == nil || c.Request == nil {
 		return nil
 	}
 	input := buildContentModerationInput(c, apiKey, subject, protocol, model, body)
+	if len(builders) > 0 {
+		input.BuildBody = builders[0]
+	}
 	if reqLog != nil {
 		reqLog.Info("content_moderation.gateway_check_start",
 			zap.String("request_id", input.RequestID),

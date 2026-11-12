@@ -2,11 +2,11 @@ package service
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"net/url"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
@@ -31,18 +31,31 @@ func (s *OpenAIGatewayService) rewriteOpenAIImagesInputURLsAsDataURLs(
 
 	converted := append([]string(nil), parsed.InputImageURLs...)
 	convertedCount := 0
+	convertedBytes := len(body)
 	for index, rawURL := range parsed.InputImageURLs {
 		if !isHTTPImageURL(rawURL) {
 			continue
 		}
 		imageCtx := imagetiming.WithFields(ctx, zap.Int("image_index", index), zap.String("image_direction", "input"))
-		imageData, contentType, err := s.fetchOpenAIImageURLBytes(imageCtx, account, rawURL)
+		downloadCtx, releaseDownload := httputil.WithRequestBodyMemoryScope(imageCtx)
+		imageData, contentType, err := s.fetchOpenAIImageURLBytes(downloadCtx, account, rawURL)
 		if err != nil {
+			releaseDownload()
 			return nil, "", fmt.Errorf("convert images[%d].image_url to base64: %w", index, err)
 		}
 		encodeTiming := imagetiming.Start(imageCtx, "image_base64_encode")
-		converted[index] = "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(imageData)
+		if err := httputil.ReserveImageWorkingMemory(ctx, len(imageData), 2); err != nil {
+			releaseDownload()
+			encodeTiming.End(err)
+			return nil, "", err
+		}
+		converted[index], err = (OpenAIImagesUpload{Data: imageData, ContentType: contentType}).DataURL()
 		encodeTiming.End(nil, zap.Int("body_bytes", len(imageData)))
+		releaseDownload()
+		if err != nil {
+			return nil, "", err
+		}
+		convertedBytes += len(converted[index])
 		convertedCount++
 	}
 	if convertedCount == 0 {
@@ -50,6 +63,9 @@ func (s *OpenAIGatewayService) rewriteOpenAIImagesInputURLsAsDataURLs(
 	}
 
 	parsed.InputImageURLs = converted
+	if err := httputil.ReserveImageWorkingMemory(ctx, convertedBytes, 8); err != nil {
+		return nil, "", err
+	}
 	rebuiltBody, rebuiltContentType, err := rebuildOpenAIImagesRequestBody(parsed, body)
 	if err != nil {
 		return nil, "", fmt.Errorf("rebuild image request after input URL conversion: %w", err)

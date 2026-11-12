@@ -33,7 +33,7 @@ func (r *usageBillingRepository) ReserveImageSettlement(ctx context.Context, ref
 		return service.ErrUsageSettlementConflict
 	}
 	amount = service.QuantizeUsageBillingAmount(amount)
-	tx, release, err := beginUsageBillingTransaction(ctx, r.db)
+	tx, release, err := beginPayerBillingTransaction(ctx, r.db, userID, false)
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,18 @@ func reserveImageSubscription(ctx context.Context, tx *sql.Tx, id, userID, keyID
 // Persist the refund decision separately so a database timeout is retryable.
 // Late failure journals may release missing-facts reviews, never finalized bills.
 func (r *usageBillingRepository) ReleaseImageSettlement(ctx context.Context, ref service.UsageSettlementRef) error {
-	_, err := r.db.ExecContext(ctx, `UPDATE usage_settlements SET state='release_pending',last_error_code='image_request_failed',updated_at=now() WHERE request_id=$1 AND api_key_id=$2 AND (state='created' OR (state='needs_review' AND last_error_code='final_facts_missing')) AND snapshot IS NULL AND reserved_amount IS NOT NULL`, ref.RequestID, ref.APIKeyID)
+	payer, err := r.settlementPayer(ctx, ref)
+	if err != nil {
+		return err
+	}
+	leave, err := sharedBillingPayerGate.acquire(ctx, billingPayerKey{db: r.db, userID: payer}, false)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	// The decision must survive a later refund failure, but must not itself
+	// queue for a settlement row lock while bypassing payer admission.
+	_, err = r.db.ExecContext(ctx, `UPDATE usage_settlements SET state='release_pending',last_error_code='image_request_failed',updated_at=now() WHERE request_id=$1 AND api_key_id=$2 AND (state='created' OR (state='needs_review' AND last_error_code='final_facts_missing')) AND snapshot IS NULL AND reserved_amount IS NOT NULL`, ref.RequestID, ref.APIKeyID)
 	if err != nil {
 		return err
 	}
@@ -160,6 +171,9 @@ func (r *usageBillingRepository) ReleaseImageSettlement(ctx context.Context, ref
 	var userID int64
 	if err = tx.QueryRowContext(ctx, `SELECT state,reserved_amount,reserved_subscription_id,user_id FROM usage_settlements WHERE request_id=$1 AND api_key_id=$2 FOR UPDATE`, ref.RequestID, ref.APIKeyID).Scan(&state, &amount, &sub, &userID); err != nil {
 		return err
+	}
+	if userID != payer {
+		return service.ErrUsageSettlementConflict
 	}
 	if state == "released" {
 		return nil

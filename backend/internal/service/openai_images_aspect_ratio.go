@@ -1,13 +1,10 @@
 package service
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"mime"
-	"mime/multipart"
 	"strconv"
 	"strings"
 
@@ -58,6 +55,12 @@ func (s *OpenAIGatewayService) PrepareOpenAIImagesAspectRatioPrompt(ctx context.
 		c.Set(openAIImagesAspectRatioContextKey, ratio)
 	}
 	if len(body) == 0 {
+		return body, nil
+	}
+	if parsed.Multipart {
+		// Combine this with account model/response-format edits at forwarding.
+		// OAuth consumes parsed.Prompt directly and never needs a rebuilt body.
+		parsed.pendingPrompt = &effectivePrompt
 		return body, nil
 	}
 	rewritten, rewrittenContentType, err := rewriteOpenAIImagesPrompt(body, parsed.ContentType, effectivePrompt)
@@ -144,59 +147,9 @@ func setJSONFieldString(body []byte, path, value string) ([]byte, error) {
 }
 
 func rewriteOpenAIImagesMultipartPrompt(body []byte, contentType, prompt string) ([]byte, string, error) {
-	_, params, err := mime.ParseMediaType(contentType)
-	if err != nil {
-		return nil, "", fmt.Errorf("parse multipart content-type: %w", err)
-	}
-	boundary := strings.TrimSpace(params["boundary"])
-	if boundary == "" {
-		return nil, "", fmt.Errorf("multipart boundary is required")
-	}
-	reader := multipart.NewReader(bytes.NewReader(body), boundary)
-	var buffer bytes.Buffer
-	writer := multipart.NewWriter(&buffer)
-	promptWritten := false
-	for {
-		part, nextErr := reader.NextPart()
-		if nextErr == io.EOF {
-			break
-		}
-		if nextErr != nil {
-			return nil, "", fmt.Errorf("read multipart body: %w", nextErr)
-		}
-		if name := strings.TrimSpace(part.FormName()); (name == "aspect_ratio" || name == "aspectRatio") && part.FileName() == "" {
-			_ = part.Close()
-			continue
-		}
-		target, createErr := writer.CreatePart(cloneMultipartHeader(part.Header))
-		if createErr != nil {
-			_ = part.Close()
-			return nil, "", createErr
-		}
-		if strings.TrimSpace(part.FormName()) == "prompt" && part.FileName() == "" {
-			_, writeErr := target.Write([]byte(prompt))
-			_ = part.Close()
-			if writeErr != nil {
-				return nil, "", writeErr
-			}
-			promptWritten = true
-			continue
-		}
-		if _, copyErr := io.Copy(target, part); copyErr != nil {
-			_ = part.Close()
-			return nil, "", copyErr
-		}
-		_ = part.Close()
-	}
-	if !promptWritten {
-		if err := writer.WriteField("prompt", prompt); err != nil {
-			return nil, "", err
-		}
-	}
-	if err := writer.Close(); err != nil {
-		return nil, "", err
-	}
-	return buffer.Bytes(), writer.FormDataContentType(), nil
+	return rewriteOpenAIImagesMultipartFields(body, contentType, map[string]*string{
+		"prompt": &prompt, "aspect_ratio": nil, "aspectRatio": nil,
+	})
 }
 
 func parseOpenAIImagesAspectRatioPromptGroupIDs(raw string) []int64 {

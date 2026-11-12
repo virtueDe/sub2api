@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -36,6 +37,9 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 	body, err := readImageRequestBody(c)
 	readTiming.End(err, zap.Int("body_bytes", len(body)))
 	if err != nil {
+		if middleware2.RejectRequestBodyReadError(c, "gemini_images", err) {
+			return
+		}
 		geminiImageError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -53,6 +57,9 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 	parsed, err := h.openAIGatewayService.ParseGeminiImagesRequest(c, body)
 	parseTiming.End(err)
 	if err != nil {
+		if middleware2.RejectRequestBodyMemoryOverload(c, err) {
+			return
+		}
 		geminiImageError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -69,6 +76,12 @@ func (h *GatewayHandler) GeminiImages(c *gin.Context) {
 		return
 	}
 	buildTiming := imagetiming.Start(c.Request.Context(), "prepare_image_request")
+	convertCtx, releaseConvert := httputil.WithRequestBodyMemoryScope(c.Request.Context())
+	defer releaseConvert()
+	if err := httputil.ReserveImageWorkingMemory(convertCtx, len(body), 8); err != nil {
+		middleware2.RejectRequestBodyMemoryOverload(c, err)
+		return
+	}
 	nativeBody, err := buildGeminiImageRequest(parsed)
 	buildTiming.End(err)
 	if err != nil {
@@ -128,12 +141,10 @@ func readImageRequestBody(c *gin.Context) ([]byte, error) {
 	if c == nil || c.Request == nil || c.Request.Body == nil {
 		return nil, fmt.Errorf("request body is empty")
 	}
-	body := make([]byte, 0, 4096)
-	data, err := c.GetRawData()
+	body, err := httputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read request body")
+		return nil, err
 	}
-	body = append(body, data...)
 	if len(body) == 0 {
 		return nil, fmt.Errorf("request body is empty")
 	}
@@ -145,20 +156,29 @@ func buildGeminiImageRequest(req *service.OpenAIImagesRequest) ([]byte, error) {
 		return nil, fmt.Errorf("image request is required")
 	}
 	parts := []map[string]any{{"text": req.Prompt}}
+	var encoder service.ImageUploadEncoder
 	for _, upload := range req.Uploads {
-		if len(upload.Data) == 0 {
+		if upload.Size() == 0 {
 			continue
 		}
-		mimeType := strings.TrimSpace(upload.ContentType)
-		if mimeType == "" {
-			mimeType = http.DetectContentType(upload.Data)
+		dataURL, err := encoder.DataURL(upload)
+		if err != nil {
+			return nil, err
 		}
+		// MIME parameter values may themselves contain ";base64,". The
+		// generated payload contains no semicolons, so its delimiter is last.
+		separator := strings.LastIndex(dataURL, ";base64,")
+		if separator < len("data:") {
+			return nil, fmt.Errorf("image upload has an invalid data URL")
+		}
+		mimeType := strings.TrimPrefix(dataURL[:separator], "data:")
+		encoded := dataURL[separator+len(";base64,"):]
 		if !strings.HasPrefix(strings.ToLower(mimeType), "image/") {
 			return nil, fmt.Errorf("image upload must have an image MIME type")
 		}
 		parts = append(parts, map[string]any{"inlineData": map[string]string{
 			"mimeType": mimeType,
-			"data":     base64.StdEncoding.EncodeToString(upload.Data),
+			"data":     encoded,
 		}})
 	}
 	for _, raw := range req.InputImageURLs {

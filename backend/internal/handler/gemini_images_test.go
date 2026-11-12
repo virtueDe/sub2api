@@ -7,7 +7,20 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
+
+func TestBuildGeminiImageRequestPreservesMIMEParameters(t *testing.T) {
+	contentType := `image/png; name="a;base64,b"`
+	body, err := buildGeminiImageRequest(&service.OpenAIImagesRequest{
+		Prompt: "keep", Uploads: []service.OpenAIImagesUpload{{ContentType: contentType, Data: []byte("abc")}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, contentType, gjson.GetBytes(body, "contents.0.parts.1.inlineData.mimeType").String())
+	decoded, err := base64.StdEncoding.DecodeString(gjson.GetBytes(body, "contents.0.parts.1.inlineData.data").String())
+	require.NoError(t, err)
+	require.Equal(t, []byte("abc"), decoded)
+}
 
 func TestBuildGeminiImageRequestIgnoresUnsupportedOptions(t *testing.T) {
 	req := &service.OpenAIImagesRequest{

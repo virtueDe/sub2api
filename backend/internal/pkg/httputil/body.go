@@ -71,6 +71,21 @@ func ReadRequestBodyWithPrealloc(req *http.Request) ([]byte, error) {
 	return body.data, err
 }
 
+// ReadLimitedBodyWithBudget applies the same bounded chunk accounting to remote
+// image downloads. Content-Length is a capacity hint only; maxBytes is enforced
+// against actual bytes, including a one-byte overflow probe.
+func ReadLimitedBodyWithBudget(ctx context.Context, reader io.Reader, contentLength, maxBytes int64) ([]byte, error) {
+	result, err := readRequestBodyChunksWithBudget(ctx, io.LimitReader(reader, maxBytes+1), requestBodyReadInitCap, contentLength)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(result.data)) > maxBytes {
+		result.release(ctx)
+		return nil, &http.MaxBytesError{Limit: maxBytes}
+	}
+	return result.data, nil
+}
+
 // requestBodyBuffer carries only allocations owned by the current helper.
 // Borrowed input (notably PrereadBody) has no charge to release: its original
 // owner may still retain it even if normalization creates a replacement.

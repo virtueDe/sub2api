@@ -4,14 +4,15 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
@@ -56,6 +57,8 @@ func NewImageURLProxy(
 
 // ProxyURL 代理单个图片 URL
 func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, error) {
+	ctx, releaseMemory := httputil.WithRequestBodyMemoryScope(ctx)
+	defer releaseMemory()
 	if p == nil {
 		return imageURL, nil
 	}
@@ -109,6 +112,9 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 			zap.Error(err),
 			zap.Duration("duration", downloadDuration),
 		)
+		if errors.Is(err, httputil.ErrRequestBodyMemoryBudget) {
+			return "", err
+		}
 		// 降级：去掉签名参数后透传
 		return p.fallbackToCleanURL(imageURL, "download_failed"), nil
 	}
@@ -275,8 +281,7 @@ func (p *ImageURLProxy) downloadImage(ctx context.Context, imageURL string) ([]b
 		maxBytes = 20 << 20 // 默认 20MB
 	}
 
-	limitedReader := io.LimitReader(resp.Body, maxBytes+1)
-	imageData, err := io.ReadAll(limitedReader)
+	imageData, err := httputil.ReadLimitedBodyWithBudget(ctx, resp.Body, resp.ContentLength, maxBytes)
 	if err != nil {
 		return nil, "", fmt.Errorf("read response body: %w", err)
 	}

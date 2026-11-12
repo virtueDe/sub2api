@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io"
@@ -330,17 +329,6 @@ func openAIImageOutputMIMEType(outputFormat string) string {
 	}
 }
 
-func openAIImageUploadToDataURL(upload OpenAIImagesUpload) (string, error) {
-	if len(upload.Data) == 0 {
-		return "", fmt.Errorf("upload %q is empty", strings.TrimSpace(upload.FileName))
-	}
-	contentType := strings.TrimSpace(upload.ContentType)
-	if contentType == "" {
-		contentType = http.DetectContentType(upload.Data)
-	}
-	return "data:" + contentType + ";base64," + base64.StdEncoding.EncodeToString(upload.Data), nil
-}
-
 // openAIImagesSelfBuiltRequestContextKey marks a request whose upstream body was
 // fully constructed by buildOpenAIImagesResponsesRequest, i.e. tool_choice and the
 // matching image_generation tool are always both present and never client-controlled.
@@ -374,13 +362,14 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 	}
 
 	inputImages := make([]string, 0, len(parsed.InputImageURLs)+len(parsed.Uploads))
+	var encoder ImageUploadEncoder
 	for _, imageURL := range parsed.InputImageURLs {
 		if trimmed := strings.TrimSpace(imageURL); trimmed != "" {
 			inputImages = append(inputImages, trimmed)
 		}
 	}
 	for _, upload := range parsed.Uploads {
-		dataURL, err := openAIImageUploadToDataURL(upload)
+		dataURL, err := encoder.DataURL(upload)
 		if err != nil {
 			return nil, err
 		}
@@ -439,7 +428,7 @@ func buildOpenAIImagesResponsesRequest(parsed *OpenAIImagesRequest, toolModel st
 
 	maskImageURL := strings.TrimSpace(parsed.MaskImageURL)
 	if parsed.MaskUpload != nil {
-		dataURL, err := openAIImageUploadToDataURL(*parsed.MaskUpload)
+		dataURL, err := encoder.DataURL(*parsed.MaskUpload)
 		if err != nil {
 			return nil, err
 		}
@@ -1861,7 +1850,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 	SetOpsUpstreamModel(c, upstreamModel)
 	uploadParts := make([]string, 0, len(parsed.Uploads))
 	for _, upload := range parsed.Uploads {
-		uploadParts = append(uploadParts, fmt.Sprintf("%s:%d", upload.ContentType, len(upload.Data)))
+		uploadParts = append(uploadParts, fmt.Sprintf("%s:%d", upload.ContentType, upload.Size()))
 	}
 	logger.LegacyPrintf(
 		"service.openai_gateway",

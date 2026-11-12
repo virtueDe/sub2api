@@ -111,6 +111,7 @@ func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([
 	}
 
 	endpoint := "/images/generations"
+	var encoder ImageUploadEncoder
 	if parsed.IsEdits() {
 		endpoint = "/images/edits"
 		images := make([]map[string]string, 0, len(parsed.InputImageURLs)+len(parsed.Uploads))
@@ -120,7 +121,7 @@ func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([
 			}
 		}
 		for _, upload := range parsed.Uploads {
-			url, err := openAIImageUploadToDataURL(upload)
+			url, err := encoder.DataURL(upload)
 			if err != nil {
 				return nil, "", err
 			}
@@ -133,7 +134,7 @@ func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([
 		mask := strings.TrimSpace(parsed.MaskImageURL)
 		if parsed.MaskUpload != nil {
 			var err error
-			mask, err = openAIImageUploadToDataURL(*parsed.MaskUpload)
+			mask, err = encoder.DataURL(*parsed.MaskUpload)
 			if err != nil {
 				return nil, "", err
 			}
@@ -144,7 +145,7 @@ func buildOpenAIImagesOAuthPayload(parsed *OpenAIImagesRequest, model string) ([
 		markup := strings.TrimSpace(parsed.MarkupImageURL)
 		if parsed.MarkupUpload != nil {
 			var err error
-			markup, err = openAIImageUploadToDataURL(*parsed.MarkupUpload)
+			markup, err = encoder.DataURL(*parsed.MarkupUpload)
 			if err != nil {
 				return nil, "", err
 			}

@@ -122,6 +122,9 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		return
 	}
 	if err := h.validateRequest(c, platform, body); err != nil {
+		if middleware2.RejectRequestBodyMemoryOverload(c, err) {
+			return
+		}
 		imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -171,33 +174,32 @@ func (h *AsyncImageHandler) checkSecurityAuditBeforeSubmit(c *gin.Context, apiKe
 		return false
 	}
 	model := ""
-	moderationBody := body
+	buildModerationBody := func(bool) []byte { return body }
 	if platform == service.PlatformGrok {
 		parsed := service.ParseGrokMediaRequest(c.GetHeader("Content-Type"), body)
-		model, moderationBody = parsed.Model, parsed.ModerationBody()
+		model, buildModerationBody = parsed.Model, parsed.ModerationBodyWithImages
 	} else if platform == service.PlatformGemini {
 		if h.openAI.gatewayService != nil {
 			if parsed, err := h.openAI.gatewayService.ParseGeminiImagesRequest(c, body); err == nil {
-				model, moderationBody = parsed.Model, parsed.ModerationBody()
-			} else {
-				moderationBody = body
+				model, buildModerationBody = parsed.Model, parsed.ModerationBodyWithImages
+			} else if middleware2.RejectRequestBodyMemoryOverload(c, err) {
+				return false
 			}
 		}
 	} else if h.openAI.gatewayService != nil {
 		parsed, err := h.openAI.gatewayService.ParseOpenAIImagesRequest(c, body)
 		if err != nil {
+			if middleware2.RejectRequestBodyMemoryOverload(c, err) {
+				return false
+			}
 			imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return false
 		}
-		model, moderationBody = parsed.Model, parsed.ModerationBody()
-	}
-	if len(moderationBody) == 0 {
-		c.Set(securityAuditCompletedContextKey, true)
-		return true
+		model, buildModerationBody = parsed.Model, parsed.ModerationBodyWithImages
 	}
 	reqLog := requestLogger(c, "handler.async_image.security_audit",
 		zap.Int64("user_id", subject.UserID), zap.Int64("api_key_id", apiKey.ID), zap.String("model", model))
-	decision := h.openAI.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, model, moderationBody)
+	decision := h.openAI.checkSecurityAuditLazy(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, model, len(body), buildModerationBody)
 	if decision != nil && !decision.AllowNextStage {
 		h.openAI.openAISecurityAuditError(c, decision)
 		return false
@@ -441,7 +443,7 @@ func (h *AsyncImageHandler) recordAsyncFailure(taskID, platform string, taskCtx 
 func newAsyncImageContext(c *gin.Context, body []byte, timeoutDuration time.Duration) (*gin.Context, *httptest.ResponseRecorder, context.CancelFunc, error) {
 	// The task keeps body after Submit returns and the ingress reservation is
 	// released, so it holds the body, and whatever it buffers, on its own one.
-	retained, releaseBody, err := pkghttputil.DetachRequestBodyMemory(c.Request.Context(), int64(len(body)))
+	retained, releaseBody, err := pkghttputil.DetachRequestBodyMemory(c.Request.Context(), int64(cap(body)))
 	if err != nil {
 		return nil, nil, nil, err
 	}

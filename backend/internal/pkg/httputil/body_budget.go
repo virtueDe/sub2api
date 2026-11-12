@@ -12,11 +12,17 @@ var ErrRequestBodyMemoryBudget = errors.New("request body memory budget exhauste
 
 // BodyMemoryBudget bounds buffered ingress allocations across requests. It
 // counts chunks, their contiguous copy, decoded output and the decoder window;
-// it is not a bound on the application's total heap or protocol conversion.
+// it is not a bound on the application's total heap.
 type BodyMemoryBudget struct {
 	mu    sync.Mutex
 	limit int64
 	used  int64
+	// Image admissions prepay a private working budget before reading. Its
+	// owners include detached tasks/scopes; the global lease ends with the last.
+	owners            int
+	onLastOwner       func()
+	parentImageBudget *BodyMemoryBudget
+	images            *imageMemoryQueue
 }
 
 func NewBodyMemoryBudget(limit int64) *BodyMemoryBudget {
@@ -31,6 +37,15 @@ type bodyMemoryReservation struct {
 }
 
 type bodyMemoryReservationKey struct{}
+
+// RequestBodyMemoryContext transfers ownership to a caller-selected lifetime,
+// without retaining the admission timeout as the generation deadline.
+func RequestBodyMemoryContext(ctx, owner context.Context) context.Context {
+	if r, ok := owner.Value(bodyMemoryReservationKey{}).(*bodyMemoryReservation); ok {
+		return context.WithValue(ctx, bodyMemoryReservationKey{}, r)
+	}
+	return ctx
+}
 
 // WithRequestBodyMemoryBudget retains final body reservations until the HTTP
 // handler returns, including while a buffered request waits for a user slot.
@@ -56,6 +71,13 @@ func WithRequestBodyMemoryScope(ctx context.Context) (context.Context, func()) {
 	}
 	parent.mu.Lock()
 	closed := parent.closed
+	if !closed {
+		parent.budget.mu.Lock()
+		if parent.budget.onLastOwner != nil {
+			parent.budget.owners++
+		}
+		parent.budget.mu.Unlock()
+	}
 	parent.mu.Unlock()
 	r := &bodyMemoryReservation{budget: parent.budget, closed: closed}
 	return context.WithValue(ctx, bodyMemoryReservationKey{}, r), r.release
@@ -107,15 +129,27 @@ func DetachRequestBodyMemory(ctx context.Context, n int64) (context.Context, fun
 
 func (r *bodyMemoryReservation) release() {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	if r.closed {
+		r.mu.Unlock()
 		return
 	}
 	r.closed = true
 	r.budget.mu.Lock()
 	r.budget.used -= r.bytes
+	var finalize func()
+	if r.budget.onLastOwner != nil {
+		r.budget.owners--
+		if r.budget.owners == 0 {
+			finalize = r.budget.onLastOwner
+		}
+	}
+	r.budget.scheduleImagesLocked()
 	r.budget.mu.Unlock()
 	r.bytes = 0
+	r.mu.Unlock()
+	if finalize != nil {
+		finalize()
+	}
 }
 
 // ReserveRequestBodyMemory reserves n bytes before allocating another buffered
@@ -149,7 +183,7 @@ func reserveBodyMemory(ctx context.Context, n int64) error {
 	}
 	r.budget.mu.Lock()
 	defer r.budget.mu.Unlock()
-	if n > r.budget.limit-r.budget.used {
+	if n > r.budget.limit-r.budget.used && !r.budget.growImageBudgetLocked(n-(r.budget.limit-r.budget.used)) {
 		return ErrRequestBodyMemoryBudget
 	}
 	r.budget.used += n
@@ -180,6 +214,7 @@ func releaseRequestBodyMemory(ctx context.Context, n int64) {
 	n = min(n, r.bytes)
 	r.budget.mu.Lock()
 	r.budget.used -= n
+	r.budget.scheduleImagesLocked()
 	r.budget.mu.Unlock()
 	r.bytes -= n
 }

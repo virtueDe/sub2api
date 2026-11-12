@@ -5,12 +5,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
@@ -83,6 +83,10 @@ func (s *OpenAIGatewayService) backfillOpenAIImagesB64JSON(
 			)
 			continue
 		}
+		if err := httputil.ReserveImageWorkingMemory(ctx, len(body)+len(encoded), 3); err != nil {
+			backfillTiming.End(err, zap.Bool("fallback", true))
+			continue
+		}
 		updated, err := sjson.SetBytes(body, fmt.Sprintf("data.%d.b64_json", index), encoded)
 		backfillTiming.End(err, zap.Bool("fallback", err != nil))
 		if err != nil {
@@ -105,7 +109,12 @@ func (s *OpenAIGatewayService) backfillOpenAIImagesB64JSON(
 // 再无条件拒绝回环、私网、链路本地等目的地（含重定向的每一跳），经账户代理下载，
 // 大小上限与 OAuth 路径的单图下载一致，且前 512 字节须嗅探为 png/jpeg/webp/gif。
 func (s *OpenAIGatewayService) fetchOpenAIImageURLBase64(ctx context.Context, account *Account, rawURL string) (string, error) {
-	if strings.HasPrefix(strings.ToLower(rawURL), "data:") {
+	if len(rawURL) >= 5 && strings.EqualFold(rawURL[:5], "data:") {
+		// Normalization validates by decoding and may copy the encoded string.
+		// Charge before either allocation, retaining the result for the caller.
+		if err := httputil.ReserveImageWorkingMemory(ctx, len(rawURL), 3); err != nil {
+			return "", err
+		}
 		if encoded := normalizeOpenAIImageBase64(rawURL); encoded != "" {
 			return encoded, nil
 		}
@@ -116,6 +125,10 @@ func (s *OpenAIGatewayService) fetchOpenAIImageURLBase64(ctx context.Context, ac
 		return "", err
 	}
 	encodeTiming := imagetiming.Start(ctx, "image_base64_encode")
+	if err := httputil.ReserveRequestBodyMemory(ctx, int64(base64.StdEncoding.EncodedLen(len(data)))*2); err != nil {
+		encodeTiming.End(err)
+		return "", err
+	}
 	encoded := base64.StdEncoding.EncodeToString(data)
 	encodeTiming.End(nil, zap.Int("body_bytes", len(data)))
 	return encoded, nil
@@ -156,8 +169,12 @@ func (s *OpenAIGatewayService) fetchOpenAIImageURLBytes(ctx context.Context, acc
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		return nil, "", fmt.Errorf("download image: unexpected status %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, openAIImageMaxDownloadBytes+1))
+	data, err := httputil.ReadLimitedBodyWithBudget(ctx, resp.Body, resp.ContentLength, openAIImageMaxDownloadBytes)
 	if err != nil {
+		var maxErr *http.MaxBytesError
+		if errors.As(err, &maxErr) {
+			return nil, "", fmt.Errorf("downloaded image exceeds %d bytes", openAIImageMaxDownloadBytes)
+		}
 		return nil, "", fmt.Errorf("read image body: %w", err)
 	}
 	if int64(len(data)) > openAIImageMaxDownloadBytes {

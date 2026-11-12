@@ -330,7 +330,9 @@ func TestAsyncImageHandlerSubmitRejectsWhenBodyCannotBeRetained(t *testing.T) {
 				close(ran)
 			}
 
-			budget := pkghttputil.NewBodyMemoryBudget(int64(len(requestBody)))
+			retainedBody := make([]byte, len(requestBody), len(requestBody)+32)
+			copy(retainedBody, requestBody)
+			budget := pkghttputil.NewBodyMemoryBudget(int64(cap(retainedBody)))
 			router := gin.New()
 			router.Use(func(c *gin.Context) {
 				groupID := int64(3)
@@ -343,14 +345,14 @@ func TestAsyncImageHandlerSubmitRejectsWhenBodyCannotBeRetained(t *testing.T) {
 				ctx, release := pkghttputil.WithRequestBodyMemoryBudget(c.Request.Context(), budget)
 				defer release()
 				c.Request = c.Request.WithContext(ctx)
-				c.Request.Body = pkghttputil.NewPrereadBody([]byte(requestBody))
+				c.Request.Body = pkghttputil.NewPrereadBody(retainedBody)
 				if tt.chargeRequest {
-					require.NoError(t, pkghttputil.ReserveRequestBodyMemory(ctx, int64(len(requestBody))))
+					require.NoError(t, pkghttputil.ReserveRequestBodyMemory(ctx, int64(cap(retainedBody))))
 				} else {
 					// Another in-flight request holds all remaining capacity.
 					other, releaseOther := pkghttputil.WithRequestBodyMemoryBudget(context.Background(), budget)
 					defer releaseOther()
-					require.NoError(t, pkghttputil.ReserveRequestBodyMemory(other, int64(len(requestBody))))
+					require.NoError(t, pkghttputil.ReserveRequestBodyMemory(other, int64(cap(retainedBody))))
 				}
 				c.Next()
 			})
@@ -374,7 +376,7 @@ func TestAsyncImageHandlerSubmitRejectsWhenBodyCannotBeRetained(t *testing.T) {
 			require.Eventually(t, func() bool {
 				ctx, release := pkghttputil.WithRequestBodyMemoryBudget(context.Background(), budget)
 				defer release()
-				return pkghttputil.ReserveRequestBodyMemory(ctx, int64(len(requestBody))) == nil
+				return pkghttputil.ReserveRequestBodyMemory(ctx, int64(cap(retainedBody))) == nil
 			}, time.Second, 10*time.Millisecond, "task must release the body it took over")
 		})
 	}

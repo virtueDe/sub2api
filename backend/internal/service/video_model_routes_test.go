@@ -181,7 +181,11 @@ func TestVideoModelRoutesNativeAndMultipart(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "sd-1080p", parsed.Model)
 	require.Equal(t, "1080p", parsed.Resolution)
-	require.Equal(t, []byte("image-content"), parsed.Uploads[0].Data)
+	require.EqualValues(t, len("image-content"), parsed.Uploads[0].Size())
+	encoded, err := parsed.Uploads[0].DataURL()
+	require.NoError(t, err)
+	// CreateFormFile's MIME inference depends on the host MIME database.
+	require.Equal(t, "data:"+parsed.Uploads[0].ContentType+";base64,aW1hZ2UtY29udGVudA==", encoded)
 	fields, err := videoRequestFields(body, contentType)
 	require.NoError(t, err)
 	require.False(t, gjson.GetBytes(fields, "resolution").Exists())

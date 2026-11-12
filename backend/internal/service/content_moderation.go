@@ -22,6 +22,7 @@ import (
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
 )
@@ -330,6 +331,9 @@ type ContentModerationCheckInput struct {
 	Model              string
 	Protocol           string
 	Body               []byte
+	// BuildBody is synchronous and only used after the captured runtime policy
+	// admits this request. false requests text only; true preserves image hashes.
+	BuildBody func(includeImages bool) []byte
 }
 
 type ContentModerationInput struct {
@@ -556,6 +560,7 @@ type contentModerationRuntimeSnapshot struct {
 }
 
 type contentModerationTask struct {
+	releaseMemory    func()
 	input            ContentModerationCheckInput
 	content          ContentModerationInput
 	inputHash        string
@@ -930,8 +935,12 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 	}
 	if cfg.Mode == ContentModerationModePreBlock {
 		if cfg.KeywordBlockingMode != ContentModerationKeywordModeAPIOnly && len(cfg.BlockedKeywords) > 0 {
+			if input.BuildBody != nil {
+				input.Body = input.BuildBody(false)
+			}
 			keywordText := extractContentModerationKeywordText(input.Protocol, input.Body)
 			if keyword, hit := runtimeSnapshot.matchBlockedKeyword(keywordText); hit {
+				input.BuildBody = nil
 				metricAction := ContentModerationActionKeywordBlock
 				if input.riskControlLogOnly {
 					metricAction = ContentModerationActionAllow
@@ -973,6 +982,12 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 			return allow, nil
 		}
 	}
+	if input.BuildBody != nil {
+		input.Body = input.BuildBody(true)
+	}
+	// Background moderation must never retain a builder closing over the raw
+	// multipart request. The materialized input is its sole owner from here on.
+	input.BuildBody = nil
 	content := ExtractContentModerationInput(input.Protocol, input.Body)
 	if content.IsEmpty() {
 		slog.Info("content_moderation.skip_empty_input",
@@ -1065,7 +1080,7 @@ func (s *ContentModerationService) Check(ctx context.Context, input ContentModer
 			"endpoint", input.Endpoint,
 			"protocol", input.Protocol,
 			"queue_len", len(s.asyncQueue))
-		s.enqueueAsync(input, cfg, content, hashText)
+		s.enqueueAsync(input, cfg, content, hashText, ctx)
 		return allow, nil
 	}
 
@@ -1187,7 +1202,7 @@ func (s *ContentModerationService) recordPreBlockSyncMetric(latencyMS int, actio
 	}
 }
 
-func (s *ContentModerationService) enqueueAsync(input ContentModerationCheckInput, cfg *ContentModerationConfig, content ContentModerationInput, hashText string) {
+func (s *ContentModerationService) enqueueAsync(input ContentModerationCheckInput, cfg *ContentModerationConfig, content ContentModerationInput, hashText string, contexts ...context.Context) {
 	if s == nil || s.asyncQueue == nil {
 		return
 	}
@@ -1200,22 +1215,51 @@ func (s *ContentModerationService) enqueueAsync(input ContentModerationCheckInpu
 		s.asyncDropped.Add(1)
 		return
 	}
+	ctx := context.Background()
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
+	retained, releaseMemory := httputil.WithRequestBodyMemoryScope(ctx)
+	bytes := int64(len(content.Text))
+	for _, image := range content.Images {
+		bytes += int64(len(image))
+	}
+	if err := httputil.ReserveRequestBodyMemory(retained, bytes); err != nil {
+		releaseMemory()
+		s.asyncDropped.Add(1)
+		slog.Warn("content_moderation.async_memory_full", "user_id", input.UserID)
+		return
+	}
+	input.Body, input.BuildBody = nil, nil
+	// gjson results may be substrings of a much larger JSON allocation. Give
+	// queued work exactly the backing bytes charged above, including after dedup.
+	content.Text = strings.Clone(content.Text)
+	images := make([]string, len(content.Images))
+	for i, image := range content.Images {
+		images[i] = strings.Clone(image)
+	}
+	content.Images = images
 	task := contentModerationTask{
-		input:      input,
-		content:    content,
-		inputHash:  hashText,
-		enqueuedAt: time.Now(),
+		releaseMemory: releaseMemory,
+		input:         input,
+		content:       content,
+		inputHash:     hashText,
+		enqueuedAt:    time.Now(),
 	}
 	select {
 	case s.asyncQueue <- task:
 		s.asyncEnqueued.Add(1)
 	default:
+		releaseMemory()
 		slog.Warn("content_moderation.async_queue_full", "user_id", input.UserID, "endpoint", input.Endpoint)
 		s.asyncDropped.Add(1)
 	}
 }
 
 func (s *ContentModerationService) enqueueRecord(input ContentModerationCheckInput, cfg *ContentModerationConfig, log *ContentModerationLog, inputHash string, recordHash bool, applySideEffects bool) {
+	// Records already contain the audit excerpt and hash. They never need raw
+	// images or a closure retaining the multipart request.
+	input.Body, input.BuildBody = nil, nil
 	if s == nil || s.asyncQueue == nil || log == nil {
 		return
 	}
@@ -1270,6 +1314,9 @@ func (s *ContentModerationService) worker(id int) {
 		}
 		func() {
 			defer cancel()
+			if task.releaseMemory != nil {
+				defer task.releaseMemory()
+			}
 			defer func() {
 				if r := recover(); r != nil {
 					slog.Error("content_moderation.worker_panic", "worker_id", id, "recover", r)
@@ -1905,13 +1952,17 @@ func (s *ContentModerationService) resolveModerationProxyURL(ctx context.Context
 }
 
 func (s *ContentModerationService) buildLog(input ContentModerationCheckInput, cfg *ContentModerationConfig, action string, flagged bool, highestCategory string, highestScore float64, scores map[string]float64, text string, latency *int, queueDelay *int, errText string) *ContentModerationLog {
+	// Pointers into input would retain the whole struct, including the raw body,
+	// for as long as this log waits in the background queue.
 	var userID *int64
 	if input.UserID > 0 {
-		userID = &input.UserID
+		id := input.UserID
+		userID = &id
 	}
 	var apiKeyID *int64
 	if input.APIKeyID > 0 {
-		apiKeyID = &input.APIKeyID
+		id := input.APIKeyID
+		apiKeyID = &id
 	}
 	mode := cfg.Mode
 	if input.riskControlLogOnly {
@@ -1936,7 +1987,7 @@ func (s *ContentModerationService) buildLog(input ContentModerationCheckInput, c
 		HighestScore:      highestScore,
 		CategoryScores:    cloneFloatMap(scores),
 		ThresholdSnapshot: cloneFloatMap(cfg.Thresholds),
-		InputExcerpt:      trimRunes(redactContentModerationSecrets(text), maxModerationExcerptRunes),
+		InputExcerpt:      strings.Clone(trimRunes(redactContentModerationSecrets(text), maxModerationExcerptRunes)),
 		UpstreamLatencyMS: latency,
 		QueueDelayMS:      queueDelay,
 		Error:             errText,

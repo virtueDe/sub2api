@@ -80,6 +80,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	parsed, err := h.gatewayService.ParseOpenAIImagesRequest(c, body)
 	parseTiming.End(err)
 	if err != nil {
+		if middleware2.RejectRequestBodyMemoryOverload(c, err) {
+			return
+		}
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -109,7 +112,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
-	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, requestModel, parsed.ModerationBody()); decision != nil && !decision.AllowNextStage {
+	if decision := h.checkSecurityAuditLazy(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, requestModel, len(body), parsed.ModerationBodyWithImages); decision != nil && !decision.AllowNextStage {
 		h.openAISecurityAuditError(c, decision)
 		return
 	}
@@ -317,6 +320,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					zap.Error(err),
 				)
 			} else {
+				if middleware2.RejectRequestBodyMemoryOverload(c, err) {
+					return
+				}
 				var imageUpstreamErr *service.OpenAIImagesUpstreamError
 				if errors.As(err, &imageUpstreamErr) {
 					retryableServerError := service.IsOpenAIImagesRetryableUpstreamError(imageUpstreamErr)

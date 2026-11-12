@@ -13,6 +13,8 @@ type LegacyEngine interface {
 
 type PromptEngine interface {
 	EffectiveMode() Mode
+	// Implementations materialize a lazy body only after their policy gates,
+	// synchronously before Enqueue can transfer ownership to background work.
 	Enqueue(ctx context.Context, req Request) error
 	Evaluate(ctx context.Context, req Request) (*PromptDecision, error)
 }

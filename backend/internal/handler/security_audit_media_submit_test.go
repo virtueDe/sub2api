@@ -33,6 +33,9 @@ func (e *handlerPromptEngine) Enqueue(_ context.Context, req securityaudit.Reque
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.enqueued++
+	if req.BuildBody != nil {
+		req.Body, req.BuildBody = req.BuildBody(false), nil
+	}
 	e.requests = append(e.requests, req.Clone())
 	return e.err
 }
@@ -40,6 +43,9 @@ func (e *handlerPromptEngine) Evaluate(_ context.Context, req securityaudit.Requ
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	e.evaluated++
+	if req.BuildBody != nil {
+		req.Body, req.BuildBody = req.BuildBody(false), nil
+	}
 	e.requests = append(e.requests, req.Clone())
 	return e.decision, e.err
 }

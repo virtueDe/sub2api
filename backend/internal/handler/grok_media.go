@@ -206,8 +206,8 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 			return
 		}
-		if moderationBody := requestInfo.ModerationBody(); len(moderationBody) > 0 {
-			decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, requestModel, moderationBody)
+		{
+			decision := h.checkSecurityAuditLazy(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIImages, requestModel, len(body), requestInfo.ModerationBodyWithImages)
 			if decision != nil && !decision.AllowNextStage {
 				h.openAISecurityAuditError(c, decision)
 				return
@@ -491,6 +491,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
+			if middleware2.RejectRequestBodyMemoryOverload(c, err) {
+				return
+			}
 			if errors.As(err, &failoverErr) {
 				if failoverClientGone(c) {
 					reqLog.Info("grok_media.failover_aborted_client_disconnected",

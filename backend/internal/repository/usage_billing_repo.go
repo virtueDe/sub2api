@@ -76,7 +76,7 @@ func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBi
 		}
 	}()
 
-	tx, release, err := beginUsageBillingTransaction(ctx, r.db)
+	tx, release, err := beginPayerBillingTransaction(ctx, r.db, cmd.UserID, true)
 	if err != nil {
 		return nil, usageBillingStageError("begin", started, err)
 	}
@@ -192,10 +192,11 @@ func (r *usageBillingRepository) applyBatchImageBalanceHold(
 		return nil, service.ErrUsageBillingRequestIDRequired
 	}
 
-	tx, err := r.db.BeginTx(ctx, nil)
+	tx, release, err := beginPayerBillingTransaction(ctx, r.db, cmd.UserID, false)
 	if err != nil {
 		return nil, err
 	}
+	defer release()
 	defer func() {
 		if tx != nil {
 			_ = tx.Rollback()

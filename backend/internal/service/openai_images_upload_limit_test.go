@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -43,8 +44,14 @@ func TestParseOpenAIImagesRequest_MultipartKeepsUploadAbove20MB(t *testing.T) {
 	parsed, err := parseImagesEditMultipart(t, body, contentType)
 	require.NoError(t, err)
 	require.Len(t, parsed.Uploads, 1)
-	require.Equal(t, len(image), len(parsed.Uploads[0].Data))
-	require.True(t, bytes.Equal(image, parsed.Uploads[0].Data))
+	require.EqualValues(t, len(image), parsed.Uploads[0].Size())
+	require.Nil(t, parsed.Uploads[0].Data, "parsing must not copy the file")
+	reader, err := parsed.Uploads[0].Open()
+	require.NoError(t, err)
+	defer func() { _ = reader.Close() }()
+	actual, err := io.ReadAll(reader)
+	require.NoError(t, err)
+	require.Equal(t, image, actual)
 }
 
 func TestParseOpenAIImagesRequest_MultipartRejectsUploadAbovePartLimit(t *testing.T) {
@@ -60,5 +67,5 @@ func TestParseGrokMediaRequest_MultipartKeepsUploadAbove20MB(t *testing.T) {
 
 	info := ParseGrokMediaRequest(contentType, body)
 	require.Len(t, info.Uploads, 1)
-	require.Equal(t, len(image), len(info.Uploads[0].Data))
+	require.EqualValues(t, len(image), info.Uploads[0].Size())
 }

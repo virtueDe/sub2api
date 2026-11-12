@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -83,41 +85,13 @@ type GrokMediaRequestInfo struct {
 }
 
 func (r GrokMediaRequestInfo) ModerationBody() []byte {
-	payload := map[string]any{}
-	if prompt := strings.TrimSpace(r.Prompt); prompt != "" {
-		payload["prompt"] = prompt
-	}
+	return r.ModerationBodyWithImages(true)
+}
 
-	images := make([]map[string]string, 0, len(r.InputImageURLs)+len(r.Uploads)+1)
-	for _, imageURL := range r.InputImageURLs {
-		if imageURL = strings.TrimSpace(imageURL); imageURL != "" {
-			images = append(images, map[string]string{"image_url": imageURL})
-		}
-	}
-	for _, upload := range r.Uploads {
-		if dataURL := upload.ModerationDataURL(); dataURL != "" {
-			images = append(images, map[string]string{"image_url": dataURL})
-		}
-	}
-	if maskURL := strings.TrimSpace(r.MaskImageURL); maskURL != "" {
-		images = append(images, map[string]string{"image_url": maskURL})
-	}
-	if r.MaskUpload != nil {
-		if dataURL := r.MaskUpload.ModerationDataURL(); dataURL != "" {
-			images = append(images, map[string]string{"image_url": dataURL})
-		}
-	}
-	if len(images) > 0 {
-		payload["images"] = images
-	}
-	if len(payload) == 0 {
-		return nil
-	}
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil
-	}
-	return body
+func (r GrokMediaRequestInfo) ModerationBodyWithImages(includeImages bool) []byte {
+	request := OpenAIImagesRequest{Prompt: r.Prompt, InputImageURLs: r.InputImageURLs,
+		MaskImageURL: r.MaskImageURL, Uploads: r.Uploads, MaskUpload: r.MaskUpload}
+	return request.ModerationBodyWithImages(includeImages)
 }
 
 func (e GrokMediaEndpoint) httpMethod() string {
@@ -228,7 +202,7 @@ func parseGrokMediaMultipartRequest(contentType string, body []byte, info *GrokM
 		return
 	}
 	reader := multipart.NewReader(bytes.NewReader(body), boundary)
-	for {
+	for partIndex := 0; ; partIndex++ {
 		part, err := reader.NextPart()
 		if err == io.EOF {
 			return
@@ -243,12 +217,20 @@ func parseGrokMediaMultipartRequest(contentType string, body []byte, info *GrokM
 		}
 		// The body is already bounded by the request body limit; truncating a part
 		// here would forward a corrupt image upstream.
-		data, err := io.ReadAll(part)
+		fileName := strings.TrimSpace(part.FileName())
+		var data []byte
+		var source *imageUploadSource
+		if fileName != "" {
+			var size int64
+			size, err = io.Copy(io.Discard, part)
+			source = &imageUploadSource{body: body, boundary: boundary, part: partIndex, size: size}
+		} else {
+			data, err = io.ReadAll(part)
+		}
 		_ = part.Close()
 		if err != nil {
 			return
 		}
-		fileName := strings.TrimSpace(part.FileName())
 		partContentType := strings.TrimSpace(part.Header.Get("Content-Type"))
 		if fileName != "" {
 			upload := OpenAIImagesUpload{
@@ -256,6 +238,7 @@ func parseGrokMediaMultipartRequest(contentType string, body []byte, info *GrokM
 				FileName:    fileName,
 				ContentType: partContentType,
 				Data:        data,
+				source:      source,
 			}
 			if name == "mask" {
 				info.MaskUpload = &upload
@@ -664,6 +647,12 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	body []byte,
 	contentType string,
 ) (timingResult *OpenAIForwardResult, timingErr error) {
+	ctx, releaseMemory := httputil.WithRequestBodyMemoryScope(ctx)
+	defer releaseMemory()
+	if err := httputil.ReserveImageWorkingMemory(ctx, len(body), 8); err != nil {
+		return nil, err
+	}
+
 	if imagetiming.Enabled(ctx) && account != nil {
 		ctx = context.WithValue(ctx, ctxkey.AccountID, account.ID)
 	}
@@ -731,6 +720,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 				beforeURLs := redactImageURLsForLog(requestInfo.InputImageURLs)
 				proxiedURLs, err := s.imageURLProxy.ProxyURLs(ctx, requestInfo.InputImageURLs)
 				if err != nil {
+					if errors.Is(err, httputil.ErrRequestBodyMemoryBudget) {
+						return nil, err
+					}
 					logger.L().Warn("image_url_proxy.grok_input_urls_failed", zap.Error(err), zap.Int("url_count", len(requestInfo.InputImageURLs)))
 				} else {
 					requestInfo.InputImageURLs = proxiedURLs
@@ -748,6 +740,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 				beforeMaskURL := redactImageURLForLog(requestInfo.MaskImageURL)
 				proxiedURL, err := s.imageURLProxy.ProxyURL(ctx, requestInfo.MaskImageURL)
 				if err != nil {
+					if errors.Is(err, httputil.ErrRequestBodyMemoryBudget) {
+						return nil, err
+					}
 					logger.L().Warn("image_url_proxy.grok_mask_url_failed", zap.Error(err), zap.String("url", redactImageURLForLog(requestInfo.MaskImageURL)))
 				} else {
 					requestInfo.MaskImageURL = proxiedURL
@@ -1107,13 +1102,14 @@ func prepareGrokMediaForwardBody(endpoint GrokMediaEndpoint, body []byte, conten
 	}
 
 	images := make([]map[string]string, 0, len(info.InputImageURLs)+len(info.Uploads))
+	var encoder ImageUploadEncoder
 	for _, imageURL := range info.InputImageURLs {
 		if imageURL = strings.TrimSpace(imageURL); imageURL != "" {
 			images = append(images, grokMediaImageObject(imageURL))
 		}
 	}
 	for _, upload := range info.Uploads {
-		dataURL, err := openAIImageUploadToDataURL(upload)
+		dataURL, err := encoder.DataURL(upload)
 		if err != nil {
 			return nil, "", err
 		}
@@ -1131,7 +1127,7 @@ func prepareGrokMediaForwardBody(endpoint GrokMediaEndpoint, body []byte, conten
 
 	maskImageURL := strings.TrimSpace(info.MaskImageURL)
 	if info.MaskUpload != nil {
-		dataURL, err := openAIImageUploadToDataURL(*info.MaskUpload)
+		dataURL, err := encoder.DataURL(*info.MaskUpload)
 		if err != nil {
 			return nil, "", err
 		}

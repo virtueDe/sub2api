@@ -80,7 +80,18 @@ type Request struct {
 	Protocol   string
 	Model      string
 	Body       []byte
-	Stage      string
+	// BuildBody is only used during synchronous admission. Prompt auditing asks
+	// for text; legacy semantic auditing may also need images for hashing.
+	BuildBody func(includeImages bool) []byte
+	Stage     string
+}
+
+func (r Request) promptRequest() Request {
+	if r.BuildBody != nil {
+		r.Body = r.BuildBody(false)
+		r.BuildBody = nil
+	}
+	return r
 }
 
 func (r Request) Clone() Request {

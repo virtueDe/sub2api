@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,43 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 )
+
+type lazyMemoryAuditEngine struct{}
+
+func (lazyMemoryAuditEngine) Check(_ context.Context, req securityaudit.Request) (*securityaudit.LegacyDecision, error) {
+	_ = req.BuildBody(true)
+	return &securityaudit.LegacyDecision{Allowed: true}, nil
+}
+
+func TestSecurityAuditLazyCapacityCannotBecomeAllow(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, enabled := range []bool{false, true} {
+		ctx, release := httputil.WithRequestBodyMemoryBudget(context.Background(), httputil.NewBodyMemoryBudget(1024))
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", nil).WithContext(ctx)
+		var legacy securityaudit.LegacyEngine
+		if enabled {
+			legacy = lazyMemoryAuditEngine{}
+		}
+		h := &OpenAIGatewayHandler{securityAuditCoordinator: securityaudit.NewCoordinator(legacy, nil)}
+		var builds atomic.Int64
+		decision := h.checkSecurityAuditLazy(c, nil, nil, middleware2.AuthSubject{UserID: 7}, "openai_images", "gpt-image-2", 1024, func(bool) []byte {
+			builds.Add(1)
+			return []byte(`{"prompt":"hello"}`)
+		})
+		require.Zero(t, builds.Load(), "never allocate a body when disabled or over budget")
+		if enabled {
+			require.False(t, decision.AllowNextStage)
+			require.Equal(t, http.StatusServiceUnavailable, decision.HTTPStatus)
+			require.Equal(t, "image_memory_capacity", decision.ErrorCode)
+			require.Equal(t, "1", c.Writer.Header().Get("Retry-After"))
+			require.False(t, c.GetBool(securityAuditCompletedContextKey))
+		} else {
+			require.True(t, decision.AllowNextStage)
+		}
+		release()
+	}
+}
 
 func TestCachesSecurityAuditCompletionSkipsWebSocketStages(t *testing.T) {
 	require.True(t, cachesSecurityAuditCompletion("http"))
