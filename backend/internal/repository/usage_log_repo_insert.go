@@ -10,11 +10,13 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"go.uber.org/zap"
 )
 
 // usageLogInsertArgTypes must stay in the same order as:
@@ -1289,6 +1291,20 @@ func execUsageLogInsertNoResult(ctx context.Context, sqlq sqlExecutor, prepared 
 	return err
 }
 
+// Audit metadata must not roll back an already-priced image charge. Preserve
+// immutable settlement facts and only omit the invalid SQL field, rather than
+// truncating descriptive text into something that appears to be a size.
+func usageLogImageSizeMetadata(value *string, field, requestID string) sql.NullString {
+	if value != nil {
+		if chars := utf8.RuneCountInString(*value); chars > service.ImageSizeMetadataMaxChars {
+			logger.L().Warn("usage.image_size_metadata_omitted",
+				zap.String("request_id", requestID), zap.String("field", field), zap.Int("characters", chars))
+			return sql.NullString{}
+		}
+	}
+	return nullString(value)
+}
+
 func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	createdAt := log.CreatedAt
 	if createdAt.IsZero() {
@@ -1309,8 +1325,8 @@ func prepareUsageLogInsert(log *service.UsageLog) usageLogInsertPrepared {
 	userAgent := nullString(log.UserAgent)
 	ipAddress := nullString(log.IPAddress)
 	imageSize := nullString(log.ImageSize)
-	imageInputSize := nullString(log.ImageInputSize)
-	imageOutputSize := nullString(log.ImageOutputSize)
+	imageInputSize := usageLogImageSizeMetadata(log.ImageInputSize, "image_input_size", requestID)
+	imageOutputSize := usageLogImageSizeMetadata(log.ImageOutputSize, "image_output_size", requestID)
 	imageSizeSource := nullString(log.ImageSizeSource)
 	imageSizeBreakdown := nullStringIntMapJSON(log.ImageSizeBreakdown)
 	videoResolution := nullString(log.VideoResolution)

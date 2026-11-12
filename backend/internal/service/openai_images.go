@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -317,6 +318,13 @@ func (s *OpenAIGatewayService) parseOpenAIImagesRequest(c *gin.Context, body []b
 	return req, nil
 }
 
+func validateOpenAIImagesSize(size string) error {
+	if utf8.RuneCountInString(size) > ImageSizeMetadataMaxChars {
+		return fmt.Errorf("size must not exceed %d characters", ImageSizeMetadataMaxChars)
+	}
+	return nil
+}
+
 func parseOpenAIImagesJSONRequestMode(body []byte, req *OpenAIImagesRequest, lenientGemini bool) error {
 	if modelResult := gjson.GetBytes(body, "model"); modelResult.Exists() {
 		req.Model = strings.TrimSpace(modelResult.String())
@@ -324,6 +332,32 @@ func parseOpenAIImagesJSONRequestMode(body []byte, req *OpenAIImagesRequest, len
 	}
 	req.Prompt = strings.TrimSpace(gjson.GetBytes(body, "prompt").String())
 
+	var sizeErr error
+	sizeSeen := false
+	// Raw API-key requests are forwarded unchanged. Reject duplicate size keys
+	// so a provider cannot interpret a different value from the one validated.
+	// Check before Gemini's stream compatibility path re-encodes the body.
+	gjson.ParseBytes(body).ForEach(func(key, value gjson.Result) bool {
+		if key.String() != "size" {
+			return true
+		}
+		if sizeSeen {
+			sizeErr = fmt.Errorf("size must be specified only once")
+			return false
+		}
+		sizeSeen = true
+		if value.Type != gjson.String {
+			sizeErr = fmt.Errorf("size must be a string")
+			return false
+		}
+		req.Size = strings.TrimSpace(value.String())
+		sizeErr = validateOpenAIImagesSize(req.Size)
+		req.ExplicitSize = req.Size != ""
+		return sizeErr == nil
+	})
+	if sizeErr != nil {
+		return sizeErr
+	}
 	if streamResult := gjson.GetBytes(body, "stream"); streamResult.Exists() {
 		if streamResult.Type != gjson.True && streamResult.Type != gjson.False {
 			if lenientGemini {
@@ -344,10 +378,6 @@ func parseOpenAIImagesJSONRequestMode(body []byte, req *OpenAIImagesRequest, len
 		}
 	}
 
-	if sizeResult := gjson.GetBytes(body, "size"); sizeResult.Exists() {
-		req.Size = strings.TrimSpace(sizeResult.String())
-		req.ExplicitSize = req.Size != ""
-	}
 	if ratioResult := gjson.GetBytes(body, "aspect_ratio"); ratioResult.Exists() {
 		req.AspectRatio = strings.TrimSpace(ratioResult.String())
 		req.ExplicitAspectRatio = req.AspectRatio != ""
@@ -559,6 +589,9 @@ func parseOpenAIImagesMultipartRequestMode(body []byte, contentType string, req 
 		case "prompt":
 			req.Prompt = value
 		case "size":
+			if err := validateOpenAIImagesSize(value); err != nil {
+				return err
+			}
 			req.Size = value
 			req.ExplicitSize = value != ""
 		case "aspect_ratio", "aspectRatio":
