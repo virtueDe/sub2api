@@ -7,6 +7,10 @@ import (
 )
 
 const (
+	// ImageSizeMetadataMaxChars matches usage_logs image_input_size and
+	// image_output_size (VARCHAR(32)); PostgreSQL counts characters, not bytes.
+	ImageSizeMetadataMaxChars = 32
+
 	ImageBillingSize1K = "1K"
 	ImageBillingSize2K = "2K"
 	ImageBillingSize4K = "4K"
