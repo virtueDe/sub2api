@@ -7,30 +7,49 @@ import (
 )
 
 type openAISSEDataAccumulator struct {
-	lines []string
+	lines     []string
+	eventType string
 }
 
 func (a *openAISSEDataAccumulator) AddLine(line string, fn func([]byte)) {
+	if fn != nil {
+		a.AddEventLine(line, func(_ string, data []byte) { fn(data) })
+	}
+}
+
+func (a *openAISSEDataAccumulator) AddEventLine(line string, fn func(string, []byte)) {
 	if fn == nil {
 		return
 	}
 	trimmedLine := strings.TrimRight(line, "\r\n")
+	if eventType, ok := extractOpenAISSEEventLine(trimmedLine); ok {
+		a.eventType = eventType
+		return
+	}
 	if data, ok := extractOpenAISSEDataLine(trimmedLine); ok {
 		a.lines = append(a.lines, data)
 		return
 	}
 	if strings.TrimSpace(trimmedLine) == "" {
-		a.Flush(fn)
+		a.FlushEvent(fn)
 	}
 }
 
 func (a *openAISSEDataAccumulator) Flush(fn func([]byte)) {
-	if fn == nil || len(a.lines) == 0 {
+	if fn != nil {
+		a.FlushEvent(func(_ string, data []byte) { fn(data) })
+	}
+}
+
+func (a *openAISSEDataAccumulator) FlushEvent(fn func(string, []byte)) {
+	if fn == nil {
 		return
 	}
-	emitOpenAISSEDataPayloads(a.lines, fn)
+	emitOpenAISSEDataPayloads(a.lines, func(data []byte) { fn(a.eventType, data) })
 	clear(a.lines)
 	a.lines = a.lines[:0]
+	// Even a frame without data terminates the event name's scope.
+	a.eventType = ""
 }
 
 func forEachOpenAISSEDataPayload(body string, fn func([]byte)) {

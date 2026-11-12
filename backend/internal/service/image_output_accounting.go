@@ -63,12 +63,16 @@ func (c *openAIImageOutputCounter) AddJSONResponse(body []byte) {
 }
 
 func (c *openAIImageOutputCounter) AddSSEData(data []byte) {
+	c.AddSSEEvent("", data)
+}
+
+func (c *openAIImageOutputCounter) AddSSEEvent(eventType string, data []byte) {
 	if c == nil || len(data) == 0 || strings.TrimSpace(string(data)) == "[DONE]" || !gjson.ValidBytes(data) {
 		return
 	}
 	root := gjson.ParseBytes(data)
 	c.addDataArray(root.Get("data"))
-	eventType := strings.TrimSpace(root.Get("type").String())
+	eventType = effectiveOpenAISSEEventType(data, eventType)
 	switch eventType {
 	case "response.output_item.done":
 		c.addImageOutputItem(root.Get("item"))
@@ -91,7 +95,11 @@ func (c *openAIImageOutputCounter) AddSSEBody(body string) {
 	if c == nil || strings.TrimSpace(body) == "" {
 		return
 	}
-	forEachOpenAISSEDataPayload(body, c.AddSSEData)
+	var acc openAISSEDataAccumulator
+	for _, line := range strings.Split(body, "\n") {
+		acc.AddEventLine(line, c.AddSSEEvent)
+	}
+	acc.FlushEvent(c.AddSSEEvent)
 }
 
 func (c *openAIImageOutputCounter) addDataArray(data gjson.Result) {
