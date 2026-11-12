@@ -1579,7 +1579,13 @@ func decompressResponseBody(resp *http.Response) {
 	case "gzip":
 		gr, err := gzip.NewReader(resp.Body)
 		if err != nil {
-			return // 解压失败，保持原样
+			// NewReader may already have consumed bytes. Returning the original
+			// body would hide the failure as EOF (or forward a truncated payload).
+			if errors.Is(err, io.EOF) {
+				err = io.ErrUnexpectedEOF
+			}
+			resp.Body = &decompressedBody{reader: &failedResponseReader{err: fmt.Errorf("decode upstream gzip response: %w", err)}, closer: originalBody}
+			return
 		}
 		reader = gr
 	case "br":
@@ -1611,6 +1617,14 @@ func decompressResponseBody(resp *http.Response) {
 	resp.Header.Del("Content-Encoding")
 	resp.Header.Del("Content-Length") // 解压后长度不确定
 	resp.ContentLength = -1
+}
+
+type failedResponseReader struct {
+	err error
+}
+
+func (r *failedResponseReader) Read([]byte) (int, error) {
+	return 0, r.err
 }
 
 type zstdResponseReader struct {

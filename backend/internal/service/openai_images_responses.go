@@ -617,12 +617,22 @@ func extractOpenAIImagesUpstreamError(body []byte) *OpenAIImagesUpstreamError {
 }
 
 func openAIImagesUpstreamErrorFromSSEPayload(payload []byte) *OpenAIImagesUpstreamError {
+	return openAIImagesUpstreamErrorFromSSEEvent(payload, "")
+}
+
+func openAIImagesUpstreamErrorFromSSEEvent(payload []byte, eventType string) *OpenAIImagesUpstreamError {
 	if !gjson.ValidBytes(payload) {
 		return nil
 	}
-	switch gjson.GetBytes(payload, "type").String() {
+	switch effectiveOpenAISSEEventType(payload, eventType) {
 	case "error":
-		return openAIImagesUpstreamErrorFromGJSON(gjson.GetBytes(payload, "error"), "")
+		if nested := gjson.GetBytes(payload, "error"); nested.Exists() {
+			return openAIImagesUpstreamErrorFromGJSON(nested, "")
+		}
+		upstreamErr := openAIImagesUpstreamErrorFromGJSON(gjson.ParseBytes(payload), "")
+		// In the flat form, type identifies the SSE event, not the error class.
+		upstreamErr.ErrorType = openAIImagesErrorTypeForStatus(upstreamErr.StatusCode)
+		return upstreamErr
 	case "response.failed":
 		response := gjson.GetBytes(payload, "response")
 		return openAIImagesUpstreamErrorFromGJSON(response.Get("error"), response.Get("id").String())
