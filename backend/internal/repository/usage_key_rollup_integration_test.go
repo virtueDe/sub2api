@@ -263,18 +263,28 @@ func TestUsageKeyRollupCrossPartitionMove(t *testing.T) {
 	newValue, err := repo.GetAPIKeyTotalStats(ctx, 3)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), newValue.TotalRequests)
+	// Exercise both real partition trigger installers alongside the key rollup.
+	_, err = conn.ExecContext(ctx, "ALTER TABLE usage_logs ADD COLUMN group_id bigint; CREATE TABLE groups(id bigint PRIMARY KEY)")
+	require.NoError(t, err)
+	for _, name := range []string{"222_group_usage_daily_rollups.sql", "223_group_usage_rollup_timezone.sql", "255_group_usage_rollup_dirty_events.sql"} {
+		migration, readErr := migrations.FS.ReadFile(name)
+		require.NoError(t, readErr)
+		_, err = conn.ExecContext(ctx, string(migration))
+		require.NoError(t, err)
+	}
 	// Future partitions are published with their direct-write triggers installed.
 	maintenance := newDashboardAggregationRepositoryWithSQL(conn)
 	require.NoError(t, maintenance.createUsageLogsPartition(ctx, time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)))
-	_, err = conn.ExecContext(ctx, `INSERT INTO usage_logs_202612(created_at,api_key_id,user_id) VALUES('2026-12-01 00:00Z',3,4)`)
+	_, err = conn.ExecContext(ctx, `INSERT INTO groups VALUES(10); INSERT INTO usage_logs_202612(created_at,api_key_id,user_id,group_id,actual_cost) VALUES('2026-12-01 00:00Z',3,4,10,0.25)`)
 	require.NoError(t, err)
 	_, err = repo.GetAPIKeyTotalStats(ctx, 3)
 	require.ErrorIs(t, err, errUsageRollupNotReady)
+	require.Equal(t, 1, groupScalar(t, conn, "SELECT COUNT(*) FROM usage_group_rollup_events"))
+	groupToday := time.Date(2026, 12, 2, 0, 0, 0, 0, time.UTC)
+	drainGroupRollups(t, conn, groupToday, "UTC")
+	require.Equal(t, 1, groupScalar(t, conn, "SELECT COUNT(*) FROM usage_group_daily_rollups WHERE group_id=10 AND actual_cost=0.25"))
 	drainUsageRollups(t, conn)
-	_, err = conn.ExecContext(ctx, `CREATE TABLE usage_group_rollup_state(id smallint PRIMARY KEY,closed_before date,updated_at timestamptz);
- INSERT INTO usage_group_rollup_state VALUES(1,'2026-12-02',now())`)
-	require.NoError(t, err)
-	require.NoError(t, dropUsageLogsPartitionWithRollupInvalidation(ctx, conn, "usage_logs_202612", time.Date(2026, 12, 1, 0, 0, 0, 0, time.UTC)))
+	require.NoError(t, dropUsageLogsPartitionWithRollupInvalidation(ctx, conn, "usage_logs_202612"))
 	_, err = repo.GetAPIKeyTotalStats(ctx, 3)
 	require.ErrorIs(t, err, errUsageRollupNotReady)
 	drainUsageRollups(t, conn)

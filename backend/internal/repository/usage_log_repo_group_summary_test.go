@@ -31,12 +31,12 @@ func TestUsageLogRepositoryGetAllGroupUsageSummaryUsesRollupTail(t *testing.T) {
 			yesterdayStart,
 			"2026-03-08", // yesterdayDate
 			true,         // 水位有效
-			"2026-02-01", // retained_from 在配置时区内的日期
 			"2026-03-07", // closed_before
+			"America/New_York",
 			time.Date(2026, 3, 7, 5, 0, 0, 0, time.UTC), // tail_start = closed_before 在配置时区的零点
 		).
-		WillReturnRows(sqlmock.NewRows([]string{"group_id", "total_cost", "today_cost", "yesterday_cost"}).
-			AddRow(int64(7), 12.5, 1.25, 2.5))
+		WillReturnRows(sqlmock.NewRows([]string{"ready", "group_id", "total_cost", "today_cost", "yesterday_cost"}).
+			AddRow(true, int64(7), 12.5, 1.25, 2.5))
 
 	result, err := repo.GetAllGroupUsageSummary(context.Background(), todayStart)
 	require.NoError(t, err)
@@ -85,8 +85,8 @@ func TestUsageLogRepositoryGetAllGroupUsageSummaryFallsBackWhenWatermarkInvalid(
 			mock.ExpectQuery(`(?s)COUNT\(\*\).*usage_group_rollup_state.*WHERE id = 1`).
 				WillReturnRows(tc.rows)
 			mock.ExpectQuery(`(?s)usage_group_daily_rollups.*FROM usage_logs ul\s+WHERE ul\.created_at >= \$7`).
-				WithArgs(todayStart, yesterdayStart, "2026-03-08", false, "1970-01-01", "1970-01-01", epoch).
-				WillReturnRows(sqlmock.NewRows([]string{"group_id", "total_cost", "today_cost", "yesterday_cost"}))
+				WithArgs(todayStart, yesterdayStart, "2026-03-08", false, "1970-01-01", "America/New_York", epoch).
+				WillReturnRows(sqlmock.NewRows([]string{"ready", "group_id", "total_cost", "today_cost", "yesterday_cost"}))
 
 			_, err := repo.GetAllGroupUsageSummary(context.Background(), todayStart)
 			require.NoError(t, err)

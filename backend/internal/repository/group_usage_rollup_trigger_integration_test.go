@@ -32,7 +32,7 @@ func TestGroupUsageRollupTriggerInvalidatesCascadedHistoricalDelete(t *testing.T
 				INSERT INTO usage_logs (id, user_id, group_id, actual_cost, created_at)
 				VALUES (1, 1, 10, 1.25, TIMESTAMPTZ '2020-01-02 08:00:00+08');
 				UPDATE usage_group_rollup_state
-				SET closed_before = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date
+				SET closed_before = DATE '2026-08-14'
 				WHERE id = 1;
 				DELETE FROM users WHERE id = 1;
 			`)
@@ -45,160 +45,44 @@ func TestGroupUsageRollupTriggerInvalidatesCascadedHistoricalDelete(t *testing.T
 				WHERE id = 1
 			`).Scan(&closedBefore)
 			require.NoError(t, err)
-			require.Equal(t, "2020-01-02", closedBefore)
+			require.Equal(t, "2026-08-14", closedBefore)
+			var events int
+			require.NoError(t, tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_group_rollup_events").Scan(&events))
+			require.GreaterOrEqual(t, events, 2)
 		})
 	}
 }
 
-func TestGroupUsageRollupTriggerSerializesLateHistoricalInsertWithPublish(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	schema := createGroupUsageRollupTriggerTestSchema(t, ctx, false)
-	seedTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
-	_, err := seedTx.ExecContext(ctx, `
-		INSERT INTO groups (id) VALUES (10);
-		INSERT INTO users (id) VALUES (1);
-		UPDATE usage_group_rollup_state
-		SET closed_before = DATE '2020-01-02'
-		WHERE id = 1;
-	`)
-	require.NoError(t, err)
-	require.NoError(t, seedTx.Commit())
-
-	syncTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
-	defer func() { _ = syncTx.Rollback() }()
-	var stateID int16
-	require.NoError(t, syncTx.QueryRowContext(ctx, `
-		SELECT id
-		FROM usage_group_rollup_state
-		WHERE id = 1
-		FOR UPDATE
-	`).Scan(&stateID))
-
-	lateTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
-	defer func() { _ = lateTx.Rollback() }()
-	var lateBackendPID int
-	require.NoError(t, lateTx.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&lateBackendPID))
-
-	insertResult := make(chan error, 1)
-	go func() {
-		_, insertErr := lateTx.ExecContext(ctx, `
-			INSERT INTO usage_logs (id, user_id, group_id, actual_cost, created_at)
-			VALUES (1, 1, 10, 1.25, TIMESTAMPTZ '2020-01-02 09:00:00+08')
-		`)
-		insertResult <- insertErr
-	}()
-
-	blocked, err := waitForGroupUsageRollupStateLock(ctx, lateBackendPID, insertResult)
-	if err != nil || !blocked {
-		_ = syncTx.Rollback()
-		_ = lateTx.Rollback()
-		require.NoError(t, err)
-		require.True(t, blocked, "迟到写入必须等待正在发布水位的事务")
+// Both historical and current-day writers must commit while the consumer owns
+// its advisory lock and the state row. This reproduces the production lock chain.
+func TestGroupUsageRollupWritersDoNotWaitForConsumerState(t *testing.T) {
+	for _, createdAt := range []string{"2020-01-02 09:00:00+08", "2026-08-14 00:00:01+08"} {
+		t.Run(createdAt, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			schema := createGroupUsageRollupTriggerTestSchema(t, ctx, false)
+			seed := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
+			_, err := seed.ExecContext(ctx, "INSERT INTO groups VALUES(10); INSERT INTO users VALUES(1)")
+			require.NoError(t, err)
+			require.NoError(t, seed.Commit())
+			consumer := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
+			defer func() { _ = consumer.Rollback() }()
+			_, err = consumer.ExecContext(ctx, "SELECT pg_advisory_xact_lock(742981313); SELECT id FROM usage_group_rollup_state FOR UPDATE")
+			require.NoError(t, err)
+			writer := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
+			defer func() { _ = writer.Rollback() }()
+			_, err = writer.ExecContext(ctx, "SET LOCAL statement_timeout='1s'")
+			require.NoError(t, err)
+			_, err = writer.ExecContext(ctx, "INSERT INTO usage_logs VALUES(1,1,10,1.25,$1)", createdAt)
+			require.NoError(t, err)
+			_, err = writer.ExecContext(ctx, "UPDATE usage_logs SET actual_cost=2 WHERE id=1; DELETE FROM usage_logs WHERE id=1")
+			require.NoError(t, err)
+			require.NoError(t, writer.Commit())
+			var events int
+			require.NoError(t, consumer.QueryRowContext(ctx, "SELECT COUNT(*) FROM usage_group_rollup_events").Scan(&events))
+			require.Equal(t, 3, events)
+		})
 	}
-
-	_, err = syncTx.ExecContext(ctx, `
-		UPDATE usage_group_rollup_state
-		SET closed_before = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date
-		WHERE id = 1
-	`)
-	require.NoError(t, err)
-	require.NoError(t, syncTx.Commit())
-
-	select {
-	case err = <-insertResult:
-		require.NoError(t, err)
-	case <-ctx.Done():
-		t.Fatal("等待迟到写入完成超时")
-	}
-	require.NoError(t, lateTx.Commit())
-
-	var closedBefore string
-	err = integrationDB.QueryRowContext(ctx, fmt.Sprintf(
-		"SELECT closed_before::text FROM %s.usage_group_rollup_state WHERE id = 1",
-		pq.QuoteIdentifier(schema),
-	)).Scan(&closedBefore)
-	require.NoError(t, err)
-	require.Equal(t, "2020-01-02", closedBefore)
-}
-
-func TestGroupUsageRollupTriggerSerializesInsertTransactionAcrossMidnight(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	schema := createGroupUsageRollupTriggerTestSchema(t, ctx, false)
-	seedTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
-	_, err := seedTx.ExecContext(ctx, `
-		INSERT INTO groups (id) VALUES (10);
-		INSERT INTO users (id) VALUES (1);
-		UPDATE usage_group_rollup_state
-		SET closed_before = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date
-		WHERE id = 1;
-	`)
-	require.NoError(t, err)
-	require.NoError(t, seedTx.Commit())
-
-	syncTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
-	defer func() { _ = syncTx.Rollback() }()
-	var stateID int16
-	require.NoError(t, syncTx.QueryRowContext(ctx, `
-		SELECT id
-		FROM usage_group_rollup_state
-		WHERE id = 1
-		FOR UPDATE
-	`).Scan(&stateID))
-
-	insertTx := beginGroupUsageRollupTriggerTestTx(t, ctx, schema)
-	defer func() { _ = insertTx.Rollback() }()
-	require.NoError(t, setGroupUsageRollupTriggerTimeZone(ctx, insertTx, "Asia/Shanghai"))
-	var insertBackendPID int
-	require.NoError(t, insertTx.QueryRowContext(ctx, "SELECT pg_backend_pid()").Scan(&insertBackendPID))
-
-	insertResult := make(chan error, 1)
-	go func() {
-		_, insertErr := insertTx.ExecContext(ctx, `
-			INSERT INTO usage_logs (id, user_id, group_id, actual_cost, created_at)
-			VALUES (1, 1, 10, 1.25, CURRENT_TIMESTAMP)
-		`)
-		insertResult <- insertErr
-	}()
-
-	blocked, err := waitForGroupUsageRollupStateLock(ctx, insertBackendPID, insertResult)
-	if err != nil || !blocked {
-		_ = syncTx.Rollback()
-		_ = insertTx.Rollback()
-		require.NoError(t, err)
-		require.True(t, blocked, "跨越零点的在途写入必须与水位发布串行化")
-	}
-
-	_, err = syncTx.ExecContext(ctx, `
-		UPDATE usage_group_rollup_state
-		SET closed_before = (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date + 1
-		WHERE id = 1
-	`)
-	require.NoError(t, err)
-	require.NoError(t, syncTx.Commit())
-
-	select {
-	case err = <-insertResult:
-		require.NoError(t, err)
-	case <-ctx.Done():
-		t.Fatal("等待跨零点写入完成超时")
-	}
-	require.NoError(t, insertTx.Commit())
-
-	var currentDate string
-	require.NoError(t, integrationDB.QueryRowContext(ctx, `
-		SELECT (CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai')::date::text
-	`).Scan(&currentDate))
-	var closedBefore string
-	err = integrationDB.QueryRowContext(ctx, fmt.Sprintf(
-		"SELECT closed_before::text FROM %s.usage_group_rollup_state WHERE id = 1",
-		pq.QuoteIdentifier(schema),
-	)).Scan(&closedBefore)
-	require.NoError(t, err)
-	require.Equal(t, currentDate, closedBefore)
 }
 
 func TestGroupUsageRollupTriggerKeepsWatermarkForTodayInsert(t *testing.T) {
@@ -255,7 +139,10 @@ func TestGroupUsageRollupTriggerUsesSessionTimezoneAcrossDST(t *testing.T) {
 		WHERE id = 1
 	`).Scan(&closedBefore)
 	require.NoError(t, err)
-	require.Equal(t, "2026-03-07", closedBefore)
+	require.Equal(t, "2026-03-09", closedBefore)
+	var bucket string
+	require.NoError(t, tx.QueryRowContext(ctx, "SELECT (bucket_start AT TIME ZONE 'UTC')::date::text FROM usage_group_rollup_events").Scan(&bucket))
+	require.Equal(t, "2026-03-08", bucket)
 }
 
 func TestGroupUsageSummaryIncludesYesterdayAcrossWatermark(t *testing.T) {
@@ -459,6 +346,12 @@ func createGroupUsageRollupTriggerTestSchema(t *testing.T, ctx context.Context, 
 			require.NoError(t, err)
 		}
 	}
+	migrationSQL, readErr := migrations.FS.ReadFile("255_group_usage_rollup_dirty_events.sql")
+	require.NoError(t, readErr)
+	_, err = tx.ExecContext(ctx, string(migrationSQL))
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, "CREATE INDEX ON usage_logs(created_at)")
+	require.NoError(t, err)
 	require.NoError(t, tx.Commit())
 
 	return schema
@@ -481,38 +374,4 @@ func setGroupUsageRollupTriggerSearchPath(ctx context.Context, tx *sql.Tx, quote
 func setGroupUsageRollupTriggerTimeZone(ctx context.Context, tx *sql.Tx, name string) error {
 	_, err := tx.ExecContext(ctx, "SET LOCAL TIME ZONE "+pq.QuoteLiteral(name))
 	return err
-}
-
-func waitForGroupUsageRollupStateLock(
-	ctx context.Context,
-	backendPID int,
-	insertResult <-chan error,
-) (bool, error) {
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case err := <-insertResult:
-			if err != nil {
-				return false, err
-			}
-			return false, nil
-		case <-ticker.C:
-			var waitEventType sql.NullString
-			err := integrationDB.QueryRowContext(ctx, `
-				SELECT wait_event_type
-				FROM pg_stat_activity
-				WHERE pid = $1
-			`, backendPID).Scan(&waitEventType)
-			if err != nil {
-				return false, err
-			}
-			if waitEventType.Valid && waitEventType.String == "Lock" {
-				return true, nil
-			}
-		case <-ctx.Done():
-			return false, ctx.Err()
-		}
-	}
 }

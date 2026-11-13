@@ -15,8 +15,7 @@ import (
 )
 
 type dashboardAggregationRepository struct {
-	sql   sqlExecutor
-	clock func() time.Time
+	sql sqlExecutor
 }
 
 const usageLogsCleanupBatchSize = 10000
@@ -35,14 +34,7 @@ func NewDashboardAggregationRepository(sqlDB *sql.DB) service.DashboardAggregati
 }
 
 func newDashboardAggregationRepositoryWithSQL(sqlq sqlExecutor) *dashboardAggregationRepository {
-	return &dashboardAggregationRepository{sql: sqlq, clock: time.Now}
-}
-
-func (r *dashboardAggregationRepository) now() time.Time {
-	if r.clock != nil {
-		return r.clock()
-	}
-	return time.Now()
+	return &dashboardAggregationRepository{sql: sqlq}
 }
 
 func isPostgresDriver(db *sql.DB) bool {
@@ -137,11 +129,7 @@ func (r *dashboardAggregationRepository) RecomputeRange(ctx context.Context, sta
 		if err != nil {
 			return err
 		}
-		if err := lockGroupUsageRollupState(ctx, tx); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
-		if err := invalidateGroupUsageRollupsAt(ctx, tx, start); err != nil {
+		if err := invalidateGroupUsageRollupsRange(ctx, tx, start, end); err != nil {
 			_ = tx.Rollback()
 			return err
 		}
@@ -150,11 +138,10 @@ func (r *dashboardAggregationRepository) RecomputeRange(ctx context.Context, sta
 			_ = tx.Rollback()
 			return err
 		}
-		if err := txRepo.syncGroupUsageRollupsInTx(ctx, service.GroupUsageTodayStart(r.now())); err != nil {
-			_ = tx.Rollback()
-			return err
-		}
 		return tx.Commit()
+	}
+	if err := invalidateGroupUsageRollupsRange(ctx, r.sql, start, end); err != nil {
+		return err
 	}
 	return r.recomputeRangeInTx(ctx, hourStart, hourEnd, dayStart, dayEnd)
 }
@@ -245,7 +232,7 @@ func (r *dashboardAggregationRepository) CleanupUsageLogs(ctx context.Context, c
 	if err := r.cleanupUsageLogsBatches(ctx, cutoff); err != nil {
 		return err
 	}
-	return r.SyncGroupUsageRollups(ctx, service.GroupUsageTodayStart(r.now()))
+	return nil
 }
 
 func (r *dashboardAggregationRepository) cleanupUsageLogsBatches(ctx context.Context, cutoff time.Time) error {
@@ -296,9 +283,6 @@ func cleanupUsageLogsBatchWithRollupInvalidation(ctx context.Context, db *sql.DB
 		return 0, err
 	}
 
-	if err := lockGroupUsageRollupState(ctx, tx); err != nil {
-		return rollback(err)
-	}
 	rows, err := tx.QueryContext(ctx, `
 		WITH victims AS (
 			SELECT tableoid, ctid
@@ -316,7 +300,6 @@ func cleanupUsageLogsBatchWithRollupInvalidation(ctx context.Context, db *sql.DB
 	}
 
 	var affected int64
-	var earliestDeletedAt time.Time
 	for rows.Next() {
 		var deletedAt time.Time
 		if err := rows.Scan(&deletedAt); err != nil {
@@ -324,9 +307,6 @@ func cleanupUsageLogsBatchWithRollupInvalidation(ctx context.Context, db *sql.DB
 			return rollback(err)
 		}
 		affected++
-		if earliestDeletedAt.IsZero() || deletedAt.Before(earliestDeletedAt) {
-			earliestDeletedAt = deletedAt
-		}
 	}
 	if err := rows.Err(); err != nil {
 		_ = rows.Close()
@@ -334,11 +314,6 @@ func cleanupUsageLogsBatchWithRollupInvalidation(ctx context.Context, db *sql.DB
 	}
 	if err := rows.Close(); err != nil {
 		return rollback(err)
-	}
-	if affected > 0 {
-		if err := invalidateGroupUsageRollupsAt(ctx, tx, earliestDeletedAt); err != nil {
-			return rollback(err)
-		}
 	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
@@ -632,7 +607,7 @@ func (r *dashboardAggregationRepository) dropUsageLogsPartitions(ctx context.Con
 	})
 	if db, ok := r.sql.(usagePartitionTransactionBeginner); ok {
 		for _, partition := range partitions {
-			if err := dropUsageLogsPartitionWithRollupInvalidation(ctx, db, partition.name, partition.month); err != nil {
+			if err := dropUsageLogsPartitionWithRollupInvalidation(ctx, db, partition.name); err != nil {
 				return err
 			}
 		}
@@ -645,7 +620,7 @@ type usagePartitionTransactionBeginner interface {
 	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
 }
 
-func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db usagePartitionTransactionBeginner, name string, monthStart time.Time) error {
+func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db usagePartitionTransactionBeginner, name string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -655,8 +630,13 @@ func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db usageP
 		return err
 	}
 	// Partition DDL does not fire DELETE triggers. Serialize with the rollup
-	// consumer and append affected buckets in the same transaction as DROP.
+	// consumers before taking table locks, then append affected buckets atomically.
 	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(742981311)"); err != nil {
+		return rollback(err)
+	}
+	// A group consumer holds a parent read lock while accessing leaves. Taking
+	// its lock before the leaf prevents a parent/leaf lock inversion during DROP.
+	if _, err := tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(742981313)"); err != nil {
 		return rollback(err)
 	}
 	if _, err := tx.ExecContext(ctx, "LOCK TABLE "+pq.QuoteIdentifier(name)+" IN ACCESS EXCLUSIVE MODE"); err != nil {
@@ -667,10 +647,9 @@ func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db usageP
 		return rollback(err)
 	}
 
-	if err := lockGroupUsageRollupState(ctx, tx); err != nil {
-		return rollback(err)
-	}
-	if err := invalidateGroupUsageRollupsAt(ctx, tx, monthStart); err != nil {
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf(`INSERT INTO usage_group_rollup_events(bucket_start)
+	 SELECT DISTINCT date_trunc('day',created_at AT TIME ZONE 'UTC') AT TIME ZONE 'UTC'
+	 FROM %s WHERE group_id IS NOT NULL`, pq.QuoteIdentifier(name))); err != nil {
 		return rollback(err)
 	}
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("DROP TABLE IF EXISTS %s", pq.QuoteIdentifier(name))); err != nil {
@@ -706,6 +685,9 @@ func (r *dashboardAggregationRepository) createUsageLogsPartition(ctx context.Co
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, "SELECT install_usage_key_rollup_partition_triggers($1::regclass)", name); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, "SELECT install_usage_group_rollup_partition_triggers($1::regclass)", name); err != nil {
 		return err
 	}
 	return tx.Commit()

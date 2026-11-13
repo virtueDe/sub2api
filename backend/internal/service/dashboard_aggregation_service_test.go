@@ -295,3 +295,28 @@ func TestDashboardAggregationService_TriggerBackfill_TooLarge(t *testing.T) {
 	require.ErrorIs(t, err, ErrDashboardBackfillTooLarge)
 	require.Equal(t, 0, repo.aggregateCalls)
 }
+
+func TestDashboardAggregationService_DisabledAggregationStillConsumesGroupEvents(t *testing.T) {
+	repo := &dashboardAggregationRollupRepoTestStub{dashboardAggregationRepoTestStub: &dashboardAggregationRepoTestStub{}}
+	svc := &DashboardAggregationService{repo: repo, cfg: config.DashboardAggregationConfig{Enabled: false}}
+	svc.runScheduledRetention()
+	require.Equal(t, 1, repo.groupRollupCalls)
+	require.Zero(t, repo.aggregateCalls)
+	require.Zero(t, repo.cleanupUsageCalls)
+	// A retention cooldown must not pause event processing.
+	svc.runScheduledRetention()
+	require.Equal(t, 2, repo.groupRollupCalls)
+}
+
+func TestDashboardAggregationService_StartDisabledRunsGroupBackfill(t *testing.T) {
+	wheel, err := NewTimingWheelService()
+	require.NoError(t, err)
+	defer wheel.Stop()
+	repo := &dashboardAggregationRollupRepoTestStub{dashboardAggregationRepoTestStub: &dashboardAggregationRepoTestStub{}}
+	svc := &DashboardAggregationService{repo: repo, timingWheel: wheel, cfg: config.DashboardAggregationConfig{Enabled: false}}
+	svc.Start()
+	// Stop waits for the tracked startup goroutine, so inspecting the stub is safe.
+	svc.Stop()
+	require.Equal(t, 1, repo.groupRollupCalls)
+	require.Zero(t, repo.aggregateCalls)
+}
