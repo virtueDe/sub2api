@@ -15,6 +15,10 @@ import (
 )
 
 func usageRollupFixture(t *testing.T, beforeMigration ...string) (*sql.Conn, string) {
+	return usageRollupFixtureVersion(t, true, beforeMigration...)
+}
+
+func usageRollupFixtureVersion(t *testing.T, targetedRefresh bool, beforeMigration ...string) (*sql.Conn, string) {
 	t.Helper()
 	ctx := context.Background()
 	schema := fmt.Sprintf("usage_rollup_%d", time.Now().UnixNano())
@@ -29,9 +33,10 @@ func usageRollupFixture(t *testing.T, beforeMigration ...string) (*sql.Conn, str
 		_ = conn.Close()
 		_, _ = integrationDB.ExecContext(ctx, "DROP SCHEMA "+schema+" CASCADE")
 	})
-	_, err = conn.ExecContext(ctx, `CREATE TABLE usage_logs(id bigserial,created_at timestamptz NOT NULL,api_key_id bigint NOT NULL,user_id bigint NOT NULL,input_tokens bigint DEFAULT 0,output_tokens bigint DEFAULT 0,cache_creation_tokens bigint DEFAULT 0,cache_read_tokens bigint DEFAULT 0,total_cost numeric(20,10) DEFAULT 0,actual_cost numeric(20,10) DEFAULT 0,duration_ms integer) PARTITION BY RANGE(created_at);
+	_, err = conn.ExecContext(ctx, `CREATE TABLE usage_logs(id bigserial,created_at timestamptz NOT NULL,api_key_id bigint NOT NULL,user_id bigint NOT NULL,input_tokens bigint DEFAULT 0,output_tokens bigint DEFAULT 0,cache_creation_tokens bigint DEFAULT 0,cache_read_tokens bigint DEFAULT 0,total_cost numeric(20,10) DEFAULT 0,actual_cost numeric(20,10) DEFAULT 0,duration_ms integer,image_generation jsonb) PARTITION BY RANGE(created_at);
  CREATE TABLE usage_logs_default PARTITION OF usage_logs DEFAULT;
- CREATE INDEX ON usage_logs(created_at);`)
+ CREATE INDEX ON usage_logs(created_at);
+ CREATE INDEX ON usage_logs(api_key_id,created_at);`)
 	require.NoError(t, err)
 	for _, query := range beforeMigration {
 		_, err = conn.ExecContext(ctx, query)
@@ -41,6 +46,9 @@ func usageRollupFixture(t *testing.T, beforeMigration ...string) (*sql.Conn, str
 	require.NoError(t, err)
 	_, err = conn.ExecContext(ctx, string(migration))
 	require.NoError(t, err)
+	if targetedRefresh {
+		applyTargetedUsageRollupMigration(t, conn)
+	}
 	return conn, schema
 }
 func drainUsageRollups(t *testing.T, conn *sql.Conn) {
