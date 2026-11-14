@@ -218,7 +218,7 @@
                   class="inline-block h-3 w-14 animate-pulse rounded bg-gray-200 dark:bg-dark-600"
                 />
                 <span v-else class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
+                  {{ usageStats[row.id] ? '$' + usageStats[row.id].today_actual_cost.toFixed(4) : '—' }}
                 </span>
               </div>
               <div class="mt-0.5 flex items-center gap-1.5">
@@ -228,8 +228,21 @@
                   class="inline-block h-3 w-14 animate-pulse rounded bg-gray-200 dark:bg-dark-600"
                 />
                 <span v-else class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
+                  {{ usageStats[row.id] ? '$' + usageStats[row.id].total_actual_cost.toFixed(4) : '—' }}
                 </span>
+              </div>
+              <div class="mt-1 text-xs text-gray-500 dark:text-gray-400" data-test="usage-state">
+                <span v-if="usageLoading">{{ t('keys.usageUpdating') }}</span>
+                <span v-else-if="usageFreshness.state === 'stale'">{{ t('keys.usageStale') }}</span>
+                <span v-else-if="!usageStats[row.id]">{{ t('keys.usageUnavailable') }}</span>
+                <span v-if="usageFreshness.updated_at && usageStats[row.id]" class="block">
+                  {{ t('keys.usageUpdatedAt') }} {{ formatDateTime(usageFreshness.updated_at) }}
+                </span>
+                <button
+                  v-if="!usageLoading && usageFreshness.state !== 'fresh'"
+                  type="button" class="text-primary-600 hover:underline" data-test="usage-retry"
+                  @click="retryUsageStats"
+                >{{ t('keys.usageRetry') }}</button>
               </div>
               <!-- Quota progress (if quota is set) -->
               <div v-if="row.quota > 0" class="mt-1.5">
@@ -1234,7 +1247,7 @@ import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
 	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
-import type { BatchApiKeyUsageStats } from '@/api/usage'
+import type { BatchApiKeyUsageStats, BatchUsageFreshness } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
@@ -1388,6 +1401,40 @@ const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
 const usageLoading = ref(false)
+const usageFreshness = ref<BatchUsageFreshness>({ state: 'pending', refreshing: false })
+let usagePollTimer: ReturnType<typeof setTimeout> | null = null
+let usageExpiryTimer: ReturnType<typeof setTimeout> | null = null
+let usageFreshTimer: ReturnType<typeof setTimeout> | null = null
+let usageKeySet = ''
+const usagePollDelays = [2000, 4000, 8000, 16000, 30000]
+
+const clearUsageTimers = () => {
+  if (usagePollTimer) clearTimeout(usagePollTimer)
+  if (usageExpiryTimer) clearTimeout(usageExpiryTimer)
+  if (usageFreshTimer) clearTimeout(usageFreshTimer)
+  usagePollTimer = usageExpiryTimer = usageFreshTimer = null
+}
+
+const scheduleUsageAging = (meta: BatchUsageFreshness) => {
+  if (usageExpiryTimer) clearTimeout(usageExpiryTimer)
+  if (usageFreshTimer) clearTimeout(usageFreshTimer)
+  usageExpiryTimer = usageFreshTimer = null
+  const expire = () => {
+    usageStats.value = {}
+    usageFreshness.value = { state: 'unavailable', refreshing: false }
+  }
+  if (meta.valid_until) {
+    const remaining = new Date(meta.valid_until).getTime() - Date.now()
+    if (remaining > 0) usageExpiryTimer = setTimeout(expire, remaining)
+    else { expire(); return }
+  }
+  if (meta.state === 'fresh' && meta.fresh_until) {
+    const markStale = () => { usageFreshness.value = { ...usageFreshness.value, state: 'stale' } }
+    const remaining = new Date(meta.fresh_until).getTime() - Date.now()
+    if (remaining > 0) usageFreshTimer = setTimeout(markStale, remaining)
+    else markStale()
+  }
+}
 const userGroupRates = ref<Record<number, number>>({})
 
 const pagination = ref({
@@ -1595,6 +1642,8 @@ const isAbortError = (error: unknown) => {
 
 const loadApiKeys = async () => {
   abortController?.abort()
+  if (usagePollTimer) clearTimeout(usagePollTimer)
+  usagePollTimer = null
   const controller = new AbortController()
   abortController = controller
   const { signal } = controller
@@ -1624,7 +1673,15 @@ const loadApiKeys = async () => {
     pagination.value.total = response.total
     pagination.value.pages = response.pages
 
-    // 用量统计要聚合 30 天的 usage_logs，可能比列表慢很多：不阻塞表格渲染，单独加载
+    const nextKeySet = response.items.map((key) => key.id).sort((a, b) => a - b).join(',')
+    if (nextKeySet !== usageKeySet) {
+      clearUsageTimers()
+      usageStats.value = {}
+      usageFreshness.value = { state: 'pending', refreshing: false }
+      usageKeySet = nextKeySet
+    }
+
+    // Statistics refresh independently; loading never blocks the key list.
     usageLoading.value = response.items.length > 0
     if (response.items.length > 0) {
       void loadUsageStats(response.items.map((k) => k.id), signal)
@@ -1641,20 +1698,47 @@ const loadApiKeys = async () => {
   }
 }
 
-const loadUsageStats = async (keyIds: number[], signal: AbortSignal) => {
+const loadUsageStats = async (keyIds: number[], signal: AbortSignal, attempt = 0) => {
+  if (signal.aborted) return
+  usageLoading.value = true
   try {
     const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, { signal })
     if (signal.aborted) return
+    // Older servers return only stats during a rolling deployment. Keep those
+    // successful values briefly, but never manufacture missing amounts.
+    const meta = usageResponse.statistics ?? {
+      state: 'fresh', refreshing: false,
+      valid_until: new Date(Date.now() + 30000).toISOString(),
+      fresh_until: new Date(Date.now() + 30000).toISOString()
+    }
+    usageFreshness.value = meta
     usageStats.value = usageResponse.stats
+    scheduleUsageAging(meta)
+    if (meta.refreshing || meta.state === 'pending') {
+      if (attempt < usagePollDelays.length) {
+        usagePollTimer = setTimeout(() => {
+          usagePollTimer = null
+          void loadUsageStats(keyIds, signal, attempt + 1)
+        }, usagePollDelays[attempt])
+      } else {
+        usageFreshness.value = { ...usageFreshness.value, state: Object.keys(usageStats.value).length ? 'stale' : 'unavailable', refreshing: false }
+      }
+    }
   } catch (e) {
-    if (!isAbortError(e)) {
+    if (!signal.aborted && !isAbortError(e)) {
       console.error('Failed to load usage stats:', e)
+      usageFreshness.value = { ...usageFreshness.value, state: Object.keys(usageStats.value).length ? 'stale' : 'unavailable', refreshing: false }
     }
   } finally {
     if (!signal.aborted) {
-      usageLoading.value = false
+      usageLoading.value = usagePollTimer !== null
     }
   }
+}
+
+const retryUsageStats = () => {
+  if (!abortController || usageLoading.value) return
+  void loadUsageStats(apiKeys.value.map((key) => key.id), abortController.signal)
 }
 
 const loadGroups = async () => {
@@ -2108,6 +2192,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  abortController?.abort()
+  clearUsageTimers()
   document.removeEventListener('click', closeGroupSelector)
   if (resetTimer) clearInterval(resetTimer)
 })

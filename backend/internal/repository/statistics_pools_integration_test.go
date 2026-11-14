@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/url"
 	"strconv"
 	"testing"
@@ -15,6 +16,42 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/stretchr/testify/require"
 )
+
+func TestStatisticsBatchTimeoutIsLocalAndCoreStaysAvailable(t *testing.T) {
+	p := isolatedPoolsFixture(t)
+	ctx := context.Background()
+	schema := fmt.Sprintf("batch_timeout_%d", time.Now().UnixNano())
+	_, err := p.Core.ExecContext(ctx, "CREATE SCHEMA "+schema)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, _ = p.Read.ExecContext(ctx, "RESET search_path")
+		_, _ = p.Core.ExecContext(ctx, "DROP SCHEMA "+schema+" CASCADE")
+	})
+	_, err = p.Core.ExecContext(ctx, "CREATE VIEW "+schema+`.usage_logs AS SELECT 7::bigint AS api_key_id,now() AS created_at,CASE WHEN current_setting('statement_timeout')='8s' THEN 1::numeric ELSE 2::numeric END AS actual_cost FROM (SELECT pg_sleep(2.1)) delay`)
+	require.NoError(t, err)
+	_, err = p.Read.ExecContext(ctx, "SET search_path TO "+schema)
+	require.NoError(t, err)
+	r := &governedUsageLogRepository{reporting: &usageLogRepository{db: p.Read, sql: p.Read}, extendedBatchRead: true, budget: dbstats.NewBudget(1)}
+	result, err := r.GetBatchAPIKeyUsageStatsForSnapshot(ctx, []int64{7}, time.Time{}, time.Time{})
+	require.NoError(t, err, "batch read must survive the ordinary two-second session deadline")
+	require.Equal(t, 1.0, result[7].TodayActualCost)
+	var timeout, readOnly string
+	require.NoError(t, p.Read.QueryRowContext(ctx, `SELECT current_setting('statement_timeout'),current_setting('default_transaction_read_only')`).Scan(&timeout, &readOnly))
+	require.Equal(t, "2s", timeout)
+	require.Equal(t, "on", readOnly)
+	// Cancellation rolls back the local override too, and never borrows core.
+	r.budget = dbstats.NewBudget(1)
+	short, cancel := context.WithTimeout(ctx, 30*time.Millisecond)
+	defer cancel()
+	_, err = r.GetBatchAPIKeyUsageStatsForSnapshot(short, []int64{7}, time.Time{}, time.Time{})
+	require.Error(t, err)
+	require.NoError(t, p.Read.QueryRowContext(ctx, `SHOW statement_timeout`).Scan(&timeout))
+	require.Equal(t, "2s", timeout)
+	held, err := p.Read.Conn(ctx)
+	require.NoError(t, err)
+	require.NoError(t, p.Core.PingContext(ctx))
+	require.NoError(t, held.Close())
+}
 
 func isolatedPoolsFixture(t *testing.T) *StatisticsPools {
 	t.Helper()

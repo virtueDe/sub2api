@@ -1,10 +1,13 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
 import type { ApiKey } from '@/types'
 import { keysAPI } from '@/api'
 import KeysView from '../KeysView.vue'
+
+enableAutoUnmount(afterEach)
+afterEach(() => { vi.useRealTimers() })
 
 const {
   listKeys,
@@ -683,8 +686,91 @@ describe('user KeysView column settings', () => {
       const wrapper = await mountView()
 
       expect(wrapper.find('[data-test="usage-pending"]').exists()).toBe(false)
-      expect(wrapper.get('[data-test="usage"]').text()).toContain('$0.0000')
+      expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$0.0000')
+      expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+      expect(wrapper.find('[data-test="usage-retry"]').exists()).toBe(true)
       consoleError.mockRestore()
+    })
+
+    it('polls pending statistics without reloading the list and displays true zero', async () => {
+      vi.useFakeTimers()
+      getDashboardApiKeysUsage
+        .mockResolvedValueOnce({ stats: {}, statistics: { state: 'pending', refreshing: true } })
+        .mockResolvedValue({ stats: { 1: { api_key_id: 1, today_actual_cost: 0, total_actual_cost: 2 } }, statistics: { state: 'fresh', refreshing: false, valid_until: new Date(Date.now() + 300000).toISOString() } })
+      const wrapper = await mountView()
+      expect(wrapper.find('[data-test="usage-pending"]').exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(2000)
+      await flushPromises()
+      expect(getDashboardApiKeysUsage).toHaveBeenCalledTimes(2)
+      expect(listKeys).toHaveBeenCalledTimes(1)
+      expect(wrapper.get('[data-test="usage"]').text()).toContain('$0.0000')
+      expect(wrapper.get('[data-test="usage"]').text()).toContain('$2.0000')
+    })
+
+    it('expires stale values at the server deadline even without another request', async () => {
+      vi.useFakeTimers()
+      getDashboardApiKeysUsage.mockResolvedValue({
+        stats: { 1: { api_key_id: 1, today_actual_cost: 1, total_actual_cost: 3 } },
+        statistics: { state: 'stale', refreshing: false, updated_at: new Date().toISOString(), valid_until: new Date(Date.now() + 1000).toISOString() }
+      })
+      const wrapper = await mountView()
+      expect(wrapper.get('[data-test="usage"]').text()).toContain('$3.0000')
+      expect(wrapper.get('[data-test="usage-state"]').text()).toContain('keys.usageStale')
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$3.0000')
+      expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+    })
+
+    it('bounds polling and cancels requests when leaving the page', async () => {
+      vi.useFakeTimers()
+      getDashboardApiKeysUsage.mockResolvedValue({ stats: {}, statistics: { state: 'pending', refreshing: true } })
+      const wrapper = await mountView()
+      await vi.advanceTimersByTimeAsync(60000)
+      await flushPromises()
+      expect(getDashboardApiKeysUsage).toHaveBeenCalledTimes(6)
+      expect(wrapper.find('[data-test="usage-pending"]').exists()).toBe(false)
+      expect(wrapper.find('[data-test="usage-retry"]').exists()).toBe(true)
+      await wrapper.get('[data-test="usage-retry"]').trigger('click')
+      await flushPromises()
+      const calls = getDashboardApiKeysUsage.mock.calls.length
+      const signal = getDashboardApiKeysUsage.mock.calls.at(-1)![1].signal as AbortSignal
+      wrapper.unmount()
+      expect(signal.aborted).toBe(true)
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(getDashboardApiKeysUsage).toHaveBeenCalledTimes(calls)
+    })
+
+    it('ages fresh data and preserves its deadline when a same-page refresh fails', async () => {
+      vi.useFakeTimers()
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const updated = new Date().toISOString()
+      getDashboardApiKeysUsage.mockResolvedValueOnce({
+        stats: { 1: { api_key_id: 1, today_actual_cost: 1, total_actual_cost: 3 } },
+        statistics: { state: 'fresh', refreshing: false, updated_at: updated,
+          fresh_until: new Date(Date.now() + 30000).toISOString(), valid_until: new Date(Date.now() + 60000).toISOString() }
+      }).mockRejectedValue(new Error('timeout'))
+      const wrapper = await mountView()
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(wrapper.get('[data-test="usage-state"]').text()).toContain('keys.usageStale')
+      await wrapper.get('button[title="Refresh"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('[data-test="usage"]').text()).toContain('$3.0000')
+      expect(wrapper.get('[data-test="usage-state"]').text()).toContain('keys.usageStale')
+      await vi.advanceTimersByTimeAsync(30000)
+      expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$3.0000')
+      consoleError.mockRestore()
+    })
+
+    it('cancels previous polling when switching pages', async () => {
+      vi.useFakeTimers()
+      getDashboardApiKeysUsage.mockResolvedValue({ stats: {}, statistics: { state: 'pending', refreshing: true } })
+      const wrapper = await mountView()
+      const signal = getDashboardApiKeysUsage.mock.calls[0][1].signal as AbortSignal
+      await wrapper.get('[data-test="page-2"]').trigger('click')
+      await flushPromises()
+      expect(signal.aborted).toBe(true)
+      await vi.advanceTimersByTimeAsync(2000)
+      expect(getDashboardApiKeysUsage).toHaveBeenCalledTimes(3)
     })
   })
 })

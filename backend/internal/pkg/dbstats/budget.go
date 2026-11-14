@@ -19,15 +19,17 @@ var ErrBusy = apperrors.ServiceUnavailable("STATISTICS_BUSY", "Statistics are bu
 var Default = NewBudget(1)
 
 const ReadTimeout = 2 * time.Second
+const BatchReadTimeout = 10 * time.Second
 const MaintenanceTimeout = 30 * time.Second
 
 type Budget struct {
-	slots      chan struct{}
-	started    atomic.Uint64
-	rejected   atomic.Uint64
-	failed     atomic.Uint64
-	durationMS atomic.Uint64
-	lastLog    atomic.Int64
+	slots          chan struct{}
+	started        atomic.Uint64
+	rejected       atomic.Uint64
+	failed         atomic.Uint64
+	durationMS     atomic.Uint64
+	lastLog        atomic.Int64
+	batchReadAfter atomic.Int64
 }
 
 func NewBudget(concurrency int) *Budget {
@@ -74,6 +76,27 @@ func RunMaintenance(ctx context.Context, b *Budget, load func(context.Context) e
 		return struct{}{}, load(ctx)
 	})
 	return err
+}
+
+// Long batch reads share the existing admission slot. Leave two worker ticks
+// between them so reporting traffic cannot continuously occupy maintenance's slot.
+func RunBatchRead[T any](ctx context.Context, b *Budget, load func(context.Context) (T, error)) (value T, err error) {
+	if err = ctx.Err(); err != nil {
+		return value, err
+	}
+	if b == nil {
+		b = Default
+	}
+	if time.Now().UnixNano() < b.batchReadAfter.Load() {
+		return value, ErrBusy
+	}
+	return Run(ctx, b, BatchReadTimeout, func(ctx context.Context) (T, error) {
+		if time.Now().UnixNano() < b.batchReadAfter.Load() {
+			return value, ErrBusy
+		}
+		defer func() { b.batchReadAfter.Store(time.Now().Add(2 * time.Second).UnixNano()) }()
+		return load(ctx)
+	})
 }
 
 func (b *Budget) logSnapshot() {

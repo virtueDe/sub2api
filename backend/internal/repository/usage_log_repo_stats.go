@@ -570,6 +570,26 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 		endTime = time.Now()
 	}
 
+	var rollupIDs, detailIDs []int64
+	for _, id := range normalizedAPIKeyIDs {
+		if !r.batchRollupDisabled && r.useUsageRollup(id) {
+			rollupIDs = append(rollupIDs, id)
+		} else {
+			detailIDs = append(detailIDs, id)
+		}
+	}
+	if len(rollupIDs) > 0 {
+		var err error
+		result, err = r.readBatchAPIKeyRollup(ctx, rollupIDs, startTime, endTime, timezone.Today())
+		if err != nil {
+			return nil, err
+		}
+	}
+	if len(detailIDs) == 0 {
+		return result, nil
+	}
+	normalizedAPIKeyIDs = detailIDs
+
 	for _, id := range normalizedAPIKeyIDs {
 		result[id] = &BatchAPIKeyUsageStats{APIKeyID: id}
 	}

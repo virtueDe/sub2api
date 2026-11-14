@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
@@ -14,7 +15,8 @@ import (
 type governedUsageLogRepository struct {
 	reporting *usageLogRepository
 	*usageLogRepository
-	budget *dbstats.Budget
+	budget            *dbstats.Budget
+	extendedBatchRead bool
 }
 type governedDashboardAggregationRepository struct {
 	*dashboardAggregationRepository
@@ -96,6 +98,34 @@ func (r *governedUsageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Contex
 	return dbstats.Run(ctx, r.budget, dbstats.ReadTimeout, func(ctx context.Context) (map[int64]*BatchAPIKeyUsageStats, error) {
 		return r.reportingRepository().GetBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime)
 	})
+}
+
+// Only the asynchronous Key-page reader gets the longer budget. Other callers
+// retain the original short-query contract and do not receive batch cooldowns.
+func (r *governedUsageLogRepository) GetBatchAPIKeyUsageStatsForSnapshot(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time) (map[int64]*BatchAPIKeyUsageStats, error) {
+	if r.extendedBatchRead {
+		return dbstats.RunBatchRead(ctx, r.budget, func(ctx context.Context) (map[int64]*BatchAPIKeyUsageStats, error) {
+			reporting := r.reportingRepository()
+			tx, err := reporting.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true, Isolation: sql.LevelRepeatableRead})
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = tx.Rollback() }()
+			if _, err = tx.ExecContext(ctx, "SET LOCAL statement_timeout = '8s'"); err != nil {
+				return nil, err
+			}
+			reader := &usageLogRepository{sql: tx, rollupReads: reporting.rollupReads, rollupKeys: reporting.rollupKeys, batchRollupDisabled: reporting.batchRollupDisabled}
+			stats, err := reader.GetBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime)
+			if err != nil {
+				return nil, err
+			}
+			if err = tx.Commit(); err != nil {
+				return nil, err
+			}
+			return stats, nil
+		})
+	}
+	return r.GetBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime)
 }
 
 func (r *governedUsageLogRepository) GetGlobalStats(ctx context.Context, startTime, endTime time.Time) (*UsageStats, error) {

@@ -1665,6 +1665,8 @@ type DatabaseConfig struct {
 	UsageRollupEnabled      bool    `mapstructure:"usage_rollup_enabled"`
 	UsageRollupReadsEnabled bool    `mapstructure:"usage_rollup_reads_enabled"`
 	UsageRollupReadKeyIDs   []int64 `mapstructure:"usage_rollup_read_key_ids"`
+	// Emergency rollback for the batch Key reader without disabling other rollup readers.
+	UsageBatchRollupDisabled bool `mapstructure:"usage_batch_rollup_disabled"`
 
 	Host     string `mapstructure:"host"`
 	Port     int    `mapstructure:"port"`
@@ -2365,6 +2367,7 @@ func setDefaults() {
 	viper.SetDefault("database.usage_rollup_read_key_ids", []int64{})
 	viper.SetDefault("database.usage_rollup_enabled", true)
 	viper.SetDefault("database.usage_rollup_reads_enabled", false)
+	viper.SetDefault("database.usage_batch_rollup_disabled", false)
 
 	// Redis
 	viper.SetDefault("redis.host", "localhost")

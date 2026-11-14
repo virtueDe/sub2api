@@ -348,6 +348,17 @@ export interface BatchApiKeyUsageStats {
 
 export interface BatchApiKeysUsageResponse {
   stats: Record<string, BatchApiKeyUsageStats>
+  statistics?: BatchUsageFreshness
+}
+
+export interface BatchUsageFreshness {
+  state: 'fresh' | 'stale' | 'pending' | 'unavailable'
+  refreshing: boolean
+  updated_at?: string
+  valid_until?: string
+  fresh_until?: string
+  range_start?: string
+  range_end?: string
 }
 
 /**

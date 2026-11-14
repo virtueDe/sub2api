@@ -63,6 +63,7 @@ type UsageService struct {
 	authCacheInvalidator APIKeyAuthCacheInvalidator
 	statsCache           usageStatsCache
 	gatewayStats         gatewayStatisticsCache
+	batchStats           gatewayStatisticsCache
 }
 
 // NewUsageService 创建使用统计服务实例
@@ -72,6 +73,7 @@ func NewUsageService(usageRepo UsageLogRepository, userRepo UserRepository, entC
 		userRepo:             userRepo,
 		entClient:            entClient,
 		authCacheInvalidator: authCacheInvalidator,
+		batchStats:           gatewayStatisticsCache{timeout: 10 * time.Second, queueCapacity: 8, queueAge: time.Minute},
 	}
 }
 

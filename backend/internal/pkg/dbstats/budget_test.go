@@ -45,3 +45,19 @@ func TestBudgetHonorsCancellationAndQueryDeadline(t *testing.T) {
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.Empty(t, b.slots)
 }
+
+func TestBatchReadLeavesMaintenanceAnExecutionOpportunity(t *testing.T) {
+	b := NewBudget(1)
+	_, err := RunBatchRead(context.Background(), b, func(ctx context.Context) (int, error) {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		require.Greater(t, time.Until(deadline), 8*time.Second)
+		return 1, nil
+	})
+	require.NoError(t, err)
+	_, err = RunBatchRead(context.Background(), b, func(context.Context) (int, error) { t.Fatal("batch cooldown bypassed"); return 0, nil })
+	require.ErrorIs(t, err, ErrBusy)
+	require.NoError(t, RunMaintenance(context.Background(), b, func(context.Context) error { return nil }))
+	_, err = Run(context.Background(), b, ReadTimeout, func(context.Context) (int, error) { return 1, nil })
+	require.NoError(t, err, "short reads remain usable between batch queries")
+}

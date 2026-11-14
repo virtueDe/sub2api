@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"database/sql/driver"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
@@ -217,8 +219,28 @@ func TestGatewayStatisticsQueueAndEntriesAreBounded(t *testing.T) {
 	c.mu.Lock()
 	entries, queued := len(c.entries), len(c.queue)
 	c.mu.Unlock()
-	require.Equal(t, gatewayStatsCapacity, entries)
+	require.Equal(t, gatewayStatsQueueCapacity+1, entries, "rejected cold misses must not reserve cache capacity")
 	require.Equal(t, gatewayStatsQueueCapacity, queued)
 	close(release)
 	waitGatewayStatistics(t, &c)
+	spec := gatewayStatsSpec{"recovered", "recovered", time.Minute, time.Minute, func(context.Context) (any, error) { return 42, nil }}
+	c.read(context.Background(), []gatewayStatsSpec{spec})
+	waitGatewayStatistics(t, &c)
+	require.Equal(t, 42, c.read(context.Background(), []gatewayStatsSpec{spec})["recovered"].value, "queue recovery must admit new cache identities")
+}
+
+func TestStatisticsFailureKindsRetainSafeDatabaseCause(t *testing.T) {
+	for _, tc := range []struct {
+		err         error
+		kind, state string
+	}{
+		{context.DeadlineExceeded, "deadline_exceeded", ""},
+		{fmt.Errorf("wrapped: %w", &pq.Error{Code: "42703"}), "postgres_error", "42703"},
+		{&pq.Error{Code: "42501"}, "postgres_error", "42501"},
+		{driver.ErrBadConn, "connection_error", ""},
+	} {
+		kind, state := statisticsFailureKind(tc.err)
+		require.Equal(t, tc.kind, kind)
+		require.Equal(t, tc.state, state)
+	}
 }

@@ -689,13 +689,7 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, time.Time{}, time.Time{})
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, gin.H{"stats": stats})
+	response.Success(c, h.usageService.GetBatchAPIKeyUsageSnapshot(c.Request.Context(), subject.UserID, validAPIKeyIDs))
 }
 
 // GetMyAPIKeyDailyUsage handles getting daily usage details for the current user's API key.

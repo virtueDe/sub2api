@@ -91,7 +91,9 @@ func newGovernedUsageLogRepository(client *dbent.Client, core *sql.DB, p *Statis
 	raw.rollupKeys = cfg.Database.UsageRollupReadKeyIDs
 	reporting.rollupReads = raw.rollupReads
 	reporting.rollupKeys = raw.rollupKeys
-	return &governedUsageLogRepository{usageLogRepository: raw, reporting: reporting}
+	raw.batchRollupDisabled = cfg.Database.UsageBatchRollupDisabled
+	reporting.batchRollupDisabled = raw.batchRollupDisabled
+	return &governedUsageLogRepository{usageLogRepository: raw, reporting: reporting, extendedBatchRead: p.isolated}
 }
 
 func ProvideDatabaseDiagnostics(p *StatisticsPools, cfg *config.Config) (*dbstats.Recorder, func(), error) {

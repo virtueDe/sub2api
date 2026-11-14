@@ -2,17 +2,21 @@ package service
 
 import (
 	"context"
+	"database/sql/driver"
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
+	apperrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/lib/pq"
 	"go.uber.org/zap"
 )
 
@@ -101,6 +105,12 @@ type gatewayStatsValue struct {
 // One bounded, lazy worker drains a FIFO then exits. No goroutine is created per
 // waiter or per cache key, and no database connection is held while queued.
 type gatewayStatisticsCache struct {
+	timeout, queueAge         time.Duration
+	queueCapacity             int
+	lifecycle                 context.Context
+	cancel                    context.CancelFunc
+	done                      chan struct{}
+	stopped                   bool
 	mu                        sync.Mutex
 	entries                   map[string]*gatewayStatsEntry
 	queue                     []gatewayStatsJob
@@ -108,6 +118,7 @@ type gatewayStatisticsCache struct {
 	now                       func() time.Time
 	lastLog                   time.Time
 	lastFailureLog            time.Time
+	lastUnexpectedFailureLog  time.Time
 	cooldowns                 map[string]time.Time
 	loads, failures, rejected uint64
 	hits, stale, missing      uint64
@@ -127,13 +138,25 @@ func (c *gatewayStatisticsCache) read(ctx context.Context, specs []gatewayStatsS
 		c.entries = make(map[string]*gatewayStatsEntry)
 		c.cooldowns = make(map[string]time.Time)
 	}
+	if c.lifecycle == nil {
+		c.lifecycle, c.cancel = context.WithCancel(context.Background())
+	}
+	queueCapacity := c.queueCapacity
+	if queueCapacity == 0 {
+		queueCapacity = gatewayStatsQueueCapacity
+	}
 	now := c.clock()
 	result := make(map[string]gatewayStatsValue, len(specs))
 	for _, spec := range specs {
 		e := c.entries[spec.key]
+		if e == nil && (c.stopped || ctx.Err() != nil || len(c.queue) >= queueCapacity) {
+			c.rejected++
+			result[spec.name] = gatewayStatsValue{freshness: StatisticsFreshness{State: "unavailable"}}
+			continue
+		}
 		if e == nil && len(c.entries) >= gatewayStatsCapacity {
 			for key, old := range c.entries {
-				if !old.pending && now.Sub(old.touched) >= 15*time.Minute {
+				if !old.pending && (now.Sub(old.touched) >= 15*time.Minute || (!now.Before(old.usableUntil) && !now.Before(old.retryAfter))) {
 					delete(c.entries, key)
 				}
 			}
@@ -149,8 +172,8 @@ func (c *gatewayStatisticsCache) read(ctx context.Context, specs []gatewayStatsS
 			continue
 		}
 		e.touched = now
-		if !e.pending && !now.Before(e.expires) && !now.Before(e.retryAfter) && !now.Before(c.cooldowns[spec.scopeKey()]) && ctx.Err() == nil {
-			if len(c.queue) < gatewayStatsQueueCapacity {
+		if !c.stopped && !e.pending && !now.Before(e.expires) && !now.Before(e.retryAfter) && !now.Before(c.cooldowns[spec.scopeKey()]) && ctx.Err() == nil {
+			if len(c.queue) < queueCapacity {
 				e.pending = true
 				c.queue = append(c.queue, gatewayStatsJob{spec: spec, queuedAt: now})
 			} else {
@@ -181,6 +204,7 @@ func (c *gatewayStatisticsCache) read(ctx context.Context, specs []gatewayStatsS
 	}
 	if !c.running && len(c.queue) != 0 {
 		c.running = true
+		c.done = make(chan struct{})
 		go c.drain()
 	}
 	return result
@@ -191,6 +215,7 @@ func (c *gatewayStatisticsCache) drain() {
 		c.mu.Lock()
 		if len(c.queue) == 0 {
 			c.running = false
+			close(c.done)
 			c.mu.Unlock()
 			return
 		}
@@ -198,7 +223,11 @@ func (c *gatewayStatisticsCache) drain() {
 		c.queue[0] = gatewayStatsJob{}
 		c.queue = c.queue[1:]
 		now := c.clock()
-		expired := now.Sub(job.queuedAt) >= gatewayStatsQueueAge
+		queueAge := c.queueAge
+		if queueAge == 0 {
+			queueAge = gatewayStatsQueueAge
+		}
+		expired := now.Sub(job.queuedAt) >= queueAge
 		cooldown := c.cooldowns[job.spec.scopeKey()]
 		if now.Before(cooldown) {
 			// A previously queued range failed. Do not execute other ranges or
@@ -214,7 +243,11 @@ func (c *gatewayStatisticsCache) drain() {
 		if expired {
 			err = dbstats.ErrBusy
 		} else {
-			ctx, cancel := context.WithTimeout(context.Background(), usageStatsTimeout)
+			timeout := c.timeout
+			if timeout == 0 {
+				timeout = usageStatsTimeout
+			}
+			ctx, cancel := context.WithTimeout(c.lifecycle, timeout)
 			value, err = job.spec.load(ctx)
 			if err == nil {
 				err = ctx.Err()
@@ -233,8 +266,8 @@ func (c *gatewayStatisticsCache) drain() {
 				c.rejected++
 			} else {
 				c.failures++
-				// Active cooldowns cannot outnumber entries: entries are retained
-				// at least 15 minutes, while failures cool down for 30 seconds.
+				// Failed entries survive until their retry deadline, so active
+				// cooldowns remain bounded by the entry capacity.
 				if len(c.cooldowns) >= gatewayStatsCapacity {
 					for scope, until := range c.cooldowns {
 						if !now.Before(until) {
@@ -243,16 +276,18 @@ func (c *gatewayStatisticsCache) drain() {
 					}
 				}
 				c.cooldowns[job.spec.scopeKey()] = e.retryAfter
-				if now.Sub(c.lastFailureLog) >= time.Minute {
-					c.lastFailureLog = now
-					kind := "repository_error"
-					if errors.Is(err, context.DeadlineExceeded) {
-						kind = "deadline_exceeded"
+				kind, sqlState := statisticsFailureKind(err)
+				lastLog := &c.lastUnexpectedFailureLog
+				if kind == "deadline_exceeded" || kind == "canceled" {
+					lastLog = &c.lastFailureLog
+				}
+				if now.Sub(*lastLog) >= time.Minute {
+					*lastLog = now
+					root := err
+					for errors.Unwrap(root) != nil {
+						root = errors.Unwrap(root)
 					}
-					if errors.Is(err, context.Canceled) {
-						kind = "canceled"
-					}
-					failureFields = []zap.Field{zap.String("component", job.spec.name), zap.String("error_kind", kind), zap.Bool(logger.OpsSystemLogSkipField, true)}
+					failureFields = []zap.Field{zap.String("component", job.spec.name), zap.String("error_kind", kind), zap.String("sql_state", sqlState), zap.String("error_type", fmt.Sprintf("%T", root)), zap.String("error_reason", apperrors.Reason(err)), zap.Bool(logger.OpsSystemLogSkipField, true)}
 				}
 			}
 		} else {
@@ -277,6 +312,49 @@ func (c *gatewayStatisticsCache) drain() {
 		if snapshotFields != nil {
 			logger.L().Info("usage.statistics_cache", snapshotFields...)
 		}
+	}
+}
+
+// Keep diagnostic codes/types, never SQL text, query parameters or credentials.
+func statisticsFailureKind(err error) (string, string) {
+	var pgErr *pq.Error
+	state := ""
+	if errors.As(err, &pgErr) {
+		state = string(pgErr.Code)
+	}
+	if dbstats.IsTimeout(err) {
+		return "deadline_exceeded", state
+	}
+	if errors.Is(err, context.Canceled) {
+		return "canceled", state
+	}
+	if pgErr != nil {
+		return "postgres_error", state
+	}
+	var network net.Error
+	if errors.As(err, &network) {
+		return "connection_error", state
+	}
+	if errors.Is(err, driver.ErrBadConn) {
+		return "connection_error", state
+	}
+	return "repository_error", state
+}
+
+func (c *gatewayStatisticsCache) stop() {
+	c.mu.Lock()
+	c.stopped = true
+	if c.cancel != nil {
+		c.cancel()
+	}
+	for _, job := range c.queue {
+		c.entries[job.spec.key].pending = false
+	}
+	c.queue = nil
+	done, running := c.done, c.running
+	c.mu.Unlock()
+	if running {
+		<-done
 	}
 }
 
