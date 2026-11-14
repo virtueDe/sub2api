@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -125,6 +126,7 @@ func (g *billingPayerGate) lease(key billingPayerKey, entry *billingPayerEntry) 
 func beginPayerBillingTransaction(ctx context.Context, db *sql.DB, userID int64, waitForCapacity bool) (*sql.Tx, func(), error) {
 	started := time.Now()
 	leave, err := sharedBillingPayerGate.acquire(ctx, billingPayerKey{db: db, userID: userID}, waitForCapacity)
+	dbstats.Record("payer_admission", time.Since(started), err)
 	if err != nil {
 		return nil, nil, usageBillingStageError("payer_admission", started, err)
 	}

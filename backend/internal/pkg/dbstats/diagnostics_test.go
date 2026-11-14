@@ -93,3 +93,49 @@ func TestDiagnosticsTimeoutClassification(t *testing.T) {
 	require.False(t, IsTimeout(context.Canceled))
 	require.True(t, IsTimeout(&pq.Error{Code: "57014", Message: "canceling statement due to statement timeout"}))
 }
+
+func TestDiagnosticsUsesActualCollectionTimes(t *testing.T) {
+	scheduled := time.Now().Add(-5 * time.Second)
+	r := &Recorder{
+		pools: map[string]func() sql.DBStats{"core": func() sql.DBStats {
+			time.Sleep(20 * time.Millisecond)
+			return sql.DBStats{}
+		}},
+		previous: make(map[string]sql.DBStats),
+	}
+	before := time.Now()
+	sample := r.sample(scheduled)
+	require.Equal(t, scheduled.UTC(), sample.ScheduledAt)
+	require.False(t, sample.At.Before(before))
+	require.True(t, sample.FinishedAt.After(sample.At))
+	require.GreaterOrEqual(t, sample.SchedulingDelayMicroseconds, int64(5*time.Second/time.Microsecond))
+	require.GreaterOrEqual(t, sample.ElapsedMicroseconds, int64(20*time.Millisecond/time.Microsecond))
+}
+
+func TestDiagnosticsProbeRecordsDeadlineOverrun(t *testing.T) {
+	completed := make(chan struct{})
+	r, err := NewRecorder(t.TempDir(), nil, func(ctx context.Context) DatabaseProbe {
+		<-ctx.Done()
+		// A driver may finish after cancellation; keep the real elapsed time.
+		time.Sleep(20 * time.Millisecond)
+		select {
+		case <-completed:
+		default:
+			close(completed)
+		}
+		return DatabaseProbe{At: time.Unix(0, 0), Status: "timeout"}
+	})
+	require.NoError(t, err)
+	t.Cleanup(r.Stop)
+	select {
+	case <-completed:
+	case <-time.After(6 * time.Second):
+		t.Fatal("probe did not finish")
+	}
+	r.Stop()
+	probe := r.lastProbe
+	require.Equal(t, "timeout", probe.Status)
+	require.True(t, probe.At.After(time.Unix(0, 0)))
+	require.True(t, probe.FinishedAt.After(probe.At))
+	require.GreaterOrEqual(t, probe.ElapsedMicroseconds, int64(750*time.Millisecond/time.Microsecond))
+}

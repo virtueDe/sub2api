@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 	"golang.org/x/sync/singleflight"
@@ -40,6 +41,10 @@ func (s *BillingCacheService) loadBillingData(ctx context.Context, group *single
 		dependencyFailed := err != nil && !errors.Is(err, ErrUserNotFound) && !errors.Is(err, ErrSubscriptionNotFound)
 		if dependencyFailed {
 			s.loadMetrics.failures.Add(1)
+			dbstats.Record("billing_load", time.Since(start), errors.Join(err, loadCtx.Err()))
+			dbstats.TriggerBillingFailure()
+		} else {
+			dbstats.Record("billing_load", time.Since(start), nil)
 		}
 		if s.circuitBreaker != nil {
 			if dependencyFailed {

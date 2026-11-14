@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 )
 
-var metricNames = [...]string{"billing", "connection_acquire", "billing_begin", "dedup_insert", "dedup_existing_lookup", "dedup_archive_lookup", "subscription", "balance", "api_key_quota", "api_key_rate_limit", "account_quota", "platform_quota", "commit", "settlement", "settlement_begin", "settlement_prepare", "usage_log_single", "usage_log_batch", "usage_log_fallback", "ops_error_batch", "system_log_batch"}
+var metricNames = [...]string{"image_reserve", "image_release", "billing_load", "payer_admission", "billing", "connection_acquire", "billing_begin", "dedup_insert", "dedup_existing_lookup", "dedup_archive_lookup", "subscription", "balance", "api_key_quota", "api_key_rate_limit", "account_quota", "platform_quota", "commit", "settlement", "settlement_begin", "settlement_prepare", "usage_log_single", "usage_log_batch", "usage_log_fallback", "ops_error_batch", "system_log_batch"}
 var durationBounds = [...]int64{1000, 5000, 10000, 50000, 100000, 500000, 1000000, 5000000, 15000000}
 
 type diagnosticCounter struct {
@@ -87,14 +87,18 @@ type DatabaseWait struct {
 	BlockersTruncated                    bool
 }
 type DatabaseProbe struct {
-	At         time.Time
-	Status     string
-	Visibility string
-	Waits      []DatabaseWait
-	Truncated  bool
+	At                  time.Time
+	FinishedAt          time.Time
+	ElapsedMicroseconds int64
+	Status              string
+	Visibility          string
+	Waits               []DatabaseWait
+	Truncated           bool
 }
 type DiagnosticSample struct {
 	At                                                      time.Time
+	ScheduledAt, FinishedAt                                 time.Time
+	ElapsedMicroseconds, SchedulingDelayMicroseconds        int64
 	Pools                                                   map[string]PoolSample
 	Metrics                                                 map[string]MetricSample
 	StatisticsActive, StatisticsCapacity                    int
@@ -170,8 +174,9 @@ func (r *Recorder) Trigger(reason string) {
 		r.droppedTriggers.Add(1)
 	}
 }
-func (r *Recorder) sample(now time.Time) DiagnosticSample {
-	s := DiagnosticSample{At: now, Pools: make(map[string]PoolSample, len(r.pools)), Metrics: make(map[string]MetricSample), System: systemSample(), DroppedTriggers: r.droppedTriggers.Load(), DroppedFiles: r.droppedFiles.Load(), FileFailures: r.fileFailures.Load()}
+func (r *Recorder) sample(scheduled time.Time) DiagnosticSample {
+	started := time.Now()
+	s := DiagnosticSample{At: started.UTC(), ScheduledAt: scheduled.UTC(), SchedulingDelayMicroseconds: max(started.Sub(scheduled).Microseconds(), 0), Pools: make(map[string]PoolSample, len(r.pools)), Metrics: make(map[string]MetricSample), System: systemSample(), DroppedTriggers: r.droppedTriggers.Load(), DroppedFiles: r.droppedFiles.Load(), FileFailures: r.fileFailures.Load()}
 	for name, stats := range r.pools {
 		current := stats()
 		prev := r.previous[name]
@@ -198,6 +203,8 @@ func (r *Recorder) sample(now time.Time) DiagnosticSample {
 	r.probeMu.Lock()
 	s.Database = r.lastProbe
 	r.probeMu.Unlock()
+	s.FinishedAt = time.Now().UTC()
+	s.ElapsedMicroseconds = time.Since(started).Microseconds()
 	return s
 }
 func (r *Recorder) collect(ctx context.Context) {
@@ -265,7 +272,7 @@ func (r *Recorder) collect(ctx context.Context) {
 			if waitStreak == 3 {
 				r.Trigger("pool_wait")
 			}
-			if pending != nil && now.Sub(pending.at) >= 20*time.Second {
+			if pending != nil && s.FinishedAt.Sub(pending.at) >= 20*time.Second {
 				flush()
 			}
 		}
@@ -285,7 +292,11 @@ func (r *Recorder) probeLoop(ctx context.Context) {
 		case <-ticker.C:
 		}
 		probeCtx, cancel := context.WithTimeout(ctx, 750*time.Millisecond)
+		started := time.Now()
 		sample := r.probe(probeCtx)
+		sample.At = started.UTC()
+		sample.FinishedAt = time.Now().UTC()
+		sample.ElapsedMicroseconds = time.Since(started).Microseconds()
 		cancel()
 		r.probeMu.Lock()
 		r.lastProbe = sample

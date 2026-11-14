@@ -129,6 +129,12 @@ worker 每秒最多领取一项，失败约 30 秒后重试，已有金额的任
 
 ## 灰度与验收顺序
 
+诊断覆盖补充（本地实现，2026-11-14，尚未部署）：图片预留、退款和余额加载的依赖失败也触发上述有界故障文件，新增固定指标 `image_reserve`、`image_release`、`billing_load`、`payer_admission`。业务额度拒绝和用户取消不触发数据库事故；原错误链保持不变。图片失败记录在回滚/归还连接前采集，避免把清理时间误算到最后一条 SQL。
+
+快照 `At` 表示实际开始采集，原定时器时刻另存 `ScheduledAt`；`FinishedAt`、`ElapsedMicroseconds` 和 `SchedulingDelayMicroseconds` 用于识别采集阻塞和调度延迟。Linux 各 `/proc` 项分别记录 `*_started_at`、`*_finished_at`、`*_elapsed_us`，PG 探针也记录实际起止和耗时。各来源仍不是原子快照，应按自己的区间关联；PG 的 `AgeSeconds` 是查询年龄，不能当作等待持续时间。新增记录不增加 SQL 探测频率，不替代宿主线程 CPU 和磁盘归因采样。
+
+Linux 另保留 `/proc/vmstat` 中回收、内存规整、透明大页、换页和缺页计数的白名单；每秒只增加这一份最多 16 KiB 的读取。`scheduler` 复用 `cpu` 来源的采集区间，保留 `ctxt`、`processes`、`procs_running`、`procs_blocked`；`process_faults` 复用 `process_cpu` 区间，记录应用自身 minor/major faults，不包含子进程。两个派生项以 `*_source` 指向原来源，状态保留截断/不可用信息。缺失内核字段不补零，截断尾行不作有效计数。累计计数按相邻实际采样求增量；`procs_running/procs_blocked` 是瞬时数量。回收或规整计数上升只能定位相关活动，不能单独证明其 CPU 耗时；major faults 也不等同于 swap-in。
+
 1. 先在预发布应用迁移 251/252，核对触发器开销、回填推进及存储增长；不删除历史明细、不重写 TOAST、不重启生产 PostgreSQL。本地约 102 万行 / 56 GiB TOAST 的调查说明图片大字段占用突出，但不能据此直接清理账务证据。
 2. 保持汇总读和新结算入口关闭，启用统计隔离及诊断；每实例总池预算仍为 50。对比 core 等待、扣费/用量日志超时、统计拒绝与可用率、CPU/system/IO/PSI，覆盖真实高峰。若隔离引起统计不可用，先关闭隔离开关，保留逻辑 gate。
 3. 汇总回填完成、持续对账一致、变更积压稳定后，先用 `usage_rollup_read_key_ids` 灰度少量 Key，再逐步开放；目标事件延迟不超过 60 秒，超标先限制回填，不加并发。读失败能明确显示未就绪，不退回无界扫描。

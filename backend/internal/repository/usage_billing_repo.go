@@ -42,6 +42,7 @@ func beginUsageBillingTransaction(ctx context.Context, db *sql.DB) (*sql.Tx, fun
 	tx, err := conn.BeginTx(ctx, nil)
 	dbstats.Record("billing_begin", time.Since(started), err)
 	if err != nil {
+		err = usageBillingStageError("billing_begin", started, err)
 		_ = conn.Close()
 		return nil, nil, err
 	}
