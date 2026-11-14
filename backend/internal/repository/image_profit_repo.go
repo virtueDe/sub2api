@@ -180,14 +180,18 @@ func (r *imageProfitRepository) Settle(ctx context.Context, day time.Time, reaso
 		return nil, err
 	}
 	calculator := service.NewImageProfitCalculator(prices)
-	rows, err := tx.QueryContext(ctx, `SELECT u.id,u.account_id,COALESCE(u.channel_id,0),COALESCE(a.name,''),COALESCE(c.name,''),COALESCE(NULLIF(u.upstream_model,''),u.model),COALESCE(u.image_size,''),u.image_count,COALESCE(u.image_size_breakdown,'{}'::jsonb),u.actual_cost,u.created_at FROM usage_logs u LEFT JOIN accounts a ON a.id=u.account_id LEFT JOIN channels c ON c.id=u.channel_id WHERE `+imageProfitUsagePredicate+` AND u.created_at >= $1 AND u.created_at < $2 ORDER BY u.id`, day, day.AddDate(0, 0, 1))
+	rows, err := tx.QueryContext(ctx, `SELECT u.id,u.account_id,COALESCE(u.channel_id,0),COALESCE(a.name,''),COALESCE(c.name,''),COALESCE(NULLIF(u.upstream_model,''),u.model),COALESCE(u.image_size,''),COALESCE(adj.image_count_override,u.image_count),COALESCE(u.image_size_breakdown,'{}'::jsonb),u.actual_cost,u.created_at,COALESCE(adj.confirmed_loss,false),adj.image_count_override IS NOT NULL,excluded.usage_log_id IS NOT NULL
+FROM usage_logs u LEFT JOIN accounts a ON a.id=u.account_id LEFT JOIN channels c ON c.id=u.channel_id
+LEFT JOIN image_profit_usage_adjustments adj ON adj.usage_log_id=u.id
+LEFT JOIN image_profit_excluded_usage excluded ON excluded.usage_log_id=u.id
+WHERE `+imageProfitUsagePredicate+` AND u.created_at >= $1 AND u.created_at < $2 ORDER BY u.id`, day, day.AddDate(0, 0, 1))
 	if err != nil {
 		return nil, err
 	}
 	for rows.Next() {
 		var u service.ImageProfitUsage
 		var breakdown []byte
-		if err = rows.Scan(&u.ID, &u.AccountID, &u.ChannelID, &u.AccountName, &u.ChannelName, &u.Model, &u.Resolution, &u.ImageCount, &breakdown, &u.Revenue, &u.CreatedAt); err != nil {
+		if err = rows.Scan(&u.ID, &u.AccountID, &u.ChannelID, &u.AccountName, &u.ChannelName, &u.Model, &u.Resolution, &u.ImageCount, &breakdown, &u.Revenue, &u.CreatedAt, &u.ConfirmedLoss, &u.CountCorrected, &u.ExcludedAdmin); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
@@ -210,7 +214,8 @@ func (r *imageProfitRepository) Settle(ctx context.Context, day time.Time, reaso
 	report.CreatedAt = time.Now()
 	if old != nil {
 		report.Revision = old.Revision + 1
-		if report.RequestCount < old.RequestCount {
+		oldSourceCount := max(old.SourceCount, len(old.SourceIDs), old.RequestCount)
+		if report.SourceCount < oldSourceCount {
 			return nil, appErrors.Conflict("PROFIT_SOURCE_INCOMPLETE", "Usage records are missing; the previous report was preserved")
 		}
 		ids := make(map[int64]bool, len(report.SourceIDs))

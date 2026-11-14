@@ -75,7 +75,7 @@ func TestImageProfitSettlementWritesIncompleteSnapshotWithoutPrices(t *testing.T
 	m.ExpectExec("SELECT pg_advisory_xact_lock").WillReturnResult(sqlmock.NewResult(0, 1))
 	m.ExpectQuery("SELECT id,result FROM image_profit_reports").WillReturnError(sql.ErrNoRows)
 	m.ExpectQuery("SELECT p.id").WillReturnRows(sqlmock.NewRows([]string{"id", "scope_type", "scope_id", "model", "resolution", "price", "effective", "note", "actor", "created"}))
-	m.ExpectQuery("SELECT u.id,u.account_id").WithArgs(day, day.AddDate(0, 0, 1)).WillReturnRows(sqlmock.NewRows([]string{"id", "account", "channel", "account_name", "channel_name", "model", "size", "count", "breakdown", "revenue", "created"}).AddRow(91, 1, 2, "account", "channel", "gemini-nano-banana-2.1", "1K", 2, []byte(`{"1K":2}`), "0.8", day.Add(time.Hour)))
+	m.ExpectQuery("SELECT u.id,u.account_id").WithArgs(day, day.AddDate(0, 0, 1)).WillReturnRows(sqlmock.NewRows([]string{"id", "account", "channel", "account_name", "channel_name", "model", "size", "count", "breakdown", "revenue", "created", "loss", "corrected", "excluded"}).AddRow(91, 1, 2, "account", "channel", "gemini-nano-banana-2.1", "1K", 2, []byte(`{"1K":2}`), "0.8", day.Add(time.Hour), false, false, false))
 	m.ExpectQuery("SELECT MIN\\(created_at\\) FROM usage_logs").WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(day.AddDate(0, 0, -1)))
 	m.ExpectQuery("INSERT INTO image_profit_reports").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 	m.ExpectCommit()
@@ -108,9 +108,16 @@ func TestImageProfitSettlementRejectsReplacedSourceIDs(t *testing.T) {
 	m.ExpectExec("SELECT pg_advisory_xact_lock").WillReturnResult(sqlmock.NewResult(0, 1))
 	m.ExpectQuery("SELECT id,result FROM image_profit_reports").WillReturnRows(sqlmock.NewRows([]string{"id", "result"}).AddRow(1, old))
 	m.ExpectQuery("SELECT p.id").WillReturnRows(sqlmock.NewRows([]string{"id", "scope_type", "scope_id", "model", "resolution", "price", "effective", "note", "actor", "created"}))
-	m.ExpectQuery("SELECT u.id,u.account_id").WillReturnRows(sqlmock.NewRows([]string{"id", "account", "channel", "account_name", "channel_name", "model", "size", "count", "breakdown", "revenue", "created"}).AddRow(91, 1, 2, "account", "channel", "gemini-nano-banana-2.1", "1K", 2, []byte(`{"1K":2}`), "0.8", day.Add(time.Hour)))
+	m.ExpectQuery("SELECT u.id,u.account_id").WillReturnRows(sqlmock.NewRows([]string{"id", "account", "channel", "account_name", "channel_name", "model", "size", "count", "breakdown", "revenue", "created", "loss", "corrected", "excluded"}).AddRow(91, 1, 2, "account", "channel", "gemini-nano-banana-2.1", "1K", 2, []byte(`{"1K":2}`), "0.8", day.Add(time.Hour), false, false, false))
 	m.ExpectRollback()
 	_, err := r.Settle(context.Background(), day, "correct cost", 1, true)
 	require.ErrorContains(t, err, "previous report was preserved")
 	require.NoError(t, m.ExpectationsWereMet())
+}
+
+func TestImageProfitHistoricalReportDoesNotInventZeroLoss(t *testing.T) {
+	report, err := decodeProfitReport(1, []byte(`{"revenue_usd":"1","known_cost_usd":"0.2","lines":[{"revenue_usd":"1"}]}`))
+	require.NoError(t, err)
+	require.Nil(t, report.AbnormalLoss)
+	require.Nil(t, report.Lines[0].AbnormalLoss)
 }

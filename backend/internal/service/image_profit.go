@@ -31,19 +31,22 @@ type ImageProcurementPrice struct {
 }
 
 type ImageProfitUsage struct {
-	ID                                          int64
-	AccountID, ChannelID                        int64
-	AccountName, ChannelName, Model, Resolution string
-	ImageCount                                  int
-	Breakdown                                   map[string]int
-	Revenue                                     decimal.Decimal
-	CreatedAt                                   time.Time
+	ID                                           int64
+	AccountID, ChannelID                         int64
+	AccountName, ChannelName, Model, Resolution  string
+	ImageCount                                   int
+	Breakdown                                    map[string]int
+	Revenue                                      decimal.Decimal
+	CreatedAt                                    time.Time
+	ConfirmedLoss, CountCorrected, ExcludedAdmin bool
 }
 
 type ImageProfitCost struct {
 	Resolution    string           `json:"resolution"`
 	ImageCount    int              `json:"image_count"`
 	PriceID       int64            `json:"price_id"`
+	PriceIDs      []int64          `json:"price_ids,omitempty"`
+	AbnormalLoss  bool             `json:"abnormal_loss,omitempty"`
 	UnitPrice     *decimal.Decimal `json:"unit_price_usd"`
 	Cost          *decimal.Decimal `json:"cost_usd"`
 	MissingReason string           `json:"missing_reason,omitempty"`
@@ -59,28 +62,35 @@ type ImageProfitLine struct {
 	ImageCount   int                `json:"image_count"`
 	Revenue      decimal.Decimal    `json:"revenue_usd"`
 	KnownCost    decimal.Decimal    `json:"known_cost_usd"`
+	AbnormalLoss *decimal.Decimal   `json:"abnormal_loss_usd,omitempty"`
+	LossRequests int                `json:"abnormal_loss_requests"`
 	MissingCount int                `json:"missing_count"`
 	Profit       *decimal.Decimal   `json:"profit_usd"`
 	Costs        []*ImageProfitCost `json:"costs"`
 }
 
 type ImageProfitReport struct {
-	SourceIDs        []int64            `json:"source_ids,omitempty"`
-	SourceIncomplete bool               `json:"source_incomplete"`
-	ID               int64              `json:"id"`
-	Date             string             `json:"date"`
-	Revision         int                `json:"revision"`
-	Status           string             `json:"status"`
-	RequestCount     int                `json:"request_count"`
-	ImageCount       int                `json:"image_count"`
-	Revenue          decimal.Decimal    `json:"revenue_usd"`
-	KnownCost        decimal.Decimal    `json:"known_cost_usd"`
-	MissingCount     int                `json:"missing_count"`
-	Profit           *decimal.Decimal   `json:"profit_usd"`
-	Reason           string             `json:"reason"`
-	CreatedBy        int64              `json:"created_by"`
-	CreatedAt        time.Time          `json:"created_at"`
-	Lines            []*ImageProfitLine `json:"lines,omitempty"`
+	SourceIDs             []int64            `json:"source_ids,omitempty"`
+	SourceCount           int                `json:"source_count"`
+	ExcludedAdminRequests int                `json:"excluded_admin_requests"`
+	CountCorrections      int                `json:"count_corrections"`
+	SourceIncomplete      bool               `json:"source_incomplete"`
+	ID                    int64              `json:"id"`
+	Date                  string             `json:"date"`
+	Revision              int                `json:"revision"`
+	Status                string             `json:"status"`
+	RequestCount          int                `json:"request_count"`
+	ImageCount            int                `json:"image_count"`
+	Revenue               decimal.Decimal    `json:"revenue_usd"`
+	KnownCost             decimal.Decimal    `json:"known_cost_usd"`
+	AbnormalLoss          *decimal.Decimal   `json:"abnormal_loss_usd,omitempty"`
+	LossRequests          int                `json:"abnormal_loss_requests"`
+	MissingCount          int                `json:"missing_count"`
+	Profit                *decimal.Decimal   `json:"profit_usd"`
+	Reason                string             `json:"reason"`
+	CreatedBy             int64              `json:"created_by"`
+	CreatedAt             time.Time          `json:"created_at"`
+	Lines                 []*ImageProfitLine `json:"lines,omitempty"`
 }
 
 type ImageProfitRepository interface {
@@ -99,10 +109,11 @@ func normalizeProfitModel(model string) string {
 // Match a call's immutable dimensions against the price effective at that call.
 // Account overrides win even when the channel default was updated more recently.
 type ImageProfitCalculator struct {
-	sourceIDs []int64
-	rules     map[string][]ImageProcurementPrice
-	lines     map[string]*ImageProfitLine
-	costs     map[string]map[string]*ImageProfitCost
+	sourceIDs                                            []int64
+	sourceCount, excludedAdminRequests, countCorrections int
+	rules                                                map[string][]ImageProcurementPrice
+	lines                                                map[string]*ImageProfitLine
+	costs                                                map[string]map[string]*ImageProfitCost
 }
 
 func NewImageProfitCalculator(prices []ImageProcurementPrice) *ImageProfitCalculator {
@@ -137,6 +148,25 @@ func (c *ImageProfitCalculator) price(u ImageProfitUsage, resolution string) *Im
 	return nil
 }
 
+// A manually confirmed count does not establish a resolution. Only identical
+// effective prices in every supported tier make the cost unambiguous. Keep all
+// three price IDs so the report explains why no resolution was invented.
+func (c *ImageProfitCalculator) uniformPrice(u ImageProfitUsage) (*ImageProcurementPrice, []int64) {
+	var first *ImageProcurementPrice
+	ids := make([]int64, 0, 3)
+	for _, size := range []string{"1K", "2K", "4K"} {
+		p := c.price(u, size)
+		if p == nil || (first != nil && !first.UnitPrice.Equal(p.UnitPrice)) {
+			return nil, nil
+		}
+		if first == nil {
+			first = p
+		}
+		ids = append(ids, p.ID)
+	}
+	return first, ids
+}
+
 func profitImageSizes(u ImageProfitUsage) (map[string]int, string) {
 	if u.ImageCount <= 0 {
 		return nil, "unknown_image_count"
@@ -162,14 +192,23 @@ func profitImageSizes(u ImageProfitUsage) (map[string]int, string) {
 }
 
 func (c *ImageProfitCalculator) Add(u ImageProfitUsage) {
+	c.sourceCount++
 	if u.ID > 0 {
 		c.sourceIDs = append(c.sourceIDs, u.ID)
+	}
+	if u.ExcludedAdmin {
+		c.excludedAdminRequests++
+		return
+	}
+	if u.CountCorrected {
+		c.countCorrections++
 	}
 	u.Model = normalizeProfitModel(u.Model)
 	key := fmt.Sprintf("%d:%d:%s", u.AccountID, u.ChannelID, u.Model)
 	line := c.lines[key]
 	if line == nil {
-		line = &ImageProfitLine{AccountID: u.AccountID, ChannelID: u.ChannelID, AccountName: u.AccountName, ChannelName: u.ChannelName, Model: u.Model, Costs: []*ImageProfitCost{}}
+		zero := decimal.Zero
+		line = &ImageProfitLine{AccountID: u.AccountID, ChannelID: u.ChannelID, AccountName: u.AccountName, ChannelName: u.ChannelName, Model: u.Model, Costs: []*ImageProfitCost{}, AbnormalLoss: &zero}
 		c.lines[key] = line
 		c.costs[key] = map[string]*ImageProfitCost{}
 	}
@@ -177,10 +216,24 @@ func (c *ImageProfitCalculator) Add(u ImageProfitUsage) {
 	line.ImageCount += max(u.ImageCount, 0)
 	line.Revenue = line.Revenue.Add(u.Revenue.Round(UsageBillingMonetaryScale))
 	sizes, missing := profitImageSizes(u)
-	// Historical usage rows cannot distinguish free output from failed billing.
-	// Do not invent procurement charges or a complete profit for those rows.
-	if !u.Revenue.IsPositive() {
+	var uniform *ImageProcurementPrice
+	var uniformIDs []int64
+	if missing == "unknown_resolution" && u.CountCorrected {
+		uniform, uniformIDs = c.uniformPrice(u)
+		if uniform != nil {
+			sizes, missing = map[string]int{"all_tiers": u.ImageCount}, ""
+		}
+	}
+	isLoss := u.ConfirmedLoss && u.Revenue.IsZero()
+	// Only explicitly reviewed zero-charge rows may become procurement losses.
+	if !u.Revenue.IsPositive() && !isLoss {
 		missing = "unconfirmed_charge"
+	}
+	if u.ConfirmedLoss && !u.Revenue.IsZero() {
+		missing = "loss_confirmation_conflict"
+	}
+	if isLoss {
+		line.LossRequests++
 	}
 	if missing != "" {
 		sizes = map[string]int{"unknown": max(u.ImageCount, 0)}
@@ -188,18 +241,22 @@ func (c *ImageProfitCalculator) Add(u ImageProfitUsage) {
 	missingCall := false
 	for size, count := range sizes {
 		price := c.price(u, size)
+		var priceIDs []int64
+		if size == "all_tiers" {
+			price, priceIDs = uniform, uniformIDs
+		}
 		reason := missing
 		if reason == "" && price == nil {
 			reason = "missing_price"
 		}
 		priceID := int64(0)
-		if reason == "" {
+		if reason == "" && size != "all_tiers" {
 			priceID = price.ID
 		}
-		costKey := fmt.Sprintf("%s:%d:%s", size, priceID, reason)
+		costKey := fmt.Sprintf("%s:%d:%v:%s:%t", size, priceID, priceIDs, reason, isLoss)
 		cost := c.costs[key][costKey]
 		if cost == nil {
-			cost = &ImageProfitCost{Resolution: size, PriceID: priceID, MissingReason: reason}
+			cost = &ImageProfitCost{Resolution: size, PriceID: priceID, PriceIDs: priceIDs, MissingReason: reason, AbnormalLoss: isLoss}
 			c.costs[key][costKey] = cost
 			line.Costs = append(line.Costs, cost)
 			if reason == "" {
@@ -218,6 +275,10 @@ func (c *ImageProfitCalculator) Add(u ImageProfitUsage) {
 		total := cost.Cost.Add(amount)
 		cost.Cost = &total
 		line.KnownCost = line.KnownCost.Add(amount)
+		if isLoss {
+			loss := line.AbnormalLoss.Add(amount)
+			line.AbnormalLoss = &loss
+		}
 	}
 	if missingCall {
 		line.MissingCount++
@@ -225,12 +286,16 @@ func (c *ImageProfitCalculator) Add(u ImageProfitUsage) {
 }
 
 func (c *ImageProfitCalculator) Report() ImageProfitReport {
-	r := ImageProfitReport{Status: "complete", Lines: []*ImageProfitLine{}, SourceIDs: c.sourceIDs}
+	zero := decimal.Zero
+	r := ImageProfitReport{Status: "complete", Lines: []*ImageProfitLine{}, SourceIDs: c.sourceIDs, SourceCount: c.sourceCount, ExcludedAdminRequests: c.excludedAdminRequests, CountCorrections: c.countCorrections, AbnormalLoss: &zero}
 	for _, line := range c.lines {
 		r.RequestCount += line.RequestCount
 		r.ImageCount += line.ImageCount
 		r.Revenue = r.Revenue.Add(line.Revenue)
 		r.KnownCost = r.KnownCost.Add(line.KnownCost)
+		loss := r.AbnormalLoss.Add(*line.AbnormalLoss)
+		r.AbnormalLoss = &loss
+		r.LossRequests += line.LossRequests
 		r.MissingCount += line.MissingCount
 		if line.MissingCount == 0 {
 			profit := line.Revenue.Sub(line.KnownCost)
@@ -241,7 +306,10 @@ func (c *ImageProfitCalculator) Report() ImageProfitReport {
 			if a.Resolution != b.Resolution {
 				return a.Resolution < b.Resolution
 			}
-			return a.PriceID < b.PriceID
+			if a.PriceID != b.PriceID {
+				return a.PriceID < b.PriceID
+			}
+			return fmt.Sprintf("%v:%s:%t", a.PriceIDs, a.MissingReason, a.AbnormalLoss) < fmt.Sprintf("%v:%s:%t", b.PriceIDs, b.MissingReason, b.AbnormalLoss)
 		})
 		r.Lines = append(r.Lines, line)
 	}

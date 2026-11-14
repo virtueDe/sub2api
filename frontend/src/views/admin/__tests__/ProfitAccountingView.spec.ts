@@ -14,7 +14,7 @@ const mountPage = () => shallowMount(ProfitAccountingView, {
   global: { stubs: {
     AppLayout: { template: '<div><slot /></div>' },
     BaseDialog: { props: ['show'], template: '<div v-if="show"><slot /><slot name="footer" /></div>' },
-    DataTable: { props: ['data'], template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-status" :row="row" /><slot name="cell-profit_usd" :row="row" /><slot name="cell-actions" :row="row" /></div></div>' }
+    DataTable: { props: ['data', 'columns'], template: '<div><div v-for="column in columns" :key="column.key">{{ column.label }}</div><div v-for="row in data" :key="row.id"><slot name="cell-status" :row="row" /><span data-loss><slot name="cell-abnormal_loss_usd" :row="row" /></span><slot name="cell-profit_usd" :row="row" /><slot name="cell-actions" :row="row" /></div></div>' }
   } }
 })
 
@@ -39,6 +39,32 @@ describe('ProfitAccountingView', () => {
     api.reports.mockRejectedValue(new Error('Unavailable'))
     const page = mountPage(); await flushPromises()
     expect(page.find('[role="alert"]').exists()).toBe(true)
+  })
+
+  it('shows loss separately without subtracting it from server profit and preserves old revisions', async () => {
+    const latest = { id: 2, date: '2026-11-09', revision: 2, status: 'complete', revenue_usd: '10', known_cost_usd: '4', abnormal_loss_usd: '1', abnormal_loss_requests: 2, profit_usd: '6', image_count: 3, created_at: '2026-11-14T07:00:00+08:00', lines: [{ account_id: 1, channel_id: 0, model: 'image', image_count: 3, revenue_usd: '10', abnormal_loss_usd: '1', profit_usd: '6', costs: [{ resolution: 'all_tiers', image_count: 1, price_id: 0, price_ids: [1, 2, 3], unit_price_usd: '1', cost_usd: '1', abnormal_loss: true }] }] }
+    const old = { ...latest, id: 1, revision: 1, abnormal_loss_usd: undefined, abnormal_loss_requests: undefined, lines: [] }
+    api.reports.mockResolvedValue([latest, old])
+    api.report.mockImplementation((id: number) => Promise.resolve(id === 2 ? latest : old))
+    const page = mountPage(); await flushPromises()
+    expect(page.text()).toContain('admin.profitAccounting.abnormalLoss')
+    expect(page.findAll('[data-loss]')[0]!.text()).toContain('$1.00')
+    expect(page.findAll('[data-loss]')[1]!.text()).toBe('—')
+    expect(page.text()).toContain('$6.00')
+    expect(page.text()).not.toContain('$5.00')
+    await page.findAll('button').find(b => b.text() === 'admin.profitAccounting.detail')!.trigger('click'); await flushPromises()
+    expect(page.find('dl').text()).toContain('$1.00')
+    expect(page.find('details').text()).toContain('admin.profitAccounting.allTiers')
+    expect(page.find('details').text()).toContain('#1, #2, #3')
+    await page.findAll('button').find(b => b.text() === 'v1')!.trigger('click'); await flushPromises()
+    expect(page.find('dl').text()).toContain('—')
+    expect(page.find('dl').text()).not.toContain('$1.00')
+  })
+
+  it('displays a calculated zero loss as zero', async () => {
+    api.reports.mockResolvedValue([{ id: 1, status: 'complete', abnormal_loss_usd: '0', profit_usd: '1' }])
+    const page = mountPage(); await flushPromises()
+    expect(page.find('[data-loss]').text()).toBe('$0.00')
   })
 
   it('submits the date and reason for explicit recalculation', async () => {

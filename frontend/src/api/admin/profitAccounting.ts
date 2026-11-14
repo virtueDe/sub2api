@@ -18,6 +18,8 @@ export interface ProfitCost {
   resolution: string
   image_count: number
   price_id: number
+  price_ids?: number[]
+  abnormal_loss?: boolean
   unit_price_usd: string | null
   cost_usd: string | null
   missing_reason?: string
@@ -32,12 +34,17 @@ export interface ProfitLine {
   image_count: number
   revenue_usd: string
   known_cost_usd: string
+  abnormal_loss_usd?: string | null
+  abnormal_loss_requests?: number
   missing_count: number
   profit_usd: string | null
   costs: ProfitCost[]
 }
 export interface ProfitReport {
   source_incomplete: boolean
+  source_count?: number
+  excluded_admin_requests?: number
+  count_corrections?: number
   id: number
   date: string
   revision: number
@@ -46,6 +53,8 @@ export interface ProfitReport {
   image_count: number
   revenue_usd: string
   known_cost_usd: string
+  abnormal_loss_usd?: string | null
+  abnormal_loss_requests?: number
   missing_count: number
   profit_usd: string | null
   reason: string
