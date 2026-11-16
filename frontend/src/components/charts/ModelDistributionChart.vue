@@ -99,6 +99,9 @@
     <div v-if="activeView === 'model_distribution' && loading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
     </div>
+    <div v-else-if="activeView === 'model_distribution' && error" role="alert" class="flex h-48 items-center justify-center text-sm text-red-600 dark:text-red-400">
+      {{ t('admin.dashboard.failedToLoad') }}
+    </div>
     <div
       v-else-if="activeView === 'model_distribution' && displayModelStats.length > 0 && chartData"
       class="flex flex-col items-center gap-4 sm:flex-row sm:gap-6"
@@ -270,6 +273,7 @@ const props = withDefaults(defineProps<{
   rankingTotalRequests?: number
   rankingTotalTokens?: number
   loading?: boolean
+  error?: boolean
   metric?: DistributionMetric
   showSourceToggle?: boolean
   showMetricToggle?: boolean

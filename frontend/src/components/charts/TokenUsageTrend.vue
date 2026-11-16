@@ -6,6 +6,9 @@
     <div v-if="loading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
     </div>
+    <div v-else-if="error" role="alert" class="flex h-48 items-center justify-center text-sm text-red-600 dark:text-red-400">
+      {{ t('admin.dashboard.failedToLoad') }}
+    </div>
     <div v-else-if="trendData.length > 0 && chartData" class="h-48">
       <Line :data="chartData" :options="lineOptions" />
     </div>
@@ -52,6 +55,7 @@ const { t } = useI18n()
 const props = defineProps<{
   trendData: TrendDataPoint[]
   loading?: boolean
+  error?: boolean
 }>()
 
 const isDarkMode = computed(() => {

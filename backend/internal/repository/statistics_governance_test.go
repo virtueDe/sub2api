@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,6 +12,29 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+func TestProfitSettlementDoesNotQueueBehindMaintenanceOrTakeReadSlot(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	budget := dbstats.NewBudget(2)
+	profit := &governedImageProfitRepository{maintenance: &imageProfitRepository{db: db}, budget: budget}
+	err = dbstats.RunMaintenance(context.Background(), budget, func(ctx context.Context) error {
+		report, e := profit.Settle(ctx, time.Now(), "scheduled", 0, false)
+		require.ErrorIs(t, e, dbstats.ErrBusy, "must reject before opening a transaction")
+		require.Nil(t, report)
+		_, e = dbstats.Run(ctx, budget, time.Second, func(context.Context) (int, error) { return 1, nil })
+		require.NoError(t, e, "ordinary statistics must retain their available slot")
+		return nil
+	})
+	require.NoError(t, err)
+	beginErr := errors.New("transaction unavailable")
+	mock.ExpectBegin().WillReturnError(beginErr)
+	_, err = profit.Settle(context.Background(), time.Now(), "scheduled", 0, false)
+	require.ErrorIs(t, err, beginErr, "admission must reopen after maintenance")
+	require.NoError(t, dbstats.RunMaintenance(context.Background(), budget, func(context.Context) error { return nil }), "failed settlement must release maintenance admission")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
 
 func TestStatisticsRepositoriesShareAdmissionBeforeAnySQL(t *testing.T) {
 	budget := dbstats.NewBudget(1)

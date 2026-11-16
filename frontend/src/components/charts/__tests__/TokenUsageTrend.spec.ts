@@ -26,6 +26,14 @@ vi.mock('vue-chartjs', () => ({
 }))
 
 describe('TokenUsageTrend', () => {
+  it('distinguishes failed loading from an empty successful result', async () => {
+    const wrapper = mount(TokenUsageTrend, { props: { trendData: [], error: true } })
+    expect(wrapper.find('[role="alert"]').text()).toBe('admin.dashboard.failedToLoad')
+    expect(wrapper.text()).not.toContain('No data available')
+    await wrapper.setProps({ error: false })
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('No data available')
+  })
   it('calculates cache hit rate against all prompt tokens', () => {
     const wrapper = mount(TokenUsageTrend, {
       props: {

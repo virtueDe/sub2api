@@ -3,10 +3,12 @@ package admin
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/dbstats"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
@@ -15,7 +17,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// DashboardHandler handles admin dashboard statistics
+// Expected admission rejections are retryable and do not represent a server fault.
+func respondDashboardError(c *gin.Context, err error) {
+	if errors.Is(err, dbstats.ErrBusy) {
+		c.Header("Retry-After", "1")
+		response.ErrorWithDetails(c, http.StatusServiceUnavailable, dbstats.ErrBusy.Message, dbstats.ErrBusy.Reason, nil)
+		return
+	}
+	response.ErrorFrom(c, err)
+}
+
+// DashboardHandler handles admin dashboard statistics.
 type DashboardHandler struct {
 	dashboardService   *service.DashboardService
 	aggregationService *service.DashboardAggregationService
@@ -81,7 +93,7 @@ func parseOptionalBoolDashboardFilter(c *gin.Context, name string) (*bool, error
 func (h *DashboardHandler) GetStats(c *gin.Context) {
 	stats, err := h.dashboardService.GetDashboardStats(c.Request.Context())
 	if err != nil {
-		response.Error(c, 500, "Failed to get dashboard statistics")
+		respondDashboardError(c, err)
 		return
 	}
 
@@ -275,7 +287,7 @@ func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 
 	trend, hit, err := h.getUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
 	if err != nil {
-		response.Error(c, 500, "Failed to get usage trend")
+		respondDashboardError(c, err)
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -367,7 +379,7 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 
 	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
 	if err != nil {
-		response.Error(c, 500, "Failed to get model statistics")
+		respondDashboardError(c, err)
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -449,7 +461,7 @@ func (h *DashboardHandler) GetGroupStats(c *gin.Context) {
 
 	stats, hit, err := h.getGroupStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
 	if err != nil {
-		response.Error(c, 500, "Failed to get group statistics")
+		respondDashboardError(c, err)
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -475,7 +487,7 @@ func (h *DashboardHandler) GetAPIKeyUsageTrend(c *gin.Context) {
 
 	trend, hit, err := h.getAPIKeyUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, limit)
 	if err != nil {
-		response.Error(c, 500, "Failed to get API key usage trend")
+		respondDashboardError(c, err)
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -506,7 +518,7 @@ func (h *DashboardHandler) GetUserUsageTrend(c *gin.Context) {
 	}
 	trend, hit, err := h.getUserUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, limit, metric)
 	if err != nil {
-		response.Error(c, 500, "Failed to get user usage trend")
+		respondDashboardError(c, err)
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -555,29 +567,26 @@ func (h *DashboardHandler) GetUserSpendingRanking(c *gin.Context) {
 		Limit: limit,
 	})
 	cacheKey := string(keyRaw)
-	if cached, ok := dashboardUsersRankingCache.Get(cacheKey); ok {
-		c.Header("X-Snapshot-Cache", "hit")
-		response.Success(c, cached.Payload)
-		return
-	}
-
-	ranking, err := h.dashboardService.GetUserSpendingRanking(c.Request.Context(), startTime, endTime, limit)
+	cached, hit, err := dashboardUsersRankingCache.GetOrLoad(cacheKey, func() (any, error) {
+		ranking, err := h.dashboardService.GetUserSpendingRanking(c.Request.Context(), startTime, endTime, limit)
+		if err != nil {
+			return nil, err
+		}
+		return gin.H{
+			"ranking":           ranking.Ranking,
+			"total_actual_cost": ranking.TotalActualCost,
+			"total_requests":    ranking.TotalRequests,
+			"total_tokens":      ranking.TotalTokens,
+			"start_date":        startTime.Format("2006-01-02"),
+			"end_date":          endTime.Add(-24 * time.Hour).Format("2006-01-02"),
+		}, nil
+	})
 	if err != nil {
-		response.Error(c, 500, "Failed to get user spending ranking")
+		respondDashboardError(c, err)
 		return
 	}
-
-	payload := gin.H{
-		"ranking":           ranking.Ranking,
-		"total_actual_cost": ranking.TotalActualCost,
-		"total_requests":    ranking.TotalRequests,
-		"total_tokens":      ranking.TotalTokens,
-		"start_date":        startTime.Format("2006-01-02"),
-		"end_date":          endTime.Add(-24 * time.Hour).Format("2006-01-02"),
-	}
-	dashboardUsersRankingCache.Set(cacheKey, payload)
-	c.Header("X-Snapshot-Cache", "miss")
-	response.Success(c, payload)
+	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
+	response.Success(c, cached.Payload)
 }
 
 // GetBatchUsersUsage handles getting usage stats for multiple users
@@ -614,7 +623,7 @@ func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 
 	stats, err := h.dashboardService.GetBatchUserUsageStats(c.Request.Context(), userIDs, time.Time{}, time.Time{})
 	if err != nil {
-		response.Error(c, 500, "Failed to get user usage stats")
+		respondDashboardError(c, err)
 		return
 	}
 
@@ -658,7 +667,7 @@ func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
 
 	stats, err := h.dashboardService.GetBatchAPIKeyUsageStats(c.Request.Context(), apiKeyIDs, time.Time{}, time.Time{})
 	if err != nil {
-		response.Error(c, 500, "Failed to get API key usage stats")
+		respondDashboardError(c, err)
 		return
 	}
 
@@ -749,7 +758,7 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 		c.Request.Context(), startTime, endTime, dim, limit,
 	)
 	if err != nil {
-		response.Error(c, 500, "Failed to get user breakdown stats")
+		respondDashboardError(c, err)
 		return
 	}
 

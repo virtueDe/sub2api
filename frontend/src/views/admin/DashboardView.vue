@@ -6,7 +6,11 @@
         <LoadingSpinner />
       </div>
 
-      <template v-else-if="stats">
+      <div v-if="snapshotError" role="alert" class="card p-4 text-sm text-red-600 dark:text-red-400">
+        {{ t('admin.dashboard.failedToLoad') }}
+      </div>
+
+      <template v-if="stats">
         <!-- Row 1: Core Stats -->
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- Total API Keys -->
@@ -215,140 +219,144 @@
             </div>
           </div>
         </div>
+      </template>
 
-        <!-- Quick Actions -->
-        <div class="card p-4">
-          <div class="mb-3 flex items-center justify-between">
-            <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
-              {{ t('admin.dashboard.quickActions') }}
-            </h2>
-          </div>
-          <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <button
-              v-if="canUseBatchImage"
-              type="button"
-              class="group flex items-center gap-3 rounded-lg bg-gray-50 p-3 text-left transition-colors hover:bg-sky-50 dark:bg-dark-800/50 dark:hover:bg-sky-900/20"
-              @click="router.push('/batch-image')"
-            >
-              <span class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400">
-                <Icon name="sparkles" size="md" :stroke-width="2" />
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('admin.dashboard.batchImage') }}
-                </span>
-                <span class="block text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.batchImageDesc') }}
-                </span>
-              </span>
-              <Icon name="chevronRight" size="sm" class="text-gray-400 group-hover:text-sky-500" />
-            </button>
-            <button
-              type="button"
-              class="group flex items-center gap-3 rounded-lg bg-gray-50 p-3 text-left transition-colors hover:bg-emerald-50 dark:bg-dark-800/50 dark:hover:bg-emerald-900/20"
-              @click="router.push('/admin/groups')"
-            >
-              <span class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
-                <Icon name="grid" size="md" :stroke-width="2" />
-              </span>
-              <span class="min-w-0 flex-1">
-                <span class="block text-sm font-medium text-gray-900 dark:text-white">
-                  {{ t('admin.dashboard.groupPricing') }}
-                </span>
-                <span class="block text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.groupPricingDesc') }}
-                </span>
-              </span>
-              <Icon name="chevronRight" size="sm" class="text-gray-400 group-hover:text-emerald-500" />
-            </button>
-          </div>
+      <!-- Quick Actions -->
+      <div class="card p-4">
+        <div class="mb-3 flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-gray-900 dark:text-white">
+            {{ t('admin.dashboard.quickActions') }}
+          </h2>
         </div>
+        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <button
+            v-if="canUseBatchImage"
+            type="button"
+            class="group flex items-center gap-3 rounded-lg bg-gray-50 p-3 text-left transition-colors hover:bg-sky-50 dark:bg-dark-800/50 dark:hover:bg-sky-900/20"
+            @click="router.push('/batch-image')"
+          >
+            <span class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-sky-100 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400">
+              <Icon name="sparkles" size="md" :stroke-width="2" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                {{ t('admin.dashboard.batchImage') }}
+              </span>
+              <span class="block text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.batchImageDesc') }}
+              </span>
+            </span>
+            <Icon name="chevronRight" size="sm" class="text-gray-400 group-hover:text-sky-500" />
+          </button>
+          <button
+            type="button"
+            class="group flex items-center gap-3 rounded-lg bg-gray-50 p-3 text-left transition-colors hover:bg-emerald-50 dark:bg-dark-800/50 dark:hover:bg-emerald-900/20"
+            @click="router.push('/admin/groups')"
+          >
+            <span class="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400">
+              <Icon name="grid" size="md" :stroke-width="2" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                {{ t('admin.dashboard.groupPricing') }}
+              </span>
+              <span class="block text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.dashboard.groupPricingDesc') }}
+              </span>
+            </span>
+            <Icon name="chevronRight" size="sm" class="text-gray-400 group-hover:text-emerald-500" />
+          </button>
+        </div>
+      </div>
 
-        <!-- Charts Section -->
-        <div class="space-y-6">
-          <!-- Date Range Filter -->
-          <div class="card p-4">
-            <div class="flex flex-wrap items-center gap-4">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >{{ t('admin.dashboard.timeRange') }}:</span
-                >
-                <DateRangePicker
-                  v-model:start-date="startDate"
-                  v-model:end-date="endDate"
-                  @change="onDateRangeChange"
+      <!-- Charts Section -->
+      <div class="space-y-6">
+        <!-- Date Range Filter -->
+        <div class="card p-4">
+          <div class="flex flex-wrap items-center gap-4">
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                >{{ t('admin.dashboard.timeRange') }}:</span
+              >
+              <DateRangePicker
+                v-model:start-date="startDate"
+                v-model:end-date="endDate"
+                @change="onDateRangeChange"
+              />
+            </div>
+            <button @click="loadDashboardStats" :disabled="chartsLoading || userTrendLoading || rankingLoading" class="btn btn-secondary">
+              {{ t('common.refresh') }}
+            </button>
+            <div class="ml-auto flex items-center gap-2">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                >{{ t('admin.dashboard.granularity') }}:</span
+              >
+              <div class="w-28">
+                <Select
+                  v-model="granularity"
+                  :options="granularityOptions"
+                  @change="loadChartData"
                 />
               </div>
-              <button @click="loadDashboardStats" :disabled="chartsLoading" class="btn btn-secondary">
-                {{ t('common.refresh') }}
-              </button>
-              <div class="ml-auto flex items-center gap-2">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >{{ t('admin.dashboard.granularity') }}:</span
-                >
-                <div class="w-28">
-                  <Select
-                    v-model="granularity"
-                    :options="granularityOptions"
-                    @change="loadChartData"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Charts Grid -->
-          <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <ModelDistributionChart
-              :model-stats="modelStats"
-              :enable-ranking-view="true"
-              :ranking-items="rankingItems"
-              :ranking-total-actual-cost="rankingTotalActualCost"
-              :ranking-total-requests="rankingTotalRequests"
-              :ranking-total-tokens="rankingTotalTokens"
-              :loading="chartsLoading"
-              :ranking-loading="rankingLoading"
-              :ranking-error="rankingError"
-              :start-date="startDate"
-              :end-date="endDate"
-              @ranking-click="goToUserUsage"
-            />
-            <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
-          </div>
-
-          <!-- User Usage Trend (Full Width) -->
-          <div class="card p-4">
-            <div class="mb-4 flex items-center justify-between gap-3">
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.dashboard.recentUsage') }} (Top 12)</h3>
-              <div class="flex gap-1" role="group" :aria-label="t('admin.dashboard.recentUsage')">
-                <button v-for="metric in (['tokens', 'actual_cost'] as const)" :key="metric" type="button"
-                  class="rounded px-2 py-1 text-xs" :class="userTrendMetric === metric ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300'"
-                  :aria-pressed="userTrendMetric === metric" @click="setUserTrendMetric(metric)">
-                  {{ t(metric === 'tokens' ? 'admin.dashboard.tokens' : 'admin.dashboard.actualSpending') }}
-                </button>
-              </div>
-            </div>
-            <div class="h-64">
-              <div v-if="userTrendLoading" class="flex h-full items-center justify-center">
-                <LoadingSpinner size="md" />
-              </div>
-              <Line v-else-if="userTrendChartData" :data="userTrendChartData" :options="lineOptions" />
-              <div
-                v-else
-                class="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400"
-              >
-                {{ t('admin.dashboard.noDataAvailable') }}
-              </div>
             </div>
           </div>
         </div>
-      </template>
+
+        <!-- Charts Grid -->
+        <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <ModelDistributionChart
+            :model-stats="modelStats"
+            :enable-ranking-view="true"
+            :ranking-items="rankingItems"
+            :ranking-total-actual-cost="rankingTotalActualCost"
+            :ranking-total-requests="rankingTotalRequests"
+            :ranking-total-tokens="rankingTotalTokens"
+            :loading="chartsLoading"
+            :error="snapshotError"
+            :ranking-loading="rankingLoading"
+            :ranking-error="rankingError"
+            :start-date="startDate"
+            :end-date="endDate"
+            @ranking-click="goToUserUsage"
+          />
+          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" :error="snapshotError" />
+        </div>
+
+        <!-- User Usage Trend (Full Width) -->
+        <div class="card p-4">
+          <div class="mb-4 flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.dashboard.recentUsage') }} (Top 12)</h3>
+            <div class="flex gap-1" role="group" :aria-label="t('admin.dashboard.recentUsage')">
+              <button v-for="metric in (['tokens', 'actual_cost'] as const)" :key="metric" type="button"
+                class="rounded px-2 py-1 text-xs" :class="userTrendMetric === metric ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300'"
+                :aria-pressed="userTrendMetric === metric" @click="setUserTrendMetric(metric)">
+                {{ t(metric === 'tokens' ? 'admin.dashboard.tokens' : 'admin.dashboard.actualSpending') }}
+              </button>
+            </div>
+          </div>
+          <div class="h-64">
+            <div v-if="userTrendLoading" class="flex h-full items-center justify-center">
+              <LoadingSpinner size="md" />
+            </div>
+            <div v-else-if="userTrendError" role="alert" class="flex h-full items-center justify-center text-sm text-red-600 dark:text-red-400">
+              {{ t('admin.dashboard.failedToLoad') }}
+            </div>
+            <Line v-else-if="userTrendChartData" :data="userTrendChartData" :options="lineOptions" />
+            <div
+              v-else
+              class="flex h-full items-center justify-center text-sm text-gray-500 dark:text-gray-400"
+            >
+              {{ t('admin.dashboard.noDataAvailable') }}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
@@ -403,6 +411,8 @@ const chartsLoading = ref(false)
 const userTrendLoading = ref(false)
 const rankingLoading = ref(false)
 const rankingError = ref(false)
+const snapshotError = ref(false)
+const userTrendError = ref(false)
 
 // Chart data
 const trendData = ref<TrendDataPoint[]>([])
@@ -417,6 +427,38 @@ let chartLoadSeq = 0
 let usersTrendLoadSeq = 0
 let rankingLoadSeq = 0
 const rankingLimit = 12
+
+// Share one lane across refreshes, date changes and metric changes. Superseded
+// queued requests are skipped before they can contend for server admission.
+let statisticsQueue: Promise<unknown> = Promise.resolve()
+let disposed = false
+const loadStatistics = <T,>(isCurrent: () => boolean, load: () => Promise<T>): Promise<T | undefined> => {
+  const current = () => !disposed && isCurrent()
+  const result = statisticsQueue.then(async () => {
+    if (!current()) return
+    try {
+      return await load()
+    } catch (error) {
+      const failure = error as { status?: number; reason?: string; retry_after_seconds?: number }
+      const delay = failure?.retry_after_seconds ?? 1
+      if (failure?.status !== 503 || failure.reason !== 'STATISTICS_BUSY' || delay < 0 || delay > 5 || !current()) {
+        throw error
+      }
+      // One bounded retry for admission contention; other errors remain visible.
+      await new Promise(resolve => setTimeout(resolve, Math.max(1, delay) * 1000))
+      if (current()) return await load()
+    }
+  })
+  statisticsQueue = result.catch(() => undefined)
+  return result
+}
+
+onBeforeUnmount(() => {
+  disposed = true
+  chartLoadSeq++
+  usersTrendLoadSeq++
+  rankingLoadSeq++
+})
 
 // Helper function to format date in local timezone
 const formatLocalDate = (date: Date): string => {
@@ -657,29 +699,36 @@ const onDateRangeChange = (range: {
 // Load data
 const loadDashboardSnapshot = async (includeStats: boolean) => {
   const currentSeq = ++chartLoadSeq
-  if (includeStats && !stats.value) {
+  const needsStats = includeStats || !stats.value
+  if (needsStats) {
+    stats.value = null
     loading.value = true
   }
   chartsLoading.value = true
+  snapshotError.value = false
+  trendData.value = []
+  modelStats.value = []
+  const params = {
+    start_date: startDate.value,
+    end_date: endDate.value,
+    granularity: granularity.value,
+    include_stats: needsStats,
+    include_trend: true,
+    include_model_stats: true,
+    include_group_stats: false,
+    include_users_trend: false
+  }
   try {
-    const response = await adminAPI.dashboard.getSnapshotV2({
-      start_date: startDate.value,
-      end_date: endDate.value,
-      granularity: granularity.value,
-      include_stats: includeStats,
-      include_trend: true,
-      include_model_stats: true,
-      include_group_stats: false,
-      include_users_trend: false
-    })
-    if (currentSeq !== chartLoadSeq) return
-    if (includeStats && response.stats) {
+    const response = await loadStatistics(() => currentSeq === chartLoadSeq, () => adminAPI.dashboard.getSnapshotV2(params))
+    if (!response || currentSeq !== chartLoadSeq) return
+    if (needsStats && response.stats) {
       stats.value = response.stats
     }
     trendData.value = response.trend || []
     modelStats.value = response.models || []
   } catch (error) {
     if (currentSeq !== chartLoadSeq) return
+    snapshotError.value = true
     appStore.showError(t('admin.dashboard.failedToLoad'))
     console.error('Error loading dashboard snapshot:', error)
   } finally {
@@ -700,20 +749,24 @@ const setUserTrendMetric = (metric: 'tokens' | 'actual_cost') => {
 const loadUsersTrend = async () => {
   const currentSeq = ++usersTrendLoadSeq
   userTrendLoading.value = true
+  userTrendError.value = false
+  userTrend.value = []
+  const params = {
+    start_date: startDate.value,
+    end_date: endDate.value,
+    granularity: granularity.value,
+    limit: 12,
+    metric: userTrendMetric.value
+  }
   try {
-    const response = await adminAPI.dashboard.getUserUsageTrend({
-      start_date: startDate.value,
-      end_date: endDate.value,
-      granularity: granularity.value,
-      limit: 12,
-      metric: userTrendMetric.value
-    })
-    if (currentSeq !== usersTrendLoadSeq) return
+    const response = await loadStatistics(() => currentSeq === usersTrendLoadSeq, () => adminAPI.dashboard.getUserUsageTrend(params))
+    if (!response || currentSeq !== usersTrendLoadSeq) return
     userTrend.value = response.trend || []
   } catch (error) {
     if (currentSeq !== usersTrendLoadSeq) return
     console.error('Error loading users trend:', error)
     userTrend.value = []
+    userTrendError.value = true
   } finally {
     if (currentSeq === usersTrendLoadSeq) {
       userTrendLoading.value = false
@@ -725,13 +778,18 @@ const loadUserSpendingRanking = async () => {
   const currentSeq = ++rankingLoadSeq
   rankingLoading.value = true
   rankingError.value = false
+  rankingItems.value = []
+  rankingTotalActualCost.value = 0
+  rankingTotalRequests.value = 0
+  rankingTotalTokens.value = 0
+  const params = {
+    start_date: startDate.value,
+    end_date: endDate.value,
+    limit: rankingLimit
+  }
   try {
-    const response = await adminAPI.dashboard.getUserSpendingRanking({
-      start_date: startDate.value,
-      end_date: endDate.value,
-      limit: rankingLimit
-    })
-    if (currentSeq !== rankingLoadSeq) return
+    const response = await loadStatistics(() => currentSeq === rankingLoadSeq, () => adminAPI.dashboard.getUserSpendingRanking(params))
+    if (!response || currentSeq !== rankingLoadSeq) return
     rankingItems.value = response.ranking || []
     rankingTotalActualCost.value = response.total_actual_cost || 0
     rankingTotalRequests.value = response.total_requests || 0

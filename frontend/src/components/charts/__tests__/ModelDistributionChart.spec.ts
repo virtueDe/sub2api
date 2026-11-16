@@ -48,6 +48,16 @@ vi.mock('vue-chartjs', () => ({
 }))
 
 describe('ModelDistributionChart', () => {
+  it('distinguishes a failed model query from empty data while keeping ranking accessible', async () => {
+    const wrapper = mount(ModelDistributionChart, {
+      props: { modelStats: [], error: true, enableRankingView: true, rankingItems: [] }
+    })
+    expect(wrapper.find('[role="alert"]').text()).toBe('admin.dashboard.failedToLoad')
+    expect(wrapper.text()).not.toContain('No data available')
+    await wrapper.findAll('button').find(button => button.text() === 'User Spending Ranking')!.trigger('click')
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('No data available')
+  })
   const modelStats = [
     {
       model: 'model-a',

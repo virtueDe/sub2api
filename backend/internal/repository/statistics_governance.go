@@ -309,9 +309,13 @@ func (r *governedImageProfitRepository) PendingDates(ctx context.Context, throug
 }
 
 func (r *governedImageProfitRepository) Settle(ctx context.Context, day time.Time, reason string, actor int64, force bool) (*service.ImageProfitReport, error) {
-	return dbstats.Run(ctx, r.budget, dbstats.MaintenanceTimeout, func(ctx context.Context) (*service.ImageProfitReport, error) {
-		return r.maintenanceProfitRepository().Settle(ctx, day, reason, actor, force)
+	var report *service.ImageProfitReport
+	err := dbstats.RunMaintenance(ctx, r.budget, func(ctx context.Context) error {
+		var err error
+		report, err = r.maintenanceProfitRepository().Settle(ctx, day, reason, actor, force)
+		return err
 	})
+	return report, err
 }
 
 func (r *governedUsageLogRepository) GetAPIKeyTotalStats(ctx context.Context, apiKeyID int64) (*UserDashboardStats, error) {
