@@ -53,14 +53,20 @@ func TestStatisticsBatchTimeoutIsLocalAndCoreStaysAvailable(t *testing.T) {
 	require.NoError(t, held.Close())
 }
 
-func isolatedPoolsFixture(t *testing.T) *StatisticsPools {
+func isolatedPoolsFixture(t *testing.T, readCapacity ...int) *StatisticsPools {
 	t.Helper()
+	readConnections := 1
+	if len(readCapacity) > 0 {
+		readConnections = readCapacity[0]
+	}
+	previousBudget := dbstats.Default
+	t.Cleanup(func() { dbstats.Default = previousBudget })
 	u, err := url.Parse(integrationDSN)
 	require.NoError(t, err)
 	port, err := strconv.Atoi(u.Port())
 	require.NoError(t, err)
 	password, _ := u.User.Password()
-	cfg := &config.Config{Timezone: "UTC", Database: config.DatabaseConfig{Host: u.Hostname(), Port: port, User: u.User.Username(), Password: password, DBName: u.Path[1:], SSLMode: "disable", MaxOpenConns: 50, MaxIdleConns: 50, StatisticsIsolationEnabled: true}}
+	cfg := &config.Config{Timezone: "UTC", Database: config.DatabaseConfig{Host: u.Hostname(), Port: port, User: u.User.Username(), Password: password, DBName: u.Path[1:], SSLMode: "disable", MaxOpenConns: 50, MaxIdleConns: 50, StatisticsIsolationEnabled: true, StatisticsReadMaxOpenConns: readConnections}}
 	core, err := sql.Open("postgres", integrationDSN)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = core.Close() })
@@ -70,6 +76,26 @@ func isolatedPoolsFixture(t *testing.T) *StatisticsPools {
 	t.Cleanup(closePools)
 	require.Equal(t, 50, core.Stats().MaxOpenConnections+pools.Read.Stats().MaxOpenConnections+pools.Maintenance.Stats().MaxOpenConnections)
 	return pools
+}
+
+func TestStatisticsTwoReadConnectionsStayBoundedAndIsolated(t *testing.T) {
+	p := isolatedPoolsFixture(t, 2)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	for i := 0; i < 2; i++ {
+		conn, err := p.Read.Conn(ctx)
+		require.NoError(t, err)
+		defer conn.Close()
+		var readOnly, timeout, parallel string
+		require.NoError(t, conn.QueryRowContext(ctx, "SELECT current_setting('default_transaction_read_only'),current_setting('statement_timeout'),current_setting('max_parallel_workers_per_gather')").Scan(&readOnly, &timeout, &parallel))
+		require.Equal(t, []string{"on", "2s", "0"}, []string{readOnly, timeout, parallel})
+	}
+	blocked, stop := context.WithTimeout(ctx, 50*time.Millisecond)
+	defer stop()
+	_, err := p.Read.Conn(blocked)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.NoError(t, p.Core.PingContext(ctx), "read saturation must not consume core connections")
+	require.NoError(t, p.Maintenance.PingContext(ctx))
 }
 func TestStatisticsPoolsSessionLimitsAndCoreIsolation(t *testing.T) {
 	p := isolatedPoolsFixture(t)

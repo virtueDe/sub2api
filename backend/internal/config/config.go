@@ -1652,7 +1652,10 @@ func (d *DatabaseConfig) DurableUsageQuota() bool {
 // DatabaseConfig 数据库连接配置
 // 性能优化：新增连接池参数，避免频繁创建/销毁连接
 type DatabaseConfig struct {
-	StatisticsIsolationEnabled bool   `mapstructure:"statistics_isolation_enabled"`
+	StatisticsIsolationEnabled bool `mapstructure:"statistics_isolation_enabled"`
+	// Isolated read connections and the shared reporting/maintenance concurrency.
+	// Maintenance keeps one connection; all pools stay within MaxOpenConns.
+	StatisticsReadMaxOpenConns int    `mapstructure:"statistics_read_max_open_conns"`
 	DiagnosticsEnabled         bool   `mapstructure:"diagnostics_enabled"`
 	DiagnosticsDirectory       string `mapstructure:"diagnostics_directory"`
 	// Durable Gemini image settlement requires DB-authoritative platform quota.
@@ -1690,6 +1693,21 @@ type DatabaseConfig struct {
 	// UserPlatformQuotaFlushBatchSize: flusher 单批最大条数
 	// 建议 ≤ 6000（单条 UPSERT 原子上限）
 	UserPlatformQuotaFlushBatchSize int `mapstructure:"user_platform_quota_flush_batch_size"`
+}
+
+// ValidateStatisticsPools keeps at least one connection for core work and one
+// for maintenance. It is also used by providers that can bypass Config.Load.
+func (d *DatabaseConfig) ValidateStatisticsPools() error {
+	if !d.StatisticsIsolationEnabled {
+		return nil
+	}
+	if d.StatisticsReadMaxOpenConns < 1 {
+		return fmt.Errorf("database.statistics_read_max_open_conns must be positive with statistics isolation")
+	}
+	if d.MaxOpenConns < 3 || d.StatisticsReadMaxOpenConns > d.MaxOpenConns-2 {
+		return fmt.Errorf("database.max_open_conns must reserve at least one core and one maintenance connection in addition to statistics_read_max_open_conns")
+	}
+	return nil
 }
 
 func (d *DatabaseConfig) DSN() string {
@@ -2362,6 +2380,7 @@ func setDefaults() {
 	viper.SetDefault("database.usage_settlement_enabled", false)
 	viper.SetDefault("database.image_billing_reservation_enabled", false)
 	viper.SetDefault("database.statistics_isolation_enabled", false)
+	viper.SetDefault("database.statistics_read_max_open_conns", 1)
 	viper.SetDefault("database.diagnostics_enabled", false)
 	viper.SetDefault("database.diagnostics_directory", "")
 	viper.SetDefault("database.usage_rollup_read_key_ids", []int64{})
@@ -2866,8 +2885,8 @@ func setEnvReachableDefaults() {
 }
 
 func (c *Config) Validate() error {
-	if c.Database.StatisticsIsolationEnabled && c.Database.MaxOpenConns < 3 {
-		return fmt.Errorf("database.max_open_conns must be >= 3 with statistics isolation")
+	if err := c.Database.ValidateStatisticsPools(); err != nil {
+		return err
 	}
 	if c.Database.DurableUsageQuota() && c.Database.UserPlatformQuotaFlusherEnabled {
 		return fmt.Errorf("database.usage_settlement_enabled requires user_platform_quota_flusher_enabled=false")

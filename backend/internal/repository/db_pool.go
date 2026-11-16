@@ -31,7 +31,7 @@ type dbPoolSettings struct {
 func clampDBPoolSettings(cfg *config.Config) dbPoolSettings {
 	maxOpen, maxIdle := cfg.Database.MaxOpenConns, cfg.Database.MaxIdleConns
 	if cfg.Database.StatisticsIsolationEnabled {
-		maxOpen -= 2
+		maxOpen -= cfg.Database.StatisticsReadMaxOpenConns + 1
 		maxIdle = min(maxIdle, maxOpen)
 	}
 	return dbPoolSettings{

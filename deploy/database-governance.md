@@ -119,17 +119,22 @@ worker 每秒最多领取一项，失败约 30 秒后重试，已有金额的任
 
 ## 第四阶段：物理隔离与故障证据
 
-三个新配置均为启动时读取：
+以下配置均为启动时读取：
 
 | 配置 / 环境变量 | 默认值 | 行为 |
 | --- | --- | --- |
-| `database.statistics_isolation_enabled` / `DATABASE_STATISTICS_ISOLATION_ENABLED` | false | 从原总连接预算划出 1 条统计读取、1 条统计维护 |
+| `database.statistics_isolation_enabled` / `DATABASE_STATISTICS_ISOLATION_ENABLED` | false | 从原总连接预算划出统计读取和 1 条统计维护连接 |
+| `database.statistics_read_max_open_conns` / `DATABASE_STATISTICS_READ_MAX_OPEN_CONNS` | 1 | 隔离开启时的统计读连接数，同时设置读取/维护共享并发上限；必须为正且至少给 core、maintenance 各留 1 条连接 |
 | `database.diagnostics_enabled` / `DATABASE_DIAGNOSTICS_ENABLED` | false | 启用应用内环形采样与故障文件 |
 | `database.diagnostics_directory` / `DATABASE_DIAGNOSTICS_DIRECTORY` | 空 | 使用 `$DATA_DIR/logs/database-pressure`，未设置 DATA_DIR 则为 `data/logs/database-pressure` |
 
-开启隔离时，`max_open_conns=50` 表示 **core 48 + read 1 + maintenance 1**，不是 52。总预算小于 3 拒绝启动。关闭隔离时两个统计入口复用 core，不增加连接。只有显式受治理的统计方法使用统计池；余额、鉴权、账务和写日志仍走 core。统计维护/小时回填/利润结算走 maintenance。已有日志列表及其 COUNT、未覆盖维度仍需按实际热点继续观察。
+开启隔离时，`max_open_conns=50`、默认读取数 1 表示 **core 48 + read 1 + maintenance 1**，不是 52。读取数改为 2 时分配为 **core 47 + read 2 + maintenance 1**，共享重统计并发上限为 2；维护池仍最多 1 条，长批量统计仍串行并保留两秒冷却。总预算不足以容纳读取池、1 条维护连接和至少 1 条 core 连接时拒绝启动。关闭隔离时两个统计入口复用 core，不增加连接，逻辑统计并发仍保持默认 1。只有显式受治理的统计方法使用统计池；余额、鉴权、账务和写日志仍走 core。统计维护/小时回填/利润结算走 maintenance。已有日志列表及其 COUNT、未覆盖维度仍需按实际热点继续观察。
 
-每条新 read 连接设置只读、`statement_timeout=2s`、`max_parallel_workers_per_gather=0`；maintenance 设置 `statement_timeout=30s`、并行 worker 为 0。两池均最多 1 条连接、连接建立超时 2 秒，仍受进程共享统计 gate 控制。单条慢统计不能借尽 core，但 core 的锁等待、磁盘压力和大日志写入仍可能影响扣费。此前 4 vCPU / 7.75 GiB 的生产规格不足以支持无证据扩大并行；本方案先减小统计成本和并发，不承诺通过加连接解决。
+每条新 read 连接设置只读、`statement_timeout=2s`、`max_parallel_workers_per_gather=0`；maintenance 设置 `statement_timeout=30s`、并行 worker 为 0。连接建立超时 2 秒，仍受进程共享统计 gate 控制。单条慢统计不能借尽 core，但 core 的锁等待、磁盘压力和大日志写入仍可能影响扣费。此前 4 vCPU / 7.75 GiB 的生产规格不足以支持无证据扩大并行；只在主池无等待、CPU/I/O 有余量且统计准入持续拒绝时小幅提高读取数，不以加连接替代慢查询优化。
+
+2026-11-16 调整建议（尚待发布）：当前总预算 50、主池 48、空闲 10，主池启动以来等待数为 0；统计并发 1 下约 9985 次准入、501 次拒绝，小时汇总无积压。该 4 核实例先灰度 `DATABASE_STATISTICS_READ_MAX_OPEN_CONNS=2`，保留总预算 50、空闲数 10 和原语句超时。已有 Compose 若未透传这个变量，需要在应用服务的 `environment` 添加它，再重建应用容器；只写 `.env` 或仅 `compose restart` 不会更新容器环境。也可在不受同名环境变量覆盖的持久 YAML 中设置。启动日志 `database statistics pools configured` 给出实际读取/维护/共享并发预算。检查统计拒绝、超时、core 等待、CPU/I/O 和生图结算，出现退化时改回 1 并重建。变更不涉及 PostgreSQL 配置或迁移；应用目前仅提供 5 秒 HTTP 停机等待，部署前须先安排在途请求排空。
+
+本次本地验证：config、dbstats、repository 单元测试通过；真实 PostgreSQL 验证两条读取连接的只读/超时/禁用并行配置、第三条连接受限以及 core/maintenance 仍可用，原单连接隔离和批量事务局部超时回归通过；Linux amd64 服务构建通过；三个改动包的 golangci-lint v2.14.0 为 0 issues。维护任务在获取共享名额前串行准入，避免另一维护任务等待唯一连接时占用读取名额；批量串行与维护拒绝均计入 rejected，不计为 SQL 失败。尚未验证生产高峰表现。
 
 采样内容与界限：
 

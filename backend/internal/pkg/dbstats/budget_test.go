@@ -61,3 +61,41 @@ func TestBatchReadLeavesMaintenanceAnExecutionOpportunity(t *testing.T) {
 	_, err = Run(context.Background(), b, ReadTimeout, func(context.Context) (int, error) { return 1, nil })
 	require.NoError(t, err, "short reads remain usable between batch queries")
 }
+
+func TestBatchReadsRemainSerialWithLargerBudget(t *testing.T) {
+	b := NewBudget(2)
+	_, err := RunBatchRead(context.Background(), b, func(ctx context.Context) (int, error) {
+		_, nestedErr := RunBatchRead(ctx, b, func(context.Context) (int, error) {
+			t.Fatal("second long batch query entered the loader")
+			return 0, nil
+		})
+		require.ErrorIs(t, nestedErr, ErrBusy)
+		require.Equal(t, uint64(1), b.rejected.Load())
+		require.Zero(t, b.failed.Load())
+		require.NoError(t, RunMaintenance(ctx, b, func(context.Context) error { return nil }))
+		return 1, nil
+	})
+	require.NoError(t, err)
+	_, err = RunBatchRead(context.Background(), b, func(context.Context) (int, error) {
+		t.Fatal("batch cooldown was bypassed")
+		return 0, nil
+	})
+	require.ErrorIs(t, err, ErrBusy)
+}
+
+func TestMaintenanceDoesNotQueueWithAReadSlot(t *testing.T) {
+	b := NewBudget(2)
+	err := RunMaintenance(context.Background(), b, func(ctx context.Context) error {
+		err := RunMaintenance(ctx, b, func(context.Context) error {
+			t.Fatal("second maintenance task entered the loader")
+			return nil
+		})
+		require.ErrorIs(t, err, ErrBusy)
+		_, err = Run(ctx, b, ReadTimeout, func(context.Context) (int, error) { return 1, nil })
+		return err
+	})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), b.rejected.Load())
+	require.Zero(t, b.failed.Load())
+	require.NoError(t, RunMaintenance(context.Background(), b, func(context.Context) error { return nil }))
+}

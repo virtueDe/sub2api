@@ -3,7 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
-	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,12 +25,12 @@ type StatisticsPools struct {
 }
 
 func ProvideStatisticsPools(core *sql.DB, cfg *config.Config) (*StatisticsPools, func(), error) {
+	if err := cfg.Database.ValidateStatisticsPools(); err != nil {
+		return nil, nil, err
+	}
 	p := &StatisticsPools{Core: core, Read: core, Maintenance: core}
 	if !cfg.Database.StatisticsIsolationEnabled {
 		return p, p.Close, nil
-	}
-	if cfg.Database.MaxOpenConns < 3 {
-		return nil, nil, errors.New("statistics isolation requires total max_open_conns >= 3")
 	}
 	p.isolated = true
 	open := func(readOnly bool) (*sql.DB, error) {
@@ -51,8 +51,12 @@ func ProvideStatisticsPools(core *sql.DB, cfg *config.Config) (*StatisticsPools,
 			db = sql.OpenDB(connector)
 		}
 		settings := clampDBPoolSettings(cfg)
-		db.SetMaxOpenConns(1)
-		db.SetMaxIdleConns(1)
+		connections := 1
+		if readOnly {
+			connections = cfg.Database.StatisticsReadMaxOpenConns
+		}
+		db.SetMaxOpenConns(connections)
+		db.SetMaxIdleConns(connections)
 		db.SetConnMaxLifetime(settings.ConnMaxLifetime)
 		db.SetConnMaxIdleTime(settings.ConnMaxIdleTime)
 		return db, nil
@@ -67,6 +71,14 @@ func ProvideStatisticsPools(core *sql.DB, cfg *config.Config) (*StatisticsPools,
 		_ = p.Read.Close()
 		return nil, nil, err
 	}
+	// Startup only: Wire creates these pools before reporting repositories,
+	// workers and diagnostics. Keep their process-wide admission budget shared.
+	dbstats.Default = dbstats.NewBudget(cfg.Database.StatisticsReadMaxOpenConns)
+	slog.Info("database statistics pools configured",
+		"read_max_open", cfg.Database.StatisticsReadMaxOpenConns,
+		"maintenance_max_open", 1,
+		"statistics_concurrency", cfg.Database.StatisticsReadMaxOpenConns,
+		"total_max_open", cfg.Database.MaxOpenConns)
 	return p, p.Close, nil
 }
 func (p *StatisticsPools) Close() {

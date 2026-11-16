@@ -23,13 +23,15 @@ const BatchReadTimeout = 10 * time.Second
 const MaintenanceTimeout = 30 * time.Second
 
 type Budget struct {
-	slots          chan struct{}
-	started        atomic.Uint64
-	rejected       atomic.Uint64
-	failed         atomic.Uint64
-	durationMS     atomic.Uint64
-	lastLog        atomic.Int64
-	batchReadAfter atomic.Int64
+	slots             chan struct{}
+	started           atomic.Uint64
+	rejected          atomic.Uint64
+	failed            atomic.Uint64
+	durationMS        atomic.Uint64
+	lastLog           atomic.Int64
+	batchReadAfter    atomic.Int64
+	batchReadActive   atomic.Bool
+	maintenanceActive atomic.Bool
 }
 
 func NewBudget(concurrency int) *Budget {
@@ -52,9 +54,7 @@ func Run[T any](ctx context.Context, b *Budget, timeout time.Duration, load func
 	select {
 	case b.slots <- struct{}{}:
 	default:
-		b.rejected.Add(1)
-		b.logSnapshot()
-		return value, ErrBusy
+		return value, b.reject()
 	}
 	b.started.Add(1)
 	started := time.Now()
@@ -72,14 +72,26 @@ func Run[T any](ctx context.Context, b *Budget, timeout time.Duration, load func
 }
 
 func RunMaintenance(ctx context.Context, b *Budget, load func(context.Context) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if b == nil {
+		b = Default
+	}
+	// There is only one maintenance connection. Reject a second maintenance
+	// task before it can consume a shared slot waiting for that connection.
+	if !b.maintenanceActive.CompareAndSwap(false, true) {
+		return b.reject()
+	}
+	defer b.maintenanceActive.Store(false)
 	_, err := Run(ctx, b, MaintenanceTimeout, func(ctx context.Context) (struct{}, error) {
 		return struct{}{}, load(ctx)
 	})
 	return err
 }
 
-// Long batch reads share the existing admission slot. Leave two worker ticks
-// between them so reporting traffic cannot continuously occupy maintenance's slot.
+// Keep long batch reads serial even when the shared budget has several slots.
+// Leave two worker ticks between them for maintenance and ordinary reads.
 func RunBatchRead[T any](ctx context.Context, b *Budget, load func(context.Context) (T, error)) (value T, err error) {
 	if err = ctx.Err(); err != nil {
 		return value, err
@@ -88,15 +100,25 @@ func RunBatchRead[T any](ctx context.Context, b *Budget, load func(context.Conte
 		b = Default
 	}
 	if time.Now().UnixNano() < b.batchReadAfter.Load() {
-		return value, ErrBusy
+		return value, b.reject()
+	}
+	if !b.batchReadActive.CompareAndSwap(false, true) {
+		return value, b.reject()
+	}
+	defer b.batchReadActive.Store(false)
+	if time.Now().UnixNano() < b.batchReadAfter.Load() {
+		return value, b.reject()
 	}
 	return Run(ctx, b, BatchReadTimeout, func(ctx context.Context) (T, error) {
-		if time.Now().UnixNano() < b.batchReadAfter.Load() {
-			return value, ErrBusy
-		}
 		defer func() { b.batchReadAfter.Store(time.Now().Add(2 * time.Second).UnixNano()) }()
 		return load(ctx)
 	})
+}
+
+func (b *Budget) reject() error {
+	b.rejected.Add(1)
+	b.logSnapshot()
+	return ErrBusy
 }
 
 func (b *Budget) logSnapshot() {
