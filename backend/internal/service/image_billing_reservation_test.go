@@ -81,13 +81,15 @@ type imageReservationFake struct {
 	reserved, released, dispatched      int
 	amount                              float64
 	sub                                 *int64
+	reserveDeadline                     time.Time
 	reserveErr, dispatchErr, releaseErr error
 }
 
-func (r *imageReservationFake) ReserveImageSettlement(_ context.Context, _ UsageSettlementRef, _ int64, sub *int64, a float64) error {
+func (r *imageReservationFake) ReserveImageSettlement(ctx context.Context, _ UsageSettlementRef, _ int64, sub *int64, a float64) error {
 	r.reserved++
 	r.amount = a
 	r.sub = sub
+	r.reserveDeadline, _ = ctx.Deadline()
 	return r.reserveErr
 }
 func (r *imageReservationFake) ReleaseImageSettlement(ctx context.Context, _ UsageSettlementRef) error {
@@ -287,6 +289,40 @@ func TestImageReservationAdmission(t *testing.T) {
 	_, _, err = reserveImageBilling(context.Background(), cfg, r, nil, price, key, &UserSubscription{ID: 9}, InflightEstimateRequest{})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
 	require.ErrorIs(t, err, ErrBillingServiceUnavailable)
+}
+
+// 预留时限覆盖“同一用户扣费串行排队 + 预留事务”。数据库短暂卡顿时，排队中的请求应当
+// 等过去，而不是几秒后就成批失败。
+func TestImageReservationTimeoutBudget(t *testing.T) {
+	cfg := &config.Config{Database: config.DatabaseConfig{ImageBillingReservationEnabled: true}}
+	key := &APIKey{ID: 1, UserID: 2, User: &User{ID: 2}}
+	price := func(context.Context, *APIKey, InflightEstimateRequest) (float64, bool) { return 1, true }
+
+	t.Run("仓储层拿到完整的预留时限", func(t *testing.T) {
+		r := &imageReservationFake{}
+		started := time.Now()
+		_, done, err := reserveImageBilling(context.Background(), cfg, r, nil, price, key, nil, InflightEstimateRequest{})
+		require.NoError(t, err)
+		done()
+		require.WithinDuration(t, started.Add(imageBillingReserveTimeout), r.reserveDeadline, 2*time.Second)
+	})
+
+	t.Run("调用方更早的截止时间优先", func(t *testing.T) {
+		parent, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		parentDeadline, _ := parent.Deadline()
+		r := &imageReservationFake{}
+		_, done, err := reserveImageBilling(parent, cfg, r, nil, price, key, nil, InflightEstimateRequest{})
+		require.NoError(t, err)
+		done()
+		require.Equal(t, parentDeadline, r.reserveDeadline)
+	})
+
+	t.Run("时限留在首包超时以内", func(t *testing.T) {
+		// 同步请求在预留完成后才开始发送保活心跳，这段静默必须远小于 Cloudflare 的 100 秒首包限制。
+		require.Greater(t, imageBillingReserveTimeout, 5*time.Second)
+		require.LessOrEqual(t, imageBillingReserveTimeout, 60*time.Second)
+	})
 }
 
 func TestImageReservationAdmissionErrorClassification(t *testing.T) {

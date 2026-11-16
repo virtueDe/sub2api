@@ -21,6 +21,15 @@ type ImageBillingReservationRepository interface {
 	MarkImageSettlementDispatched(context.Context, UsageSettlementRef) error
 }
 
+// imageBillingReserveTimeout 是一次生图预留的总时限，覆盖“同一用户扣费串行排队”和“预留事务”两段。
+//
+// 排队时长取决于该用户前面还有多少笔扣费在等数据库。数据库短暂卡顿（实测多为 10–30 秒）时，
+// 原先的 5 秒会让排队中的请求成批超时并返回 503。生图本身就要几十秒，等过这段卡顿比直接失败划算。
+//
+// 不能无限放大：同步请求要到预留完成后才开始发送保活心跳，这段静默必须远小于反向代理的
+// 首包超时（Cloudflare 为 100 秒）。调用方更早的截止时间（客户端断开、上层超时）仍然优先。
+const imageBillingReserveTimeout = 30 * time.Second
+
 type imageReservationContextKey struct{}
 type imageReservationOutcome struct {
 	mu                 sync.Mutex
@@ -173,7 +182,7 @@ func reserveImageBilling(ctx context.Context, cfg *config.Config, billing UsageB
 		subID = &sub.ID
 	}
 	ref := UsageSettlementRef{RequestID: "settlement:" + uuid.NewString(), APIKeyID: key.ID}
-	reserveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	reserveCtx, cancel := context.WithTimeout(ctx, imageBillingReserveTimeout)
 	err := repo.ReserveImageSettlement(reserveCtx, ref, key.UserID, subID, amount)
 	cancel()
 	if err != nil {
