@@ -174,7 +174,8 @@ type AdminGroup struct {
 	// IsPaidEntitlement 是管理员维护的付费权益策略标记，普通用户无需感知。
 	IsPaidEntitlement bool `json:"is_paid_entitlement"`
 	// ForceOpenAIFast 是管理端请求策略，用户侧分组 DTO 无需暴露。
-	ForceOpenAIFast bool `json:"force_openai_fast"`
+	ForceOpenAIFast      bool `json:"force_openai_fast"`
+	ForceOpenAIUltrafast bool `json:"force_openai_ultrafast"`
 	// FreeOpenAIFast 是管理端计费策略，用户侧分组 DTO 无需暴露。
 	FreeOpenAIFast bool `json:"free_openai_fast"`
 
