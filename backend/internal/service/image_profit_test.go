@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -50,14 +51,12 @@ func TestImageProfitMixedSizesDoNotDuplicateRevenue(t *testing.T) {
 }
 
 func TestImageProfitMissingDataNeverBecomesZeroCost(t *testing.T) {
-	for _, kind := range []string{"missing_price", "unknown_resolution", "unknown_image_count", "inconsistent_image_count"} {
+	for _, kind := range []string{"missing_price", "unknown_resolution", "inconsistent_image_count"} {
 		t.Run(kind, func(t *testing.T) {
 			u := profitTestUsage(10)
 			switch kind {
 			case "unknown_resolution":
 				u.Resolution = ""
-			case "unknown_image_count":
-				u.ImageCount = 0
 			case "inconsistent_image_count":
 				u.Breakdown = map[string]int{"1K": 1}
 			}
@@ -70,6 +69,108 @@ func TestImageProfitMissingDataNeverBecomesZeroCost(t *testing.T) {
 			require.Nil(t, r.Lines[0].Profit)
 			require.Nil(t, r.Lines[0].Costs[0].Cost)
 			require.Equal(t, kind, r.Lines[0].Costs[0].MissingReason)
+		})
+	}
+}
+
+func TestImageProfitPaidMissingCountDefaultsToOne(t *testing.T) {
+	prices := []ImageProcurementPrice{
+		profitTestPrice(1, "account", 1, "1K", "0.04", 0),
+		profitTestPrice(2, "account", 1, "2K", "0.04", 0),
+		profitTestPrice(3, "account", 1, "4K", "0.04", 0),
+	}
+	for _, count := range []int{0, -1} {
+		for _, resolution := range []string{"1K", ""} {
+			t.Run(fmt.Sprintf("count_%d/resolution_%s", count, resolution), func(t *testing.T) {
+				u := profitTestUsage(1)
+				u.ID, u.ImageCount, u.Resolution = 42, count, resolution
+				u.Breakdown = map[string]int{"image_cache_read_tokens": 99}
+				original := u
+				c := NewImageProfitCalculator(prices)
+				c.Add(u)
+				r := c.Report()
+				require.Equal(t, "complete", r.Status)
+				require.Equal(t, []int64{42}, r.SourceIDs)
+				require.Equal(t, 1, r.SourceCount)
+				require.Equal(t, 1, r.RequestCount)
+				require.Equal(t, 1, r.ImageCount)
+				require.Equal(t, 1, r.CountCorrections)
+				require.Equal(t, "0.8", r.Revenue.String())
+				require.Equal(t, "0.04", r.KnownCost.String())
+				require.Equal(t, "0.76", r.Profit.String())
+				if resolution == "" {
+					require.Equal(t, "all_tiers", r.Lines[0].Costs[0].Resolution)
+					require.Equal(t, []int64{1, 2, 3}, r.Lines[0].Costs[0].PriceIDs)
+				}
+				require.Equal(t, original, u, "profit accounting must not mutate source usage")
+				require.Equal(t, map[string]int{"image_cache_read_tokens": 99}, u.Breakdown)
+			})
+		}
+	}
+}
+
+func TestImageProfitDefaultCountStillRequiresValidPricesAndBreakdown(t *testing.T) {
+	for _, scenario := range []struct{ name, reason string }{
+		{"missing_price", "missing_price"},
+		{"different_tier_prices", "unknown_resolution"},
+		{"missing_tier", "unknown_resolution"},
+		{"future_tier", "unknown_resolution"},
+		{"inconsistent_breakdown", "inconsistent_image_count"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			prices := []ImageProcurementPrice{
+				profitTestPrice(1, "account", 1, "1K", "0.04", 0),
+				profitTestPrice(2, "account", 1, "2K", "0.04", 0),
+				profitTestPrice(3, "account", 1, "4K", "0.04", 0),
+			}
+			u := profitTestUsage(1)
+			u.ImageCount, u.Resolution = 0, ""
+			switch scenario.name {
+			case "missing_price":
+				prices, u.Resolution = nil, "1K"
+			case "different_tier_prices":
+				prices[2].UnitPrice = decimal.RequireFromString("0.05")
+			case "missing_tier":
+				prices = prices[:2]
+			case "future_tier":
+				prices[2].EffectiveAt = profitTestTime(2)
+			case "inconsistent_breakdown":
+				u.Breakdown = map[string]int{"1K": 2}
+			}
+			c := NewImageProfitCalculator(prices)
+			c.Add(u)
+			r := c.Report()
+			require.Equal(t, "incomplete", r.Status)
+			require.Equal(t, 1, r.ImageCount)
+			require.Equal(t, 1, r.CountCorrections)
+			require.Equal(t, 1, r.MissingCount)
+			require.True(t, r.KnownCost.IsZero())
+			require.Nil(t, r.Profit)
+			require.Equal(t, scenario.reason, r.Lines[0].Costs[0].MissingReason)
+		})
+	}
+}
+
+func TestImageProfitMissingCountRequiresPositiveRevenueToDefault(t *testing.T) {
+	for _, scenario := range []struct {
+		name, revenue, reason string
+		confirmedLoss         bool
+	}{
+		{"zero_charge", "0", "unconfirmed_charge", false},
+		{"negative_charge", "-0.1", "unconfirmed_charge", false},
+		{"confirmed_loss", "0", "unknown_image_count", true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			u := profitTestUsage(1)
+			u.ImageCount, u.Revenue, u.ConfirmedLoss = 0, decimal.RequireFromString(scenario.revenue), scenario.confirmedLoss
+			c := NewImageProfitCalculator([]ImageProcurementPrice{profitTestPrice(1, "account", 1, "1K", "0.04", 0)})
+			c.Add(u)
+			r := c.Report()
+			require.Zero(t, r.ImageCount)
+			require.Zero(t, r.CountCorrections)
+			require.True(t, r.KnownCost.IsZero())
+			require.Nil(t, r.Profit)
+			require.Equal(t, scenario.reason, r.Lines[0].Costs[0].MissingReason)
 		})
 	}
 }
@@ -180,7 +281,7 @@ func TestImageProfitConfirmedCountWithUnknownResolution(t *testing.T) {
 func TestImageProfitExcludedAdminsKeepSourceProvenance(t *testing.T) {
 	c := NewImageProfitCalculator(nil)
 	u := profitTestUsage(1)
-	u.ID, u.ExcludedAdmin = 42, true
+	u.ID, u.ExcludedAdmin, u.ImageCount = 42, true, 0
 	c.Add(u)
 	r := c.Report()
 	require.Equal(t, []int64{42}, r.SourceIDs)
@@ -189,6 +290,7 @@ func TestImageProfitExcludedAdminsKeepSourceProvenance(t *testing.T) {
 	require.Zero(t, r.RequestCount)
 	require.Zero(t, r.ImageCount)
 	require.Zero(t, r.MissingCount)
+	require.Zero(t, r.CountCorrections)
 	require.Empty(t, r.Lines)
 	require.True(t, r.Revenue.IsZero())
 	require.True(t, r.Profit.IsZero())

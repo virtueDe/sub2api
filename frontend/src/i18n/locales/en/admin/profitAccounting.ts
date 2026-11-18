@@ -29,7 +29,7 @@ export default {
     lossHelp: 'Procurement cost of confirmed uncharged requests, already included in known cost and deducted once from profit. Parentheses show request counts.',
     adminExclusionHelp: 'Admin usage is excluded after the new policy starts. Historical usage keeps its original accounting treatment.',
     excludedAdmins: '{count} admin requests excluded.',
-    correctedCounts: '{count} requests use manually confirmed image counts.',
+    correctedCounts: '{count} requests use corrected or defaulted image counts; paid requests with a missing count are accounted for as 1 image.',
     allTiers: 'Resolution unrecorded; identical prices across tiers',
     lossConflict: 'A confirmed loss now has revenue; review the classification',
     status: 'Status', complete: 'Complete', incomplete: 'Missing cost data', pending: 'Pending',

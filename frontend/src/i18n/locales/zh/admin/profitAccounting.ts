@@ -29,7 +29,7 @@ export default {
     lossHelp: '异常亏损为已确认未收款调用的采购成本，已包含在已核算成本中，毛利不重复扣减；括号内为调用数。',
     adminExclusionHelp: '管理员用量从新规则启用后排除，历史用量保留原核算口径。',
     excludedAdmins: '已排除 {count} 笔管理员调用。',
-    correctedCounts: '{count} 笔调用使用人工确认的张数。',
+    correctedCounts: '{count} 笔调用使用更正或补全后的张数；已扣费但缺少张数的调用默认按 1 张核算。',
     allTiers: '分辨率未记录，各档采购价相同',
     lossConflict: '已认定亏损的调用出现扣费收入，需重新核对',
     status: '状态', complete: '已完成', incomplete: '待补全成本', pending: '待核算',

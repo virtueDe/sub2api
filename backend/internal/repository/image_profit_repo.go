@@ -180,7 +180,7 @@ func (r *imageProfitRepository) Settle(ctx context.Context, day time.Time, reaso
 		return nil, err
 	}
 	calculator := service.NewImageProfitCalculator(prices)
-	rows, err := tx.QueryContext(ctx, `SELECT u.id,u.account_id,COALESCE(u.channel_id,0),COALESCE(a.name,''),COALESCE(c.name,''),COALESCE(NULLIF(u.upstream_model,''),u.model),COALESCE(u.image_size,''),COALESCE(adj.image_count_override,u.image_count),COALESCE(u.image_size_breakdown,'{}'::jsonb),u.actual_cost,u.created_at,COALESCE(adj.confirmed_loss,false),adj.image_count_override IS NOT NULL,excluded.usage_log_id IS NOT NULL
+	rows, err := tx.QueryContext(ctx, `SELECT u.id,u.account_id,COALESCE(u.channel_id,0),COALESCE(a.name,''),COALESCE(c.name,''),COALESCE(NULLIF(u.upstream_model,''),u.model),COALESCE(u.image_size,''),COALESCE(adj.image_count_override,u.image_count,0),COALESCE(u.image_size_breakdown,'{}'::jsonb),u.actual_cost,u.created_at,COALESCE(adj.confirmed_loss,false),adj.image_count_override IS NOT NULL,excluded.usage_log_id IS NOT NULL
 FROM usage_logs u LEFT JOIN accounts a ON a.id=u.account_id LEFT JOIN channels c ON c.id=u.channel_id
 LEFT JOIN image_profit_usage_adjustments adj ON adj.usage_log_id=u.id
 LEFT JOIN image_profit_excluded_usage excluded ON excluded.usage_log_id=u.id
