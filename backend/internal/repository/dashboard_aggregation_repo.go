@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -20,6 +21,7 @@ type dashboardAggregationRepository struct {
 
 const usageLogsCleanupBatchSize = 10000
 const usageBillingDedupCleanupBatchSize = 10000
+const usageLogsPartitionDropLockTimeout = 3 * time.Second
 
 // NewDashboardAggregationRepository 创建仪表盘预聚合仓储。
 func NewDashboardAggregationRepository(sqlDB *sql.DB) service.DashboardAggregationRepository {
@@ -608,6 +610,10 @@ func (r *dashboardAggregationRepository) dropUsageLogsPartitions(ctx context.Con
 	if db, ok := r.sql.(usagePartitionTransactionBeginner); ok {
 		for _, partition := range partitions {
 			if err := dropUsageLogsPartitionWithRollupInvalidation(ctx, db, partition.name); err != nil {
+				if isPostgresLockNotAvailable(err) {
+					log.Printf("[DashboardAggregation] 删除分区 %s 等待锁超时，本次改为按行删除", partition.name)
+					continue
+				}
 				return err
 			}
 		}
@@ -620,6 +626,11 @@ type usagePartitionTransactionBeginner interface {
 	BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error)
 }
 
+func isPostgresLockNotAvailable(err error) bool {
+	var pqErr *pq.Error
+	return errors.As(err, &pqErr) && pqErr.Code == "55P03"
+}
+
 func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db usagePartitionTransactionBeginner, name string) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -628,6 +639,9 @@ func dropUsageLogsPartitionWithRollupInvalidation(ctx context.Context, db usageP
 	rollback := func(err error) error {
 		_ = tx.Rollback()
 		return err
+	}
+	if _, err := tx.ExecContext(ctx, fmt.Sprintf("SET LOCAL lock_timeout = '%dms'", usageLogsPartitionDropLockTimeout.Milliseconds())); err != nil {
+		return rollback(err)
 	}
 	// Partition DDL does not fire DELETE triggers. Serialize with the rollup
 	// consumers before taking table locks, then append affected buckets atomically.

@@ -1068,7 +1068,31 @@ var ProviderSet = wire.NewSet(
 	ProvideChannelMonitorV2Aggregator,
 	NewChannelMonitorRequestTemplateService,
 	ProvideUserPlatformQuotaUsageFlusher,
+	NewUsageBillingLaneCombiner,
+	ProvideUsageBillingRepository,
 )
+
+// ProvideUsageBillingRepository 以按用户合并结算的通道作为各服务使用的计费仓储。
+func ProvideUsageBillingRepository(lanes *UsageBillingLaneCombiner, repo UsageBillingBatchRepository) (UsageBillingRepository, error) {
+	durable, ok := repo.(durableUsageBillingRepository)
+	if !ok {
+		return nil, fmt.Errorf("usage billing repository does not support durable image settlement")
+	}
+	return &combinedUsageBillingRepository{UsageBillingRepository: lanes, durableUsageBillingRepository: durable}, nil
+}
+
+// Keep the durable capabilities visible through the batching decorator. Image
+// reservations and recovery workers must use the same underlying repository.
+type durableUsageBillingRepository interface {
+	UsageSettlementRepository
+	ImageBillingReservationRepository
+	RetryImageSettlementRelease(context.Context, func(context.Context, int64) error) error
+}
+
+type combinedUsageBillingRepository struct {
+	UsageBillingRepository
+	durableUsageBillingRepository
+}
 
 // ProvideUserPlatformQuotaUsageFlusher 创建并启动 UserPlatformQuotaUsageFlusher。
 func ProvideUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache, quotaRepo UserPlatformQuotaRepository, tw *TimingWheelService) *UserPlatformQuotaUsageFlusher {

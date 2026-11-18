@@ -84,6 +84,7 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionedSortsAndQueues
 	mock.ExpectQuery(`SELECT c.relname`).WillReturnRows(sqlmock.NewRows([]string{"relname"}).AddRow("usage_logs_202606").AddRow("usage_logs_invalid").AddRow("usage_logs_202604").AddRow("usage_logs_202607"))
 	for _, name := range []string{"usage_logs_202604", "usage_logs_202606"} {
 		mock.ExpectBegin()
+		mock.ExpectExec(`SET LOCAL lock_timeout`).WillReturnResult(sqlmock.NewResult(0, 0))
 		mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 		mock.ExpectExec(`LOCK TABLE`).WillReturnResult(sqlmock.NewResult(0, 1))
@@ -114,7 +115,7 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionFailureRollsBack
 	mock.ExpectQuery(`SELECT EXISTS`).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery(`SELECT c.relname`).WillReturnRows(sqlmock.NewRows([]string{"relname"}).AddRow("usage_logs_202606").AddRow("usage_logs_202604"))
 	mock.ExpectBegin()
-	for _, query := range []string{`SELECT pg_advisory_xact_lock`, `SELECT pg_advisory_xact_lock`, `LOCK TABLE`, `INSERT INTO usage_key_rollup_events`, `INSERT INTO usage_group_rollup_events`} {
+	for _, query := range []string{`SET LOCAL lock_timeout`, `SELECT pg_advisory_xact_lock`, `SELECT pg_advisory_xact_lock`, `LOCK TABLE`, `INSERT INTO usage_key_rollup_events`, `INSERT INTO usage_group_rollup_events`} {
 		mock.ExpectExec(query).WillReturnResult(sqlmock.NewResult(0, 1))
 	}
 	mock.ExpectExec(`DROP TABLE IF EXISTS "usage_logs_202604"`).WillReturnError(sql.ErrConnDone)
