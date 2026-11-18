@@ -102,7 +102,9 @@ VALUES($1,$2,$3,$4,'profit-test-model',$5,CASE WHEN $5>0 THEN '1K' ELSE NULL END
 	r := &imageProfitRepository{db: integrationDB}
 	before, err := r.Settle(ctx, day, reason, u.UserID, true)
 	require.NoError(t, err)
-	require.Equal(t, 2, before.MissingCount)
+	require.Equal(t, 1, before.MissingCount, "paid missing-count calls are automatically accounted for")
+	require.Equal(t, 1, before.CountCorrections)
+	require.Equal(t, "0.12", before.KnownCost.String())
 	for i := 0; i < 2; i++ {
 		// Replaying the same batch cannot apply either decision twice.
 		_, err = integrationDB.ExecContext(ctx, `INSERT INTO image_profit_usage_adjustments(usage_log_id,confirmed_loss,image_count_override,original_snapshot,reason,batch_key,created_by)
@@ -124,7 +126,7 @@ SELECT id,id=$1,CASE WHEN id=$2 THEN 1 ELSE NULL END,jsonb_build_object('image_c
 	require.Equal(t, "0.8504", after.Profit.String())
 	old, err := r.GetReport(ctx, before.ID)
 	require.NoError(t, err)
-	require.Equal(t, 2, old.MissingCount)
+	require.Equal(t, 1, old.MissingCount)
 	require.Nil(t, old.Profit)
 	var rawCount int
 	var charge string
@@ -139,6 +141,74 @@ SELECT id,id=$1,CASE WHEN id=$2 THEN 1 ELSE NULL END,jsonb_build_object('image_c
 	var decisions int
 	require.NoError(t, integrationDB.QueryRow(`SELECT count(*) FROM image_profit_usage_adjustments WHERE batch_key=$1`, reason).Scan(&decisions))
 	require.Equal(t, 2, decisions, "audit records survive source retention")
+}
+
+func TestImageProfitPaidMissingCountsDefaultWithoutChangingSources(t *testing.T) {
+	ctx := context.Background()
+	_, snapshot := settlementFixture(t)
+	u := snapshot.Usage
+	day := time.Date(2037, 11, 11, 0, 0, 0, 0, service.ImageProfitLocation)
+	reason := "profit-default-count-" + uuid.NewString()
+	t.Cleanup(func() {
+		for _, q := range []string{
+			`DELETE FROM image_profit_reports WHERE reason=$1`,
+			`DELETE FROM image_profit_usage_adjustments WHERE batch_key=$1`,
+			`DELETE FROM image_procurement_prices WHERE note=$1`,
+		} {
+			_, err := integrationDB.Exec(q, reason)
+			require.NoError(t, err)
+		}
+	})
+	insert := func(count any, size any, amount string, at time.Time) int64 {
+		t.Helper()
+		var id int64
+		require.NoError(t, integrationDB.QueryRowContext(ctx, `INSERT INTO usage_logs(user_id,api_key_id,account_id,request_id,model,image_count,image_size,billing_mode,actual_cost,total_cost,created_at)
+VALUES($1,$2,$3,$4,'profit-default-model',$5,$6,'image',$7,$7,$8) RETURNING id`, u.UserID, u.APIKeyID, u.AccountID, uuid.NewString(), count, size, amount, at).Scan(&id))
+		return id
+	}
+	insert(1, "1K", "1", day.Add(-time.Hour)) // Establish source retention coverage.
+	zeroID := insert(0, "1K", "0.0504", day.Add(time.Hour))
+	nullID := insert(nil, nil, "0.0504", day.Add(2*time.Hour))
+	knownID := insert(2, "1K", "1", day.Add(3*time.Hour))
+	for _, size := range []string{"1K", "2K", "4K"} {
+		_, err := integrationDB.ExecContext(ctx, `INSERT INTO image_procurement_prices(scope_type,scope_id,model,resolution,unit_price_usd,effective_at,note,created_by) VALUES('account',$1,'profit-default-model',$2,0.04,$3,$4,$5)`, u.AccountID, size, day, reason, u.UserID)
+		require.NoError(t, err)
+	}
+	r := &imageProfitRepository{db: integrationDB}
+	before, err := r.Settle(ctx, day, reason, 0, false)
+	require.NoError(t, err)
+	require.Equal(t, "complete", before.Status)
+	require.Equal(t, []int64{zeroID, nullID, knownID}, before.SourceIDs)
+	require.Equal(t, 3, before.RequestCount)
+	require.Equal(t, 4, before.ImageCount)
+	require.Equal(t, 2, before.CountCorrections)
+	require.Equal(t, "1.1008", before.Revenue.String())
+	require.Equal(t, "0.16", before.KnownCost.String())
+	require.Equal(t, "0.9408", before.Profit.String())
+	var decisions int
+	require.NoError(t, integrationDB.QueryRow(`SELECT count(*) FROM image_profit_usage_adjustments WHERE usage_log_id IN ($1,$2)`, zeroID, nullID).Scan(&decisions))
+	require.Zero(t, decisions, "defaulting must not create manual adjustment records")
+	_, err = integrationDB.ExecContext(ctx, `INSERT INTO image_profit_usage_adjustments(usage_log_id,image_count_override,original_snapshot,reason,batch_key,created_by)
+SELECT id,3,jsonb_build_object('image_count',image_count,'actual_cost',actual_cost),$2,$2,$3 FROM usage_logs WHERE id=$1`, nullID, reason, u.UserID)
+	require.NoError(t, err)
+	after, err := r.Settle(ctx, day, reason, u.UserID, true)
+	require.NoError(t, err)
+	require.Equal(t, "complete", after.Status)
+	require.Equal(t, before.Revision+1, after.Revision)
+	require.Equal(t, before.SourceIDs, after.SourceIDs)
+	require.Equal(t, 6, after.ImageCount, "manual count overrides take precedence over the default")
+	require.Equal(t, 2, after.CountCorrections)
+	require.Equal(t, "0.24", after.KnownCost.String())
+	require.Equal(t, "0.8608", after.Profit.String())
+	old, err := r.GetReport(ctx, before.ID)
+	require.NoError(t, err)
+	require.Equal(t, 4, old.ImageCount)
+	var unchanged bool
+	require.NoError(t, integrationDB.QueryRow(`SELECT (SELECT image_count=0 AND actual_cost=0.0504 FROM usage_logs WHERE id=$1)
+AND (SELECT image_count IS NULL AND actual_cost=0.0504 FROM usage_logs WHERE id=$2)
+AND (SELECT image_count=2 AND actual_cost=1 FROM usage_logs WHERE id=$3)`, zeroID, nullID, knownID).Scan(&unchanged))
+	require.True(t, unchanged)
+	checkImageWallet(t, u.UserID, 100, 0)
 }
 
 func TestImageProfitAdminExclusionSnapshotsFutureRole(t *testing.T) {

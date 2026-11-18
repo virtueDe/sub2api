@@ -148,7 +148,7 @@ func (c *ImageProfitCalculator) price(u ImageProfitUsage, resolution string) *Im
 	return nil
 }
 
-// A manually confirmed count does not establish a resolution. Only identical
+// A corrected or defaulted count does not establish a resolution. Only identical
 // effective prices in every supported tier make the cost unambiguous. Keep all
 // three price IDs so the report explains why no resolution was invented.
 func (c *ImageProfitCalculator) uniformPrice(u ImageProfitUsage) (*ImageProcurementPrice, []int64) {
@@ -199,6 +199,13 @@ func (c *ImageProfitCalculator) Add(u ImageProfitUsage) {
 	if u.ExcludedAdmin {
 		c.excludedAdminRequests++
 		return
+	}
+	// Paid image calls without a count use one image for profit accounting only.
+	// Keep the source usage and its charge unchanged; conflicting size breakdowns
+	// still require review below.
+	if u.ImageCount <= 0 && u.Revenue.IsPositive() {
+		u.ImageCount = 1
+		u.CountCorrected = true
 	}
 	if u.CountCorrected {
 		c.countCorrections++
