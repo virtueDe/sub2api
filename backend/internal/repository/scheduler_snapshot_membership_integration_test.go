@@ -24,6 +24,7 @@ func TestSchedulerSnapshotConfiguredMembership(t *testing.T) {
 			other := mustCreateGroup(t, client, &service.Group{Name: "snapshot-other", Platform: platform})
 			future, past := time.Now().Add(time.Hour), time.Now().Add(-time.Hour)
 			ids := make(map[int64]map[string]int64)
+			fixtureIDs := make(map[int64]struct{})
 			for _, gid := range []int64{0, group.ID, other.ID} {
 				ids[gid] = make(map[string]int64)
 				for _, kind := range []string{"ready", "cooling", "expired", "manual", "disabled", "deleted", "other_platform", "mixed_on", "mixed_off"} {
@@ -54,6 +55,7 @@ func TestSchedulerSnapshotConfiguredMembership(t *testing.T) {
 					account, err := create.Save(ctx)
 					require.NoError(t, err)
 					ids[gid][kind] = account.ID
+					fixtureIDs[account.ID] = struct{}{}
 					if gid > 0 {
 						_, err = client.AccountGroup.Create().SetAccountID(account.ID).SetGroupID(gid).Save(ctx)
 						require.NoError(t, err)
@@ -88,9 +90,14 @@ func TestSchedulerSnapshotConfiguredMembership(t *testing.T) {
 						cache := NewSchedulerCache(testRedis(t))
 						svc := service.NewSchedulerSnapshotService(cache, nil, repo, nil, cfg)
 						accountIDs := func(accounts []service.Account) []int64 {
-							out := make([]int64, len(accounts))
-							for i := range accounts {
-								out[i] = accounts[i].ID
+							// Simple and ungrouped pools legitimately contain rows
+							// committed by other integration fixtures. Compare all
+							// eligibility variants owned by this test in isolation.
+							out := make([]int64, 0, len(accounts))
+							for _, account := range accounts {
+								if _, owned := fixtureIDs[account.ID]; owned {
+									out = append(out, account.ID)
+								}
 							}
 							return out
 						}
@@ -112,9 +119,11 @@ func TestSchedulerSnapshotConfiguredMembership(t *testing.T) {
 						members, hit, err := cache.GetSnapshot(ctx, bucket)
 						require.NoError(t, err)
 						require.True(t, hit)
-						memberIDs := make([]int64, len(members))
-						for i := range members {
-							memberIDs[i] = members[i].ID
+						memberIDs := make([]int64, 0, len(members))
+						for _, member := range members {
+							if _, owned := fixtureIDs[member.ID]; owned {
+								memberIDs = append(memberIDs, member.ID)
+								}
 						}
 						require.ElementsMatch(t, wantMembers, memberIDs, "the stored pool retains timed blocks without widening platform/group or manual eligibility")
 					})
