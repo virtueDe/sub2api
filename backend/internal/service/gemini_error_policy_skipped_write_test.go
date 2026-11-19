@@ -13,13 +13,14 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
 // ---------------------------------------------------------------------------
 // ErrorPolicySkipped 的客户端写出契约（与 OpenAI 网关路径对齐）：
-//   - 池模式：不可 failover 的 4xx 按上游原始状态码/响应体保真写出，不改写成 5xx；
+//   - 池模式：不可 failover 的 4xx 默认保留上游状态码/响应体，命中错误透传规则时按规则写出；
 //   - 自定义错误码未命中：统一 500 + 固定文案，上游细节只进 ops 错误日志；
 //   - 可 failover 的状态码（两种账号）一律换号，不透传。
 // ---------------------------------------------------------------------------
@@ -95,6 +96,56 @@ func TestGeminiForwardNative_PoolModeSkipped400PassthroughRealStatus(t *testing.
 	require.Contains(t, err.Error(), "gemini upstream error: 400")
 	require.Equal(t, http.StatusBadRequest, rec.Code, "状态码应保真为上游 400")
 	require.Equal(t, upstreamBody, rec.Body.String(), "响应体应原样透传")
+}
+
+func TestGeminiForwardNative_ErrorPassthroughRules(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	blockedBody := `{"error":{"code":"prompt_blocked","message":"request blocked by Gemini API: IMAGE_SAFETY"}}`
+	for _, tc := range []struct {
+		name       string
+		poolMode   bool
+		body       string
+		wantStatus int
+	}{
+		{name: "default policy matches", body: blockedBody, wantStatus: http.StatusUnavailableForLegalReasons},
+		{name: "pool mode matches", poolMode: true, body: blockedBody, wantStatus: http.StatusUnavailableForLegalReasons},
+		{name: "unmatched rule preserves upstream response", poolMode: true, body: geminiSkippedTestUpstreamBody(), wantStatus: http.StatusBadRequest},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			responseCode := http.StatusUnavailableForLegalReasons
+			passthrough := &ErrorPassthroughService{}
+			passthrough.setLocalCache([]*model.ErrorPassthroughRule{{
+				Enabled:         true,
+				ErrorCodes:      []int{http.StatusBadRequest},
+				Keywords:        []string{"prompt_blocked"},
+				MatchMode:       model.MatchModeAll,
+				Platforms:       []string{PlatformGemini},
+				ResponseCode:    &responseCode,
+				PassthroughBody: true,
+				SkipMonitoring:  true,
+			}})
+			svc, upstream := newGeminiSkippedWriteService(http.StatusBadRequest, tc.body)
+			c, rec := newGeminiNativeTestContext(t)
+			BindErrorPassthroughService(c, passthrough)
+			account := geminiPoolModeAPIKeyAccount()
+			account.Credentials["pool_mode"] = tc.poolMode
+
+			result, err := svc.ForwardNative(context.Background(), c, account,
+				"gemini-2.5-flash", "generateContent", false, []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+
+			require.Nil(t, result)
+			require.Error(t, err)
+			var failoverErr *UpstreamFailoverError
+			require.False(t, errors.As(err, &failoverErr))
+			require.Equal(t, 1, upstream.calls, "request-level errors should not retry")
+			require.Equal(t, tc.wantStatus, rec.Code)
+			require.Equal(t, tc.body, rec.Body.String())
+			require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+			require.Equal(t, http.StatusBadRequest, c.GetInt(OpsUpstreamStatusCodeKey))
+			require.Equal(t, tc.wantStatus == http.StatusUnavailableForLegalReasons, c.GetBool(OpsSkipPassthroughKey))
+			require.True(t, IsResponseCommitted(c))
+		})
+	}
 }
 
 func TestGeminiForwardNative_PoolModeSkipped503Failover(t *testing.T) {
