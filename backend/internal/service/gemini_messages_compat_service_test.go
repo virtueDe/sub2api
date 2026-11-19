@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -23,6 +24,92 @@ type geminiCompatHTTPUpstreamStub struct {
 	err      error
 	calls    int
 	lastReq  *http.Request
+}
+
+func TestWriteGeminiNativeUpstreamError_AppliesErrorPassthroughRule(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	responseCode := http.StatusUnavailableForLegalReasons
+	rule := &model.ErrorPassthroughRule{
+		Name:            "Gemini prompt blocked",
+		Enabled:         true,
+		ErrorCodes:      []int{http.StatusBadRequest},
+		Keywords:        []string{"prompt_blocked"},
+		MatchMode:       model.MatchModeAll,
+		Platforms:       []string{PlatformGemini},
+		PassthroughCode: false,
+		ResponseCode:    &responseCode,
+		PassthroughBody: true,
+		SkipMonitoring:  true,
+	}
+	errorPassthrough := &ErrorPassthroughService{}
+	errorPassthrough.setLocalCache([]*model.ErrorPassthroughRule{rule})
+
+	upstreamBody := []byte(`{"error":{"code":"prompt_blocked","message":"request blocked by Gemini API: PROHIBITED_CONTENT"}}`)
+	resp := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json; charset=utf-8"}},
+	}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.1-flash-image-preview:generateContent", nil)
+	BindErrorPassthroughService(c, errorPassthrough)
+
+	err := (&GeminiMessagesCompatService{}).writeGeminiNativeUpstreamError(c, &Account{ID: 1, Platform: PlatformGemini}, resp, upstreamBody, "upstream-request", false)
+
+	require.Error(t, err)
+	require.Equal(t, http.StatusUnavailableForLegalReasons, rec.Code)
+	require.Equal(t, upstreamBody, rec.Body.Bytes(), "body passthrough should preserve Gemini's original error payload")
+	require.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	require.Equal(t, http.StatusBadRequest, c.GetInt(OpsUpstreamStatusCodeKey), "ops should retain the upstream status")
+	require.True(t, IsResponseCommitted(c))
+	require.True(t, c.GetBool(OpsSkipPassthroughKey))
+}
+
+func TestWriteGeminiNativeUpstreamError_UsesCustomMessageWhenBodyPassthroughDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	responseCode := http.StatusUnavailableForLegalReasons
+	customMessage := "Prompt violates image policy"
+	rule := &model.ErrorPassthroughRule{
+		Name:            "Gemini prompt blocked",
+		Enabled:         true,
+		ErrorCodes:      []int{http.StatusBadRequest},
+		Keywords:        []string{"prompt_blocked"},
+		MatchMode:       model.MatchModeAll,
+		Platforms:       []string{PlatformGemini},
+		PassthroughCode: false,
+		ResponseCode:    &responseCode,
+		PassthroughBody: false,
+		CustomMessage:   &customMessage,
+	}
+	errorPassthrough := &ErrorPassthroughService{}
+	errorPassthrough.setLocalCache([]*model.ErrorPassthroughRule{rule})
+
+	upstreamBody := []byte(`{"error":{"message":"request blocked by Gemini API: IMAGE_SAFETY","type":"prompt_blocked"}}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.1-flash-image-preview:generateContent", nil)
+	BindErrorPassthroughService(c, errorPassthrough)
+
+	err := (&GeminiMessagesCompatService{}).writeGeminiNativeUpstreamError(c, &Account{ID: 1, Platform: PlatformGemini}, &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+	}, upstreamBody, "upstream-request", false)
+
+	require.Error(t, err)
+	require.Equal(t, http.StatusUnavailableForLegalReasons, rec.Code)
+	var payload struct {
+		Error struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+			Status  string `json:"status"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+	require.Equal(t, http.StatusUnavailableForLegalReasons, payload.Error.Code)
+	require.Equal(t, customMessage, payload.Error.Message)
+	require.Equal(t, "UNKNOWN", payload.Error.Status)
 }
 
 func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
