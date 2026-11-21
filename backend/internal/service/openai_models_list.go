@@ -20,6 +20,11 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 	if s == nil || account == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_MODELS_ACCOUNT_REQUIRED", "OpenAI account is required")
 	}
+	// Images-only providers need not implement model discovery. Their explicit
+	// model declaration is the authoritative upstream catalog, before aliases.
+	if account.HasOpenAICompatibleImages() && !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions) {
+		return configuredOpenAIImagesModelsResponse(account)
+	}
 	credentialAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)
 	if err != nil {
 		return nil, fmt.Errorf("resolve model list credentials: %w", err)
@@ -69,7 +74,56 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 	if response.NotModified {
 		return nil, invalidOpenAIModelsList(fmt.Errorf("upstream returned 304 without a cached catalog"))
 	}
-	return response, nil
+	return appendConfiguredOpenAIImagesModelsResponse(response, account)
+}
+
+func configuredOpenAIImagesModelsResponse(account *Account) (*OpenAIModelsResponse, error) {
+	body, err := json.Marshal(map[string]any{"object": "list", "data": []any{}})
+	if err != nil {
+		return nil, err
+	}
+	return appendConfiguredOpenAIImagesModelsResponse(&OpenAIModelsResponse{Body: body}, account)
+}
+
+func appendConfiguredOpenAIImagesModelsResponse(response *OpenAIModelsResponse, account *Account) (*OpenAIModelsResponse, error) {
+	declared := account.ConfiguredOpenAIImageModels()
+	if len(declared) == 0 {
+		return response, nil
+	}
+	envelope, entries, err := modelCatalogEntries(response.Body, "data")
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		var model struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(entry, &model); err != nil {
+			return nil, err
+		}
+		seen[model.ID] = true
+	}
+	for _, id := range declared {
+		if !seen[id] {
+			entry, err := json.Marshal(map[string]string{"id": id, "object": "model"})
+			if err != nil {
+				return nil, err
+			}
+			entries = append(entries, entry)
+		}
+	}
+	envelope["data"], err = json.Marshal(entries)
+	if err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(envelope)
+	if err != nil {
+		return nil, err
+	}
+	copy := *response // Keep the raw discovery cache independent of configuration.
+	copy.Body, copy.ETag = body, codexModelsManifestBodyETag(body)
+	return &copy, nil
 }
 
 func invalidOpenAIModelsList(err error) error {

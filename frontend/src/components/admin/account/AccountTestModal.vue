@@ -70,7 +70,7 @@
         />
       </div>
 
-      <div v-if="isOpenAIAccount" class="space-y-1.5">
+      <div v-if="isOpenAIAccount && !supportsImageTest" class="space-y-1.5">
         <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ t('admin.accounts.openai.testMode') }}
         </label>
@@ -365,6 +365,7 @@
 </template>
 
 <script setup lang="ts">
+import { isOpenAIAccountImageModel } from '@/utils/openaiImageModels'
 import { isVideoPlatform } from '@/constants/platformCatalog'
 import { computed, ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -447,11 +448,9 @@ const supportsGeminiImageTest = computed(() => {
   return props.account?.platform === 'gemini' || props.account?.platform === 'antigravity'
 })
 
-const supportsOpenAIImageTest = computed(() => {
-  const modelID = selectedModelId.value.toLowerCase()
-  if (!modelID.startsWith('gpt-image-')) return false
-  return props.account?.platform === 'openai'
-})
+const supportsOpenAIImageTest = computed(() =>
+  isOpenAIAccountImageModel(props.account, selectedModelId.value)
+)
 
 const isGrokImageModel = (id: string) => {
   const modelID = id.toLowerCase()
@@ -862,7 +861,7 @@ const startTest = async () => {
       prompt: supportsPromptInput.value ? testPrompt.value.trim() : ''
     }
     if (isOpenAIAccount.value) {
-      requestBody.mode = testMode.value
+      requestBody.mode = supportsOpenAIImageTest.value ? 'default' : testMode.value
     }
     if (isGrokAccount.value) {
       // Always send explicit Grok mode. search/tts/stt/realtime are standalone

@@ -52,6 +52,14 @@ const (
 
 type asyncImageTaskExecutionContextKey struct{}
 
+type openAIImagesRequestedModelContextKey struct{}
+
+// WithOpenAIImagesRequestedModel preserves the channel's pricing source while
+// scheduling checks the channel-mapped model against account capabilities.
+func WithOpenAIImagesRequestedModel(ctx context.Context, model string) context.Context {
+	return context.WithValue(ctx, openAIImagesRequestedModelContextKey{}, model)
+}
+
 // WithAsyncImageTaskExecution marks an Images API call as the background
 // execution phase of an asynchronous image task.
 func WithAsyncImageTaskExecution(ctx context.Context) context.Context {
@@ -308,8 +316,10 @@ func (s *OpenAIGatewayService) parseOpenAIImagesRequest(c *gin.Context, body []b
 	if req.ExplicitAspectRatio && OpenAIImagesAspectRatio(req.AspectRatio, "") == "" {
 		return nil, fmt.Errorf("aspect_ratio must use positive decimal dimensions separated by a colon")
 	}
-	if err := validateCompatibleImagesModel(req.Model); err != nil {
-		if !lenientGemini || !IsGeminiImageGenerationModel(req.Model) {
+	// Model names alone cannot identify an OpenAI-compatible image provider.
+	// Admission checks the selected account's declared image models instead.
+	if lenientGemini {
+		if err := validateCompatibleImagesModel(req.Model); err != nil && !IsGeminiImageGenerationModel(req.Model) {
 			return nil, err
 		}
 	}
@@ -748,7 +758,7 @@ func validateCompatibleImagesModel(model string) error {
 // RequiredCapabilityForModel also applies the API-key-only fence when channel
 // mapping introduces a compatible provider model after request parsing.
 func (req *OpenAIImagesRequest) RequiredCapabilityForModel(model string) OpenAIImagesCapability {
-	if isGeminiCompatibleImageModel(model) {
+	if strings.TrimSpace(model) != "" && !isOpenAIImageGenerationModel(model) {
 		return OpenAIImagesCapabilityAPIKey
 	}
 	return req.RequiredCapability
@@ -770,7 +780,7 @@ func classifyOpenAIImagesCapability(req *OpenAIImagesRequest) OpenAIImagesCapabi
 	if req == nil {
 		return OpenAIImagesCapabilityNative
 	}
-	if isGeminiCompatibleImageModel(req.Model) {
+	if !isOpenAIImageGenerationModel(req.Model) {
 		return OpenAIImagesCapabilityAPIKey
 	}
 	if req.ExplicitModel || req.ExplicitSize || req.ExplicitAspectRatio {
@@ -908,12 +918,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	if mapped := strings.TrimSpace(channelMappedModel); mapped != "" {
 		requestModel = mapped
 	}
-	if err := validateCompatibleImagesModel(requestModel); err != nil {
-		return nil, err
-	}
 	upstreamModel := account.GetMappedModel(requestModel)
-	if err := validateCompatibleImagesModel(upstreamModel); err != nil {
-		return nil, err
+	if !account.SupportsOpenAIImageModel(requestModel) {
+		return nil, fmt.Errorf("account does not support Images API model %q; configure compatible images and its upstream model ID", upstreamModel)
 	}
 	SetOpsUpstreamModel(c, upstreamModel)
 	logger.LegacyPrintf(

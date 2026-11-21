@@ -726,6 +726,9 @@ func (s *OpenAIGatewayService) isCodexImageGenerationBridgeEnabled(ctx context.C
 }
 
 func (s *OpenAIGatewayService) checkChannelPricingRestriction(ctx context.Context, groupID *int64, requestedModel string) bool {
+	if original, ok := ctx.Value(openAIImagesRequestedModelContextKey{}).(string); ok {
+		requestedModel = original
+	}
 	if groupID == nil || s.channelService == nil || requestedModel == "" {
 		return false
 	}

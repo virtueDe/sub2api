@@ -36,7 +36,14 @@ func (h *GatewayHandler) ImageModels(c *gin.Context) {
 	}
 	filtered := make([]string, 0, len(available))
 	seen := make(map[string]struct{}, len(available))
+	for _, model := range h.gatewayService.GetAvailableOpenAIImageModels(c.Request.Context(), groupID, platform, available) {
+		seen[strings.ToLower(model)] = struct{}{}
+		filtered = append(filtered, model)
+	}
 	for _, model := range available {
+		if platform == service.PlatformOpenAI || (platform == service.PlatformComposite && service.IsGPTImageGenerationModel(model)) {
+			continue // OpenAI candidates were checked with their owning accounts.
+		}
 		if isImageModelForPlatform(platform, model) {
 			model = normalizeImageModelID(platform, model)
 			key := strings.ToLower(model)

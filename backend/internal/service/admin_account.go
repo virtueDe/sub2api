@@ -411,6 +411,9 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if err := NormalizeOpenAIImageCredentials(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	if err := ValidateVideoAccount(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
@@ -592,6 +595,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		videoCredentials = MergePreservingSensitiveCreds(account.Credentials, input.Credentials)
 	}
 	if err := ValidateVideoAccount(account.Platform, videoType, videoCredentials); err != nil {
+		return nil, err
+	}
+	if err := NormalizeOpenAIImageCredentials(account.Platform, videoType, videoCredentials); err != nil {
 		return nil, err
 	}
 	if account.Platform == PlatformTypeSafe && input.Type != "" && input.Type != AccountTypeAPIKey {
@@ -1039,6 +1045,23 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 			return nil, err
 		}
 		result.LongContextInheritedCount = inheritedCount
+	}
+	if len(input.Credentials) > 0 {
+		for _, account := range cachedTargets {
+			if account == nil {
+				continue
+			}
+			merged := make(map[string]any, len(account.Credentials)+len(input.Credentials))
+			for key, value := range account.Credentials {
+				merged[key] = value
+			}
+			for key, value := range input.Credentials {
+				merged[key] = value
+			}
+			if err := NormalizeOpenAIImageCredentials(account.Platform, account.Type, merged); err != nil {
+				return nil, err
+			}
+		}
 	}
 	_, changesRoutes := input.Credentials[VideoModelRoutesCredential]
 	_, changesMapping := input.Credentials["model_mapping"]
