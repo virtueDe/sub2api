@@ -13,8 +13,9 @@ type LegacyEngine interface {
 
 type PromptEngine interface {
 	EffectiveMode() Mode
-	// Implementations materialize a lazy body only after their policy gates,
-	// synchronously before Enqueue can transfer ownership to background work.
+	// Enqueue borrows req read-only for this call; implementations materialize
+	// a lazy body only after policy gates and must copy any request memory
+	// retained after returning.
 	Enqueue(ctx context.Context, req Request) error
 	Evaluate(ctx context.Context, req Request) (*PromptDecision, error)
 }
@@ -40,7 +41,7 @@ func (c *Coordinator) Check(ctx context.Context, req Request) Decision {
 	case ModeAsync:
 		// Enqueue is deliberately best-effort. The implementation owns a bounded
 		// context and copies request memory before it can outlive the Handler.
-		_ = c.prompt.Enqueue(ctx, req.Clone())
+		_ = c.prompt.Enqueue(ctx, req)
 		legacy, _ := c.checkLegacy(ctx, req)
 		return prioritize(legacy, nil)
 	case ModeBlocking:
