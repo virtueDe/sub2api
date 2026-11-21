@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import {
   BUILTIN_PLATFORM_CATALOG,
   resetPlatformCatalog,
@@ -2201,4 +2201,20 @@ describe('EditAccountModal temp-unschedulable rule scope', () => {
     expect(checkedScopes(wrapper)).toEqual(['temp-unsched-scope-model'])
     wrapper.unmount()
   })
+  it('loads compatible images from capability maps and saves images-only configuration', async () => {
+    const account = buildAccount()
+    account.credentials.openai_capabilities = { images: true }
+    account.credentials.openai_image_models = ['seedream-5.5', 'vendor-art-v9']
+    updateAccountMock.mockReset()
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    expect((wrapper.get('[data-testid="openai-image-models"]').element as HTMLTextAreaElement).value)
+      .toBe('seedream-5.5\nvendor-art-v9')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({
+      openai_capabilities: ['images'], openai_image_models: ['seedream-5.5', 'vendor-art-v9']
+    })
+  })
+
 })

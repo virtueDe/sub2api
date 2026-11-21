@@ -1187,4 +1187,21 @@ describe('CreateAccountModal Vertex API key auth', () => {
     expect(wrapper.find('[data-testid="vertex-auth-mode-apikey"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="vertex-api-key-input"]').exists()).toBe(false)
   })
+  it('creates compatible image models without dropping a text+images capability pair', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('image provider')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-key')
+    await wrapper.get('[data-testid="openai-endpoint-capability-images"]').setValue(true)
+    await wrapper.get('[data-testid="openai-endpoint-capability-embeddings"]').setValue(false)
+    await wrapper.get('[data-testid="openai-image-models"]').setValue(' seedream-5.5, vendor-art-v9\nseedream-5.5 ')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).toMatchObject({
+      openai_capabilities: ['chat_completions', 'images'],
+      openai_image_models: ['seedream-5.5', 'vendor-art-v9']
+    })
+  })
+
 })

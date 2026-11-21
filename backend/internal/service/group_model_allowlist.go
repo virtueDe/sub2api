@@ -38,6 +38,9 @@ func supplementUnmappedOpenAIModels(accounts []Account, models []string) []strin
 	}
 	for i := range accounts {
 		account := &accounts[i]
+		if account.HasOpenAICompatibleImages() && !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions) {
+			continue
+		}
 		unrestrictedPassthrough := account.IsOpenAIPassthroughEnabled() && !account.IsOpenAIPassthroughModelFilterEnabled()
 		if account.Platform == PlatformOpenAI && (unrestrictedPassthrough || len(account.GetModelMapping()) == 0) {
 			return dedupeAndSortModelIDs(slices.Concat(models, openai.DefaultModelIDs()))

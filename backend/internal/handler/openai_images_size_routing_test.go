@@ -30,16 +30,20 @@ func (r openAIImagesSizeRoutingAccountRepo) ListModelAvailabilityCandidates(_ co
 	return out, nil
 }
 
-func newOpenAIImagesSizeRoutingTestHandler(t *testing.T, accounts []service.Account, upstream service.HTTPUpstream) *OpenAIGatewayHandler {
+func newOpenAIImagesSizeRoutingTestHandler(t *testing.T, accounts []service.Account, upstream service.HTTPUpstream, channels ...*service.ChannelService) *OpenAIGatewayHandler {
 	t.Helper()
 	cfg := &config.Config{RunMode: config.RunModeSimple}
+	var channelService *service.ChannelService
+	if len(channels) > 0 {
+		channelService = channels[0]
+	}
 	gatewayService := service.NewOpenAIGatewayService(
 		openAIImagesSizeRoutingAccountRepo{openAIImagesFailoverAccountRepo{accounts: accounts}},
 		nil, nil, nil, nil, nil, nil,
 		cfg,
 		nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
+		nil, nil, nil, nil, channelService, nil, nil, nil,
 	)
 	billingService := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingService.Stop)

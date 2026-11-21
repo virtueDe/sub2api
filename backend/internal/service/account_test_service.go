@@ -254,7 +254,7 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 			seen[publicID] = true
 		}
 	}
-	return payload.Data, nil
+	return AppendOpenAIImageModels(payload.Data, account), nil
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -828,8 +828,17 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
 
-	// Route to image generation test if an image model is selected
-	if isOpenAIImageModel(testModelID) {
+	// The final mapping target determines image capability, including arbitrary
+	// model IDs explicitly declared on API-key-compatible image accounts.
+	imageModel := isOpenAIImageModel(testModelID)
+	if account.Type == AccountTypeAPIKey {
+		if account.HasOpenAICompatibleImages() && !account.SupportsOpenAIImageModel(modelID) &&
+			(imageModel || !account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions)) {
+			return s.sendErrorAndEnd(c, "Model is not configured for this image account")
+		}
+		imageModel = account.SupportsOpenAIImageModel(modelID)
+	}
+	if imageModel {
 		imagePrompt := strings.TrimSpace(prompt)
 		if imagePrompt == "" {
 			imagePrompt = defaultOpenAIImageTestPrompt
@@ -3112,6 +3121,7 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 	var result struct {
 		Data []struct {
 			B64JSON       string `json:"b64_json"`
+			URL           string `json:"url"`
 			RevisedPrompt string `json:"revised_prompt"`
 		} `json:"data"`
 	}
@@ -3123,17 +3133,25 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 		return s.sendErrorAndEnd(c, "No images returned from API")
 	}
 
+	imageCount := 0
 	for _, item := range result.Data {
 		if item.RevisedPrompt != "" {
 			s.sendEvent(c, TestEvent{Type: "content", Text: item.RevisedPrompt})
 		}
 		if item.B64JSON != "" {
+			imageCount++
 			s.sendEvent(c, TestEvent{
 				Type:     "image",
 				ImageURL: "data:image/png;base64," + item.B64JSON,
 				MimeType: "image/png",
 			})
+		} else if strings.TrimSpace(item.URL) != "" {
+			imageCount++
+			s.sendEvent(c, TestEvent{Type: "image", ImageURL: item.URL})
 		}
+	}
+	if imageCount == 0 {
+		return s.sendErrorAndEnd(c, "No images returned from API")
 	}
 
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})

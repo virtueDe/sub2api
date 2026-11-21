@@ -2233,6 +2233,10 @@
             </label>
           </div>
           <p class="input-hint">{{ t('admin.accounts.openai.endpointCapabilitiesDesc') }}</p>
+          <OpenAIImageModelsField
+            v-if="openAIEndpointCapabilities.includes('images')"
+            v-model="openAIImageModelsText"
+          />
         </div>
       </div>
 
@@ -3443,6 +3447,8 @@ import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import OpenAIImageSizeTiersField from '@/components/account/OpenAIImageSizeTiersField.vue'
+import OpenAIImageModelsField from '@/components/account/OpenAIImageModelsField.vue'
+import { parseOpenAIImageModels } from '@/utils/openaiImageModels'
 import {
   OPENAI_IMAGE_SIZE_TIERS,
   applyOpenAIImageSizeTiersToExtra,
@@ -4201,6 +4207,7 @@ const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 // Images 非流式响应缺 b64_json 时由网关下载 url 回填（仅 OpenAI API Key）。
 const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TIERS])
+const openAIImageModelsText = ref('')
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -4363,6 +4370,7 @@ const openAITextEndpointCapabilityLabel = computed(() => {
 const openAIEndpointCapabilityOptions = computed<{ value: OpenAIEndpointCapability; label: string }[]>(() => [
   { value: 'chat_completions', label: openAITextEndpointCapabilityLabel.value },
   { value: 'embeddings', label: t('admin.accounts.openai.capabilityEmbeddings') },
+  { value: 'images', label: t('admin.accounts.openai.capabilityImages') },
   { value: 'seedance', label: 'Seedance (Ark)' }
 ])
 const openAITextGenerationCapabilityEnabled = computed(() =>
@@ -4370,7 +4378,7 @@ const openAITextGenerationCapabilityEnabled = computed(() =>
 )
 
 const normalizeOpenAIEndpointCapabilities = (values: OpenAIEndpointCapability[]) => {
-  const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings', 'seedance']
+  const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings', 'images', 'seedance']
   const selected = allowed.filter((value) => values.includes(value))
   return selected.length > 0 ? selected : ['chat_completions', 'embeddings'] as OpenAIEndpointCapability[]
 }
@@ -4379,9 +4387,10 @@ const readOpenAIEndpointCapabilities = (credentials?: Record<string, unknown>): 
   const raw = credentials?.openai_capabilities
   if (Array.isArray(raw)) {
     return normalizeOpenAIEndpointCapabilities(
-      raw.filter((value): value is OpenAIEndpointCapability =>
-        value === 'chat_completions' || value === 'embeddings' || value === 'seedance'
-      )
+      raw.map((value) => typeof value === 'string' ? value.trim().toLowerCase() : value)
+        .filter((value): value is OpenAIEndpointCapability =>
+          value === 'chat_completions' || value === 'embeddings' || value === 'images' || value === 'seedance'
+        )
     )
   }
   if (raw !== null && typeof raw === 'object') {
@@ -4389,7 +4398,7 @@ const readOpenAIEndpointCapabilities = (credentials?: Record<string, unknown>): 
     return normalizeOpenAIEndpointCapabilities(
       openAIEndpointCapabilityOptions.value
         .map((option) => option.value)
-        .filter((value) => capabilityMap[value] === true)
+        .filter((value) => Object.entries(capabilityMap).some(([key, enabled]) => key.trim().toLowerCase() === value && enabled === true))
     )
   }
   return ['chat_completions', 'embeddings']
@@ -4418,7 +4427,10 @@ const toggleOpenAIEndpointCapability = (capability: OpenAIEndpointCapability, ev
 
 const applyOpenAIEndpointCapabilities = (credentials: Record<string, unknown>) => {
   const capabilities = normalizeOpenAIEndpointCapabilities(openAIEndpointCapabilities.value)
-  if (capabilities.length === 2 && !capabilities.includes('seedance')) {
+  credentials.openai_image_models = capabilities.includes('images')
+    ? parseOpenAIImageModels(openAIImageModelsText.value)
+    : undefined
+  if (capabilities.length === 2 && capabilities.includes('chat_completions') && capabilities.includes('embeddings')) {
     delete credentials.openai_capabilities
     return
   }
@@ -4701,6 +4713,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   editPlanType.value = ''
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
+  openAIImageModelsText.value = Array.isArray(newAccount.credentials?.openai_image_models)
+    ? (newAccount.credentials.openai_image_models as string[]).join('\n')
+    : ''
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openAICompactModelMappings.value = []
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF

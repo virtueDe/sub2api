@@ -1161,6 +1161,13 @@
             </label>
           </div>
         </div>
+        <OpenAIImageModelsField
+          v-if="enableOpenAIEndpointCapabilities && openAIEndpointCapabilities.includes('images')"
+          v-model="openAIImageModelsText"
+        />
+        <p v-if="enableOpenAIEndpointCapabilities && openAIEndpointCapabilities.includes('images')" class="input-hint">
+          {{ t('admin.accounts.openai.imageModelsBulkHint') }}
+        </p>
       </div>
 
       <!-- OpenAI API Key Responses route -->
@@ -1591,6 +1598,8 @@ import {
 } from '@/components/account/credentialsBuilder'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import OpenAIImageSizeTiersField from '@/components/account/OpenAIImageSizeTiersField.vue'
+import OpenAIImageModelsField from '@/components/account/OpenAIImageModelsField.vue'
+import { parseOpenAIImageModels } from '@/utils/openaiImageModels'
 import {
   OPENAI_IMAGE_SIZE_TIERS,
   OPENAI_IMAGE_SIZE_TIERS_EXTRA_KEY,
@@ -1790,6 +1799,7 @@ const openaiPassthroughModelFilterEnabled = ref(false)
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
 const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TIERS])
+const openAIImageModelsText = ref('')
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>([
   'chat_completions',
   'embeddings'
@@ -1883,6 +1893,7 @@ const openAIEndpointCapabilityOptions = computed<
 >(() => [
   { value: 'chat_completions', label: openAITextEndpointCapabilityLabel.value },
   { value: 'embeddings', label: t('admin.accounts.openai.capabilityEmbeddings') },
+  { value: 'images', label: t('admin.accounts.openai.capabilityImages') },
   { value: 'seedance', label: 'Seedance (Ark)' }
 ])
 const openAITextGenerationCapabilityEnabled = computed(() =>
@@ -1893,7 +1904,7 @@ const openAIResponsesModeApplicable = computed(
 )
 
 const normalizeOpenAIEndpointCapabilities = (values: OpenAIEndpointCapability[]) => {
-  const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings', 'seedance']
+  const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings', 'images', 'seedance']
   const selected = allowed.filter((value) => values.includes(value))
   return selected.length > 0 ? selected : ['chat_completions', 'embeddings'] as OpenAIEndpointCapability[]
 }
@@ -2102,8 +2113,11 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
   }
 
   if (applyOpenAIEndpointCapabilities) {
+    if (openAIEndpointCapabilities.value.includes('images') && openAIImageModelsText.value.trim()) {
+      credentials.openai_image_models = parseOpenAIImageModels(openAIImageModelsText.value)
+    }
     credentials.openai_capabilities =
-      openAIEndpointCapabilities.value.length === 2 && !openAIEndpointCapabilities.value.includes('seedance')
+      openAIEndpointCapabilities.value.length === 2 && openAIEndpointCapabilities.value.includes('chat_completions') && openAIEndpointCapabilities.value.includes('embeddings')
         ? null
         : [...openAIEndpointCapabilities.value]
     credentialsChanged = true
@@ -2497,6 +2511,7 @@ watch(
       openaiFlattenNamespacesEnabled.value = false
       openAILongContextBillingEnabled.value = false
       openAIImageSizeTiers.value = [...OPENAI_IMAGE_SIZE_TIERS]
+      openAIImageModelsText.value = ''
       openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
       openAIResponsesMode.value = 'auto'
       modelRestrictionMode.value = 'whitelist'

@@ -1175,4 +1175,17 @@ describe('BulkEditAccountModal', () => {
       }
     })
   })
+  it('bulk saves compatible image capability and explicit upstream models', async () => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['apikey'] })
+    await wrapper.get('#bulk-edit-openai-endpoint-capabilities-enabled').setValue(true)
+    await wrapper.get('[data-testid="bulk-edit-openai-endpoint-capability-images"]').setValue(true)
+    await wrapper.get('[data-testid="bulk-edit-openai-endpoint-capability-embeddings"]').setValue(false)
+    await wrapper.get('[data-testid="openai-image-models"]').setValue('seedream-5.5\nvendor-art-v9')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: { openai_capabilities: ['chat_completions', 'images'], openai_image_models: ['seedream-5.5', 'vendor-art-v9'] }
+    })
+  })
+
 })

@@ -36,12 +36,14 @@ func TestCompatibleImagesGeminiModels(t *testing.T) {
 		})
 	}
 	for _, model := range []string{"gemini-2.5-pro", "gemini-2.5-flash", "gemini-3-pro-imageless", "unknown-image", "gpt-5.5"} {
-		t.Run("reject_"+model, func(t *testing.T) {
+		t.Run("requires_configured_account_"+model, func(t *testing.T) {
 			body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"draw"}`, model))
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest(http.MethodPost, openAIImagesGenerationsEndpoint, bytes.NewReader(body))
-			_, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, body)
-			require.ErrorContains(t, err, "images endpoint requires an image model")
+			parsed, err := (&OpenAIGatewayService{}).ParseOpenAIImagesRequest(c, body)
+			require.NoError(t, err)
+			require.Equal(t, OpenAIImagesCapabilityAPIKey, parsed.RequiredCapability)
+			require.False(t, (&Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}).SupportsOpenAIImageModel(model))
 		})
 	}
 }

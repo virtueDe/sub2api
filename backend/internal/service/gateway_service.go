@@ -1519,6 +1519,13 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyMapping := false
 
 	for _, acc := range accounts {
+		if acc.HasOpenAICompatibleImages() {
+			hasAnyMapping = true // An empty configured image catalog is authoritative.
+			for _, model := range acc.OpenAIImageModelIDs() {
+				modelSet[model] = struct{}{}
+				hasAnyMapping = true
+			}
+		}
 		// Default passthrough accepts models independently of model_mapping, so a
 		// stale mapping on a passthrough account must not narrow the public list.
 		// Treat it like an unmapped account: skip its mapping here and let
@@ -1530,6 +1537,9 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 		mapping := acc.GetModelMapping()
 		for model := range mapping {
+			if acc.HasOpenAICompatibleImages() && !acc.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions) && !acc.SupportsOpenAIImageModel(model) {
+				continue
+			}
 			// Accounts pulled in through mixed scheduling only contribute the
 			// models that belong to the listing platform (e.g. an antigravity
 			// account's claude-* mappings must not surface on a gemini group).
@@ -1628,6 +1638,13 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 }
 
 func explicitModelMappingClaims(account Account, model string) bool {
+	if account.HasOpenAICompatibleImages() && account.IsModelSupported(model) {
+		for _, declared := range account.OpenAIImageModelIDs() {
+			if declared == model {
+				return true
+			}
+		}
+	}
 	if account.Credentials == nil || model == "" {
 		return false
 	}

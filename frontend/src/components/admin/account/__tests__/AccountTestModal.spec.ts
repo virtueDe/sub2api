@@ -220,4 +220,26 @@ describe('AccountTestModal', () => {
       mode: 'compact'
     })
   })
+  it.each(['https://cdn.example/image.png', 'data:image/png;base64,QUJD'])(
+    'tests a configured image alias and previews %s', async (imageUrl) => {
+      getAvailableModels.mockResolvedValue([{ id: 'paint', display_name: 'paint' }])
+      global.fetch = vi.fn().mockResolvedValue(createStreamResponse([
+        `data: ${JSON.stringify({ type: 'image', image_url: imageUrl })}\n`,
+        'data: {"type":"test_complete","success":true}\n'
+      ])) as any
+      const wrapper = mountModal({ id: 42, name: 'Image provider', platform: 'openai', type: 'apikey',
+        credentials: { openai_capabilities: ['images'], openai_image_models: ['seedream-5.5'], model_mapping: { paint: 'seedream-5.5' } } })
+      await wrapper.setProps({ show: true })
+      await flushPromises()
+      expect(wrapper.find('textarea').exists()).toBe(true)
+      await wrapper.get('textarea').setValue('draw a cat')
+      ;(wrapper.vm as any).testMode = 'compact'
+      await (wrapper.vm as any).startTest()
+      await flushPromises()
+      const [, request] = (global.fetch as any).mock.calls[0]
+      expect(JSON.parse(request.body)).toEqual({ model_id: 'paint', prompt: 'draw a cat', mode: 'default' })
+      expect(wrapper.findAll('img').some((img) => img.attributes('src') === imageUrl)).toBe(true)
+    }
+  )
+
 })

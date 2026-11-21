@@ -38,6 +38,29 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 	return router
 }
 
+func TestAccountHandlerConfiguredImagesCatalogExcludesUnconfiguredDefaults(t *testing.T) {
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{
+		ID: 7, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url":                             "https://compatible.example/v1",
+			"openai_capabilities":                  []any{"images"},
+			service.OpenAIImageModelsCredentialKey: []any{"seedream-5.5", "vendor-art-v9"},
+			"model_mapping":                        map[string]any{"paint": "seedream-5.5", "gpt-image-2": "gpt-image-2"},
+		},
+	}}
+	rec := httptest.NewRecorder()
+	setupAvailableModelsRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/7/models", nil))
+	require.Equal(t, 200, rec.Code)
+	var response struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.Len(t, response.Data, 1)
+	require.Equal(t, "paint", response.Data[0].ID)
+}
+
 type syncUpstreamHTTPUpstream struct {
 	resp      *http.Response
 	responses []*http.Response

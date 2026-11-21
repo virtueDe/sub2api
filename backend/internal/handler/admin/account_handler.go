@@ -2889,23 +2889,27 @@ func (h *AccountHandler) respondAvailableModels(c *gin.Context, account *service
 	}
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
+		if account.HasOpenAICompatibleImages() && !account.SupportsOpenAIEndpointCapability(service.OpenAIEndpointCapabilityChatCompletions) {
+			response.Success(c, service.AppendOpenAIImageModels(nil, account))
+			return
+		}
 		// Prefer the shared, account-keyed upstream catalog. If discovery fails,
 		// retain the legacy local catalog below so the test dialog remains usable.
 		if h.accountTestService != nil {
 			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
-				response.Success(c, models)
+				response.Success(c, service.AppendOpenAIImageModels(models, account))
 				return
 			}
 		}
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, openai.DefaultModels)
+			response.Success(c, service.AppendOpenAIImageModels(openai.DefaultModels, account))
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, openai.DefaultModels)
+			response.Success(c, service.AppendOpenAIImageModels(openai.DefaultModels, account))
 			return
 		}
 
@@ -2929,7 +2933,7 @@ func (h *AccountHandler) respondAvailableModels(c *gin.Context, account *service
 				})
 			}
 		}
-		response.Success(c, models)
+		response.Success(c, service.AppendOpenAIImageModels(models, account))
 		return
 	}
 
