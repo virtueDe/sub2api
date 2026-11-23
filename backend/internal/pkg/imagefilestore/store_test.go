@@ -218,3 +218,20 @@ func TestLocalImageInterruptedCommitRestoresPreviousObject(t *testing.T) {
 	_, err = os.Stat(filepath.Join(directory, "transaction.json"))
 	require.ErrorIs(t, err, os.ErrNotExist)
 }
+
+func TestLocalImageShorterPolicyPreservesExistingLink(t *testing.T) {
+	store := New(t.TempDir(), "secret", nil, nil)
+	now := time.Now()
+	store.now = func() time.Time { return now }
+	policy := testPolicy()
+	oldURL, err := store.Storage(policy).Save(context.Background(), "same.png", "image/png", []byte("image"))
+	require.NoError(t, err)
+	policy.Retention = time.Hour
+	newURL, err := store.Storage(policy).Save(context.Background(), "same.png", "image/png", []byte("image"))
+	require.NoError(t, err)
+	now = now.Add(2 * time.Hour)
+	require.Equal(t, http.StatusNotFound, download(store, newURL, http.MethodGet).Code)
+	require.Equal(t, http.StatusOK, download(store, oldURL, http.MethodGet).Code)
+	require.NoError(t, store.Cleanup(context.Background(), policy))
+	require.Equal(t, http.StatusOK, download(store, oldURL, http.MethodGet).Code)
+}

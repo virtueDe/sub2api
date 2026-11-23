@@ -342,7 +342,20 @@ func (s *Storage) Save(ctx context.Context, key, contentType string, data []byte
 		return "", err
 	}
 	expires := store.now().Add(s.policy.Retention).Unix()
-	metadata, err := json.Marshal(record{Key: key, ContentType: contentType, ExpiresAt: expires})
+	objectExpires := expires
+	var previous record
+	if err := readJSON(root, recordPath(key), &previous); err == nil {
+		if previous.Key != key {
+			return "", errors.New("local image metadata key mismatch")
+		}
+		// Rehosting a content-addressed proxy image must not revoke older, longer links.
+		if previous.ExpiresAt > objectExpires {
+			objectExpires = previous.ExpiresAt
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return "", err
+	}
+	metadata, err := json.Marshal(record{Key: key, ContentType: contentType, ExpiresAt: objectExpires})
 	if err != nil {
 		return "", err
 	}
