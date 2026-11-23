@@ -54,8 +54,8 @@
         </div>
       </div>
 
-      <!-- Async image object storage -->
-      <div class="card p-6">
+      <!-- Shared image storage -->
+      <div class="card p-6" data-testid="image-storage">
         <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 class="text-base font-semibold text-gray-900 dark:text-white">
@@ -66,18 +66,26 @@
             </p>
           </div>
           <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-            <input v-model="imageStorageForm.enabled" type="checkbox" />
+            <input v-model="imageStorageForm.enabled" type="checkbox" :disabled="!imageStorageLoaded || savingImageStorage" />
             <span>{{ t('admin.backup.imageStorage.enabled') }}</span>
           </label>
         </div>
 
-        <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+        <fieldset :disabled="!imageStorageLoaded || savingImageStorage">
+        <div class="mb-4">
+          <label for="image-storage-backend" class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.backup.imageStorage.backend') }}</label>
+          <select id="image-storage-backend" v-model="imageStorageForm.backend" class="input w-full md:w-1/2">
+            <option value="s3">{{ t('admin.backup.imageStorage.backendS3') }}</option>
+            <option value="local">{{ t('admin.backup.imageStorage.backendLocal') }}</option>
+          </select>
+        </div>
+        <label v-if="imageStorageForm.backend === 's3'" class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
           <input v-model="imageStorageForm.reuse_backup_s3" type="checkbox" />
           <span>{{ t('admin.backup.imageStorage.reuseBackupS3') }}</span>
         </label>
 
         <div class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
-          <div>
+          <div v-if="imageStorageForm.backend === 's3'">
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.bucket') }}</label>
             <input v-model="imageStorageForm.bucket" class="input w-full" :placeholder="imageStorageForm.reuse_backup_s3 ? t('admin.backup.imageStorage.bucketInherited') : ''" />
           </div>
@@ -86,7 +94,7 @@
             <input v-model="imageStorageForm.prefix" class="input w-full" placeholder="images/" />
           </div>
 
-          <template v-if="!imageStorageForm.reuse_backup_s3">
+          <template v-if="imageStorageForm.backend === 's3' && !imageStorageForm.reuse_backup_s3">
             <div>
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.s3.endpoint') }}</label>
               <input v-model="imageStorageForm.endpoint" class="input w-full" placeholder="https://<account_id>.r2.cloudflarestorage.com" />
@@ -109,24 +117,49 @@
             </label>
           </template>
 
-          <div>
+          <div v-if="imageStorageForm.backend === 's3'">
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.publicBaseUrl') }}</label>
             <input v-model="imageStorageForm.public_base_url" class="input w-full" :placeholder="t('admin.backup.imageStorage.publicBaseUrlPlaceholder')" />
           </div>
-          <div>
+          <div v-if="imageStorageForm.backend === 's3'">
             <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.presignExpiryHours') }}</label>
             <input v-model.number="imageStorageForm.presign_expiry_hours" type="number" min="1" class="input w-full" />
           </div>
+          <template v-if="imageStorageForm.backend === 'local'">
+            <div class="md:col-span-2">
+              <label for="image-storage-local-url" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.localPublicBaseUrl') }}</label>
+              <input id="image-storage-local-url" v-model="imageStorageForm.local_public_base_url" type="url" class="input w-full" placeholder="https://images.example.com" />
+            </div>
+            <div>
+              <label for="image-storage-local-capacity" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.localMaxSizeGb') }}</label>
+              <input id="image-storage-local-capacity" v-model.number="imageStorageForm.local_max_size_gb" type="number" min="1" max="1048576" step="1" class="input w-full" />
+            </div>
+            <div>
+              <label for="image-storage-local-retention" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.localRetentionHours') }}</label>
+              <input id="image-storage-local-retention" v-model.number="imageStorageForm.local_retention_hours" type="number" min="1" max="8760" step="1" class="input w-full" />
+            </div>
+            <div>
+              <label for="image-storage-local-cleanup" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.localCleanupIntervalHours') }}</label>
+              <input id="image-storage-local-cleanup" v-model.number="imageStorageForm.local_cleanup_interval_hours" type="number" min="1" max="8760" step="1" class="input w-full" />
+            </div>
+            <div>
+              <label for="image-storage-local-alert" class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.imageStorage.localAlertThresholdGb') }}</label>
+              <input id="image-storage-local-alert" v-model.number="imageStorageForm.local_alert_threshold_gb" type="number" min="1" :max="imageStorageForm.local_max_size_gb - 1" step="1" class="input w-full" />
+            </div>
+            <p class="text-xs text-gray-500 dark:text-gray-400 md:col-span-2">{{ t('admin.backup.imageStorage.localHint') }}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400 md:col-span-2">{{ t('admin.backup.imageStorage.localAlertHint') }}</p>
+          </template>
         </div>
 
         <div class="mt-4 flex flex-wrap gap-2">
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="testingImageStorage" @click="testImageStorage">
-            {{ testingImageStorage ? t('common.loading') : t('admin.backup.s3.testConnection') }}
+          <button type="button" class="btn btn-secondary btn-sm" :disabled="testingImageStorage || !imageStorageValid" @click="testImageStorage">
+            {{ testingImageStorage ? t('common.loading') : t('admin.backup.imageStorage.testStorage') }}
           </button>
-          <button type="button" class="btn btn-primary btn-sm" :disabled="savingImageStorage" @click="saveImageStorageConfig">
+          <button type="button" class="btn btn-primary btn-sm" :disabled="!imageStorageValid" @click="saveImageStorageConfig">
             {{ savingImageStorage ? t('common.loading') : t('common.save') }}
           </button>
         </div>
+        </fieldset>
       </div>
 
       <div class="card p-6" data-testid="image-payload-cleanup">
@@ -521,6 +554,12 @@ const testingS3 = ref(false)
 // to reuse the credentials configured above and only differ by prefix.
 const imageStorageForm = ref<ImageStorageConfig>({
   enabled: false,
+  backend: 's3',
+  local_public_base_url: '',
+  local_max_size_gb: 20,
+  local_retention_hours: 12,
+  local_cleanup_interval_hours: 2,
+  local_alert_threshold_gb: 2,
   reuse_backup_s3: true,
   bucket: '',
   prefix: 'images/',
@@ -536,6 +575,19 @@ const imageStorageForm = ref<ImageStorageConfig>({
 const imageStorageSecretConfigured = ref(false)
 const savingImageStorage = ref(false)
 const testingImageStorage = ref(false)
+const imageStorageLoaded = ref(false)
+const imageStorageValid = computed(() => {
+  if (!imageStorageLoaded.value || savingImageStorage.value) return false
+  const form = imageStorageForm.value
+  if (form.backend !== 'local') return true
+  if (![form.local_max_size_gb, form.local_retention_hours, form.local_cleanup_interval_hours, form.local_alert_threshold_gb].every(value => Number.isInteger(value) && value > 0)) return false
+  if (form.local_alert_threshold_gb >= form.local_max_size_gb || form.local_max_size_gb > 1048576 || form.local_retention_hours > 8760 || form.local_cleanup_interval_hours > 8760) return false
+  if (!form.enabled && !form.local_public_base_url) return true
+  try {
+    const url = new URL(form.local_public_base_url)
+    return ['http:', 'https:'].includes(url.protocol) && !!url.hostname && !url.username && !url.password && url.pathname === '/' && !url.search && !url.hash
+  } catch { return false }
+})
 
 // Schedule config
 const scheduleForm = ref<BackupScheduleConfig>({
@@ -747,21 +799,31 @@ async function saveS3Config() {
 }
 
 async function loadImageStorageConfig() {
+  imageStorageLoaded.value = false
   try {
     const { config, secret_configured } = await adminAPI.backup.getImageStorageConfig()
     imageStorageForm.value = {
+      ...imageStorageForm.value,
       ...config,
+      backend: config.backend || 's3',
+      local_public_base_url: config.local_public_base_url || '',
+      local_max_size_gb: config.local_max_size_gb || 20,
+      local_retention_hours: config.local_retention_hours || 12,
+      local_cleanup_interval_hours: config.local_cleanup_interval_hours || 2,
+      local_alert_threshold_gb: config.local_alert_threshold_gb || 2,
       prefix: config.prefix || 'images/',
       region: config.region || 'auto',
       secret_access_key: '',
     }
     imageStorageSecretConfigured.value = secret_configured
+    imageStorageLoaded.value = true
   } catch (error) {
     appStore.showError((error as { message?: string })?.message || t('errors.networkError'))
   }
 }
 
 async function saveImageStorageConfig() {
+  if (!imageStorageValid.value) return
   savingImageStorage.value = true
   try {
     await backupStepUp.run(() => adminAPI.backup.updateImageStorageConfig(imageStorageForm.value))
@@ -779,6 +841,7 @@ async function saveImageStorageConfig() {
 }
 
 async function testImageStorage() {
+  if (!imageStorageValid.value) return
   testingImageStorage.value = true
   try {
     const result = await adminAPI.backup.testImageStorageConnection(imageStorageForm.value)

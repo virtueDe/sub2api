@@ -705,9 +705,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if stripQueryEnabledForAccount && !proxyEnabledForAccount {
 		beforeURLs := redactImageURLsForLog(requestInfo.InputImageURLs)
 		beforeMaskURL := redactImageURLForLog(requestInfo.MaskImageURL)
-		requestInfo.InputImageURLs = stripImageURLQueries(requestInfo.InputImageURLs)
+		requestInfo.InputImageURLs = stripImageURLQueriesPreservingStorage(ctx, s.imageURLProxy, requestInfo.InputImageURLs)
 		if requestInfo.MaskImageURL != "" {
-			requestInfo.MaskImageURL = stripImageURLQuery(requestInfo.MaskImageURL)
+			requestInfo.MaskImageURL = stripImageURLQueryPreservingStorage(ctx, s.imageURLProxy, requestInfo.MaskImageURL)
 		}
 		logger.L().Info("image_url_strip_query.rewrite",
 			zap.Int64("account_id", account.ID),
@@ -772,9 +772,9 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if stripQueryEnabled && proxyEnabled {
 		beforeURLs := redactImageURLsForLog(requestInfo.InputImageURLs)
 		beforeMaskURL := redactImageURLForLog(requestInfo.MaskImageURL)
-		requestInfo.InputImageURLs = stripImageURLQueries(requestInfo.InputImageURLs)
+		requestInfo.InputImageURLs = stripImageURLQueriesPreservingStorage(ctx, s.imageURLProxy, requestInfo.InputImageURLs)
 		if requestInfo.MaskImageURL != "" {
-			requestInfo.MaskImageURL = stripImageURLQuery(requestInfo.MaskImageURL)
+			requestInfo.MaskImageURL = stripImageURLQueryPreservingStorage(ctx, s.imageURLProxy, requestInfo.MaskImageURL)
 		}
 		logger.L().Info("image_url_strip_query.rewrite",
 			zap.Int64("account_id", account.ID),

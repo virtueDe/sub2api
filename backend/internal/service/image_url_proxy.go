@@ -13,6 +13,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagefilestore"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/imagetiming"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
@@ -76,6 +77,12 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 		)
 		return imageURL, nil
 	}
+	// Bind once so a concurrent settings update cannot mix cache and upload targets.
+	storage := p.currentStorage()
+	if storage == nil {
+		return imageURL, nil
+	}
+	cachePolicy, hasCachePolicy := storage.(ImageStorageCachePolicy)
 
 	logger.L().Debug("image_url_proxy.start",
 		zap.String("url", redactImageURLForLog(imageURL)),
@@ -84,11 +91,14 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 
 	// 检查缓存
 	cacheKey := p.buildCacheKey(imageURL)
+	if hasCachePolicy {
+		cacheKey = "img_proxy:v2:" + cachePolicy.CacheNamespace() + ":" + cacheKey
+	}
 	if p.cache != nil {
 		cacheTiming := imagetiming.Start(ctx, "input_image_cache_read")
 		cachedURL, err := p.cache.Get(ctx, cacheKey)
 		cacheTiming.End(err, zap.Bool("cache_hit", err == nil && cachedURL != ""))
-		if err == nil && cachedURL != "" {
+		if err == nil && cachedURL != "" && (!hasCachePolicy || cachePolicy.ValidateCachedURL(ctx, cachedURL)) {
 			logger.L().Debug("image_url_proxy.cache_hit",
 				zap.String("cache_key", cacheKey),
 				zap.String("cached_url", redactImageURLForLog(cachedURL)),
@@ -126,10 +136,10 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 		zap.Duration("duration", downloadDuration),
 	)
 
-	// 上传到 CF R2
+	// 保存到本次请求绑定的图片存储。
 	uploadStart := time.Now()
 	uploadTiming := imagetiming.Start(ctx, "input_image_upload")
-	cfURL, err := p.uploadToR2(uploadTiming.Context(ctx), imageData, contentType)
+	cfURL, err := p.uploadToStorage(uploadTiming.Context(ctx), storage, imageData, contentType)
 	uploadTiming.End(err, zap.Bool("fallback", err != nil))
 	uploadDuration := time.Since(uploadStart)
 	if err != nil {
@@ -157,11 +167,16 @@ func (p *ImageURLProxy) ProxyURL(ctx context.Context, imageURL string) (string, 
 		if cacheTTL <= 0 {
 			cacheTTL = 168 * time.Hour // 默认 7 天
 		}
-		if err := p.cache.Set(ctx, cacheKey, cfURL, cacheTTL); err != nil {
-			logger.L().Warn("image_url_proxy.cache_write_failed",
-				zap.String("cache_key", cacheKey),
-				zap.Error(err),
-			)
+		if hasCachePolicy {
+			cacheTTL = cachePolicy.CacheTTL(cfURL, cacheTTL)
+		}
+		if cacheTTL > 0 {
+			if err := p.cache.Set(ctx, cacheKey, cfURL, cacheTTL); err != nil {
+				logger.L().Warn("image_url_proxy.cache_write_failed",
+					zap.String("cache_key", cacheKey),
+					zap.Error(err),
+				)
+			}
 		}
 	}
 
@@ -298,9 +313,19 @@ func (p *ImageURLProxy) downloadImage(ctx context.Context, imageURL string) ([]b
 	return imageData, contentType, nil
 }
 
-// uploadToR2 上传图片到 CF R2
-func (p *ImageURLProxy) uploadToR2(ctx context.Context, imageData []byte, contentType string) (string, error) {
-	if p.imageStorage == nil {
+func (p *ImageURLProxy) currentStorage() ImageStorage {
+	if p == nil {
+		return nil
+	}
+	if dynamic, ok := p.imageStorage.(interface{ CurrentStorage() ImageStorage }); ok {
+		return dynamic.CurrentStorage()
+	}
+	return p.imageStorage
+}
+
+// uploadToStorage preserves the existing content-addressed object key.
+func (p *ImageURLProxy) uploadToStorage(ctx context.Context, storage ImageStorage, imageData []byte, contentType string) (string, error) {
+	if storage == nil {
 		return "", fmt.Errorf("image storage not configured")
 	}
 
@@ -313,12 +338,37 @@ func (p *ImageURLProxy) uploadToR2(ctx context.Context, imageData []byte, conten
 	uploadCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 
-	cfURL, err := p.imageStorage.Save(uploadCtx, storageKey, contentType, imageData)
+	cfURL, err := storage.Save(uploadCtx, storageKey, contentType, imageData)
 	if err != nil {
-		return "", fmt.Errorf("upload to r2: %w", err)
+		return "", fmt.Errorf("save proxied image: %w", err)
 	}
 
 	return cfURL, nil
+}
+
+// Keep signatures on our download links when the channel strips input URL queries.
+func stripImageURLQueryPreservingStorage(ctx context.Context, proxy *ImageURLProxy, raw string) string {
+	if parsed, err := url.Parse(raw); err == nil && strings.HasPrefix(parsed.Path, imagefilestore.DownloadPath) && len(parsed.Query().Get("signature")) == 64 && parsed.Query().Get("expires") != "" {
+		return raw
+	}
+	// S3 links retain their signature after a backend switch and until their actual expiry.
+	if parsed, err := url.Parse(raw); err == nil && parsed.Query().Get("X-Amz-Algorithm") == "AWS4-HMAC-SHA256" && parsed.Query().Get("X-Amz-Signature") != "" {
+		return raw
+	}
+	if proxy != nil {
+		if policy, ok := proxy.currentStorage().(ImageStorageCachePolicy); ok && policy.ValidateCachedURL(ctx, raw) {
+			return raw
+		}
+	}
+	return stripImageURLQuery(raw)
+}
+
+func stripImageURLQueriesPreservingStorage(ctx context.Context, proxy *ImageURLProxy, urls []string) []string {
+	result := make([]string, len(urls))
+	for i, raw := range urls {
+		result[i] = stripImageURLQueryPreservingStorage(ctx, proxy, raw)
+	}
+	return result
 }
 
 // fallbackToCleanURL 降级到干净的 URL（去掉签名参数）

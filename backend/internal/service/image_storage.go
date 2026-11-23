@@ -35,6 +35,13 @@ type ImageStorage interface {
 	Save(ctx context.Context, key, contentType string, data []byte) (url string, err error)
 }
 
+// ImageStorageCachePolicy isolates targets and bounds cached links to their lifetime.
+type ImageStorageCachePolicy interface {
+	CacheNamespace() string
+	ValidateCachedURL(context.Context, string) bool
+	CacheTTL(string, time.Duration) time.Duration
+}
+
 // ImageResultUploader 是 ImageStorage 的上层编排器（与具体厂商无关）：
 // 把上游生图响应里的每张图片（b64_json 解码 / url 下载）转存到对象存储，
 // 并把响应结果改写为只含短链接的紧凑 JSON，从而避免大 base64 落 Redis。

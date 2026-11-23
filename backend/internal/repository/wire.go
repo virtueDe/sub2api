@@ -8,6 +8,7 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/imagefilestore"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
@@ -200,8 +201,15 @@ func ProvideEnt(cfg *config.Config) (*ent.Client, func(), error) {
 //
 // 这里返回工厂而不是实例：异步生图的开关与凭证可以在后台随时改动，客户端必须能在
 // 设置保存后重建，而不是在启动时定死一份。
-func ProvideImageStorageFactory() service.ImageStorageFactory {
+func ProvideImageStorageFactory(local *imagefilestore.Store) service.ImageStorageFactory {
 	return func(ctx context.Context, cfg *config.ImageStorageConfig) (service.ImageStorage, error) {
+		if cfg.IsLocal() {
+			policy, err := service.LocalImageStoragePolicy(cfg)
+			if err != nil {
+				return nil, err
+			}
+			return local.Storage(policy), nil
+		}
 		return NewS3ImageStorage(ctx, cfg)
 	}
 }

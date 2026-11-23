@@ -117,9 +117,20 @@ export default {
         reload: 'Reload cleanup settings',
       },
       imageStorage: {
-        title: 'Async image object storage',
-        description: 'Enables the asynchronous image endpoints and offloads generated images to object storage, keeping only short links in Redis. Shares the S3 client with backups and takes effect on save — no restart needed.',
-        enabled: 'Enable async image tasks',
+        title: 'Image storage and async tasks',
+        description: 'Selects storage for async image results, existing synchronous image offloading and image URL proxying. New writes switch immediately; existing links keep their original lifetime. Backup storage is configured separately.',
+        enabled: 'Enable image storage and async tasks',
+        backend: 'Image storage location',
+        backendS3: 'Cloudflare R2 / S3',
+        backendLocal: 'Local server directory',
+        localPublicBaseUrl: 'Local image download origin',
+        localMaxSizeGb: 'Image capacity limit (GiB)',
+        localRetentionHours: 'Image retention and access lifetime (hours)',
+        localCleanupIntervalHours: 'Expired file cleanup interval (hours)',
+        localAlertThresholdGb: 'Remaining capacity email threshold (GiB)',
+        localHint: 'Object names stay the same. Access stops at expiry; files are deleted on the next cleanup pass. Changes apply to new files. Full storage rejects additional usage without evicting valid images.',
+        localAlertHint: 'One email is sent when remaining quota reaches the threshold; recovery rearms the alert. Uses enabled operations alert recipients, or verified account quota notification addresses when none are configured.',
+        testStorage: 'Test storage',
         reuseBackupS3: 'Reuse the backup S3 configuration above (different bucket/prefix only)',
         bucket: 'Bucket',
         bucketInherited: 'Leave empty to use the backup bucket',
@@ -127,7 +138,7 @@ export default {
         publicBaseUrl: 'Public base URL',
         publicBaseUrlPlaceholder: 'Leave empty to return presigned links',
         presignExpiryHours: 'Presigned link TTL (hours)',
-        saved: 'Async image object storage saved'
+        saved: 'Image storage settings saved'
       },
       schedule: {
         title: 'Scheduled Backup',

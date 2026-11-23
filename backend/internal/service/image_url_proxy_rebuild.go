@@ -25,14 +25,6 @@ func stripImageURLQuery(raw string) string {
 	return parsed.String()
 }
 
-func stripImageURLQueries(urls []string) []string {
-	result := make([]string, len(urls))
-	for i, raw := range urls {
-		result[i] = stripImageURLQuery(raw)
-	}
-	return result
-}
-
 // redactImageURLForLog keeps the URL shape while hiding signed query values.
 func redactImageURLForLog(raw string) string {
 	trimmed := strings.TrimSpace(raw)

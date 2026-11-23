@@ -313,23 +313,38 @@ type BatchImageConfig struct {
 // Enabled 同时作为异步图片任务功能的总开关：未启用或未配置完整凭证时，
 // 异步生图接口整体禁用，避免把上游返回的大 base64 结果塞进 Redis。
 type ImageStorageConfig struct {
-	Enabled         bool   `mapstructure:"enabled"`
-	Endpoint        string `mapstructure:"endpoint"` // e.g. https://<account_id>.r2.cloudflarestorage.com
-	Region          string `mapstructure:"region"`   // R2 用 "auto"
-	Bucket          string `mapstructure:"bucket"`
-	AccessKeyID     string `mapstructure:"access_key_id"`
-	SecretAccessKey string `mapstructure:"secret_access_key"`
-	Prefix          string `mapstructure:"prefix"`               // S3 key 前缀，如 "images/"
-	ForcePathStyle  bool   `mapstructure:"force_path_style"`     // MinIO/路径风格桶
-	PublicBaseURL   string `mapstructure:"public_base_url"`      // 配了则返回 public_base_url/key 直链；否则 presigned
-	PresignExpiry   int    `mapstructure:"presign_expiry_hours"` // public_base_url 为空时的 presigned 过期时长(小时)
-	MaxDownloadByte int64  `mapstructure:"max_download_bytes"`   // 下载上游 url 图片的字节上限
+	Enabled                   bool   `mapstructure:"enabled"`
+	Backend                   string `mapstructure:"backend"`
+	LocalDirectory            string `mapstructure:"local_directory"`
+	LocalPublicBaseURL        string `mapstructure:"local_public_base_url"`
+	LocalMaxSizeGB            int    `mapstructure:"local_max_size_gb"`
+	LocalRetentionHours       int    `mapstructure:"local_retention_hours"`
+	LocalCleanupIntervalHours int    `mapstructure:"local_cleanup_interval_hours"`
+	LocalAlertThresholdGB     int    `mapstructure:"local_alert_threshold_gb"`
+	Endpoint                  string `mapstructure:"endpoint"` // e.g. https://<account_id>.r2.cloudflarestorage.com
+	Region                    string `mapstructure:"region"`   // R2 用 "auto"
+	Bucket                    string `mapstructure:"bucket"`
+	AccessKeyID               string `mapstructure:"access_key_id"`
+	SecretAccessKey           string `mapstructure:"secret_access_key"`
+	Prefix                    string `mapstructure:"prefix"`               // S3 key 前缀，如 "images/"
+	ForcePathStyle            bool   `mapstructure:"force_path_style"`     // MinIO/路径风格桶
+	PublicBaseURL             string `mapstructure:"public_base_url"`      // 配了则返回 public_base_url/key 直链；否则 presigned
+	PresignExpiry             int    `mapstructure:"presign_expiry_hours"` // public_base_url 为空时的 presigned 过期时长(小时)
+	MaxDownloadByte           int64  `mapstructure:"max_download_bytes"`   // 下载上游 url 图片的字节上限
 }
 
 // IsConfigured 检查对象存储必要字段是否已配置
 func (c *ImageStorageConfig) IsConfigured() bool {
+	if c.IsLocal() {
+		return c.LocalPublicBaseURL != ""
+	}
+	if c.Backend != "" && c.Backend != "s3" {
+		return false
+	}
 	return c.Bucket != "" && c.AccessKeyID != "" && c.SecretAccessKey != ""
 }
+
+func (c *ImageStorageConfig) IsLocal() bool { return c.Backend == "local" }
 
 // Active 返回异步图片任务是否可用：开关打开且凭证齐全
 func (c *ImageStorageConfig) Active() bool {
@@ -339,6 +354,12 @@ func (c *ImageStorageConfig) Active() bool {
 // MissingCredentialKeys 返回 IsConfigured 所缺的配置键名。
 // 用于启动日志：只说"凭证不完整"会让运维以为自己漏填了，而实际可能是值填了却没被读到。
 func (c *ImageStorageConfig) MissingCredentialKeys() []string {
+	if c.IsLocal() {
+		if c.LocalPublicBaseURL == "" {
+			return []string{"image_storage.local_public_base_url"}
+		}
+		return nil
+	}
 	var missing []string
 	if c.Bucket == "" {
 		missing = append(missing, "image_storage.bucket")
@@ -2450,6 +2471,13 @@ func setDefaults() {
 
 	// Image storage (async image task result offload to S3-compatible object storage)
 	viper.SetDefault("image_storage.enabled", false)
+	viper.SetDefault("image_storage.backend", "s3")
+	viper.SetDefault("image_storage.local_directory", "")
+	viper.SetDefault("image_storage.local_public_base_url", "")
+	viper.SetDefault("image_storage.local_max_size_gb", 20)
+	viper.SetDefault("image_storage.local_retention_hours", 12)
+	viper.SetDefault("image_storage.local_cleanup_interval_hours", 2)
+	viper.SetDefault("image_storage.local_alert_threshold_gb", 2)
 	viper.SetDefault("image_storage.region", "auto")
 	viper.SetDefault("image_storage.prefix", "images/")
 	viper.SetDefault("image_storage.force_path_style", false)

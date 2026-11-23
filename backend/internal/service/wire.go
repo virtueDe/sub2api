@@ -53,6 +53,17 @@ func (d *dynamicImageStorage) Ready() bool {
 	return enabled
 }
 
+func (d *dynamicImageStorage) CurrentStorage() ImageStorage {
+	if d == nil || d.settingService == nil {
+		return nil
+	}
+	uploader, enabled := d.settingService.Resolver()()
+	if !enabled || uploader == nil {
+		return nil
+	}
+	return uploader.GetStorage()
+}
+
 // Save 实现 ImageStorage 接口
 func (d *dynamicImageStorage) Save(ctx context.Context, key, contentType string, data []byte) (string, error) {
 	if d.settingService == nil {
@@ -958,6 +969,7 @@ var ProviderSet = wire.NewSet(
 	NewOpenAIGatewayServiceWithImageURLProxy,
 	ProvideRedisImageURLProxyCache,
 	ProvideImageStorage,
+	ProvideLocalImageStore,
 	ProvideImageStorageSettingService,
 	ProvideImageTaskService,
 	ProvideBatchImageModelPricingResolver,

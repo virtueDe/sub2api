@@ -1367,6 +1367,17 @@ update:
 # service.ImageStorage 接口（Save(ctx, key, contentType, data) -> url）即可。
 image_storage:
   enabled: false
+  # s3（默认）或 local。后台存储设置优先。
+  backend: "s3"
+  # 本地专用根目录。空值使用 DATA_DIR 或 /app/data 下的 image-storage；需持久化。
+  local_directory: ""
+  # 本地下载域名，只填写 HTTP(S) origin，不带路径；local 模式必填。
+  local_public_base_url: ""
+  local_max_size_gb: 20
+  local_retention_hours: 12
+  local_cleanup_interval_hours: 2
+  # 剩余配额邮件预警，必须大于 0 且小于总容量。使用系统 SMTP 与已有通知收件人。
+  local_alert_threshold_gb: 2
   # S3 兼容端点。AWS 官方可留空；R2 形如 https://<account_id>.r2.cloudflarestorage.com
   endpoint: ""
   # 区域。Cloudflare R2 用 "auto"

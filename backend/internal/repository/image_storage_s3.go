@@ -3,7 +3,11 @@ package repository
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,10 +22,11 @@ import (
 
 // S3ImageStorage 用 S3 兼容对象存储实现 service.ImageStorage。
 type S3ImageStorage struct {
-	client        *s3.Client
-	bucket        string
-	publicBaseURL string
-	presignExpiry time.Duration
+	client         *s3.Client
+	bucket         string
+	publicBaseURL  string
+	presignExpiry  time.Duration
+	cacheNamespace string
 }
 
 var _ service.ImageStorage = (*S3ImageStorage)(nil)
@@ -43,13 +48,43 @@ func NewS3ImageStorage(ctx context.Context, cfg *config.ImageStorageConfig) (*S3
 	if expiry <= 0 {
 		expiry = 24 * time.Hour
 	}
+	fingerprint := sha256.Sum256([]byte(strings.Join([]string{cfg.Endpoint, cfg.Region, cfg.Bucket, cfg.PublicBaseURL, cfg.AccessKeyID, cfg.SecretAccessKey, cfg.Prefix, strconv.Itoa(cfg.PresignExpiry)}, "\x00")))
 
 	return &S3ImageStorage{
-		client:        client,
-		bucket:        cfg.Bucket,
-		publicBaseURL: strings.TrimRight(cfg.PublicBaseURL, "/"),
-		presignExpiry: expiry,
+		client:         client,
+		bucket:         cfg.Bucket,
+		publicBaseURL:  strings.TrimRight(cfg.PublicBaseURL, "/"),
+		presignExpiry:  expiry,
+		cacheNamespace: hex.EncodeToString(fingerprint[:]),
 	}, nil
+}
+
+func (s *S3ImageStorage) CacheNamespace() string { return s.cacheNamespace }
+
+func (s *S3ImageStorage) CacheTTL(imageURL string, requested time.Duration) time.Duration {
+	if s.publicBaseURL != "" {
+		return requested
+	}
+	u, err := url.Parse(imageURL)
+	if err != nil {
+		return 0
+	}
+	created, err := time.Parse("20060102T150405Z", u.Query().Get("X-Amz-Date"))
+	if err != nil {
+		return 0
+	}
+	seconds, err := strconv.ParseInt(u.Query().Get("X-Amz-Expires"), 10, 64)
+	if err != nil || seconds < 1 || seconds > 604800 {
+		return 0
+	}
+	return min(requested, time.Until(created.Add(time.Duration(seconds)*time.Second)))
+}
+
+func (s *S3ImageStorage) ValidateCachedURL(_ context.Context, imageURL string) bool {
+	if s.publicBaseURL != "" {
+		return strings.HasPrefix(imageURL, s.publicBaseURL+"/")
+	}
+	return s.CacheTTL(imageURL, time.Minute) >= time.Minute
 }
 
 // Save 上传图片字节，返回可访问 URL：配了 public_base_url 则返回公开直链，否则返回 presigned 临时链接。

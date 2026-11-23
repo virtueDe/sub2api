@@ -182,7 +182,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), e
 	backupObjectStoreFactory := repository.NewS3BackupStoreFactory()
 	dbDumper := repository.NewPgDumper(configConfig, db)
 	backupService := service.ProvideBackupService(settingRepository, configConfig, secretEncryptor, backupObjectStoreFactory, dbDumper, leaderLockCache, db)
-	imageStorageFactory := repository.ProvideImageStorageFactory()
+	store, cleanup4 := service.ProvideLocalImageStore(configConfig, settingRepository, notificationEmailService)
+	imageStorageFactory := repository.ProvideImageStorageFactory(store)
 	imageStorageSettingService := service.ProvideImageStorageSettingService(settingRepository, secretEncryptor, backupService, imageStorageFactory, configConfig)
 	imageStorage := service.ProvideImageStorage(imageStorageSettingService)
 	imageURLProxyCache := service.ProvideRedisImageURLProxyCache(redisClient)
@@ -203,6 +204,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), e
 	opsService := service.ProvideOpsService(opsRepository, settingRepository, configConfig, accountRepository, userRepository, concurrencyService, gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService, opsSystemLogSink, settingService, authCacheInvalidationWorker, apiKeyService)
 	dailyTokenRankingRepository, err := service.ProvideDailyTokenRankingRepository(usageLogRepository)
 	if err != nil {
+		cleanup4()
 		cleanup3()
 		cleanup2()
 		cleanup()
@@ -223,12 +225,12 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), e
 	channelMonitorV2Service := service.ProvideChannelMonitorV2Service(channelMonitorV2Repository, settingService)
 	channelMonitorV2Handler := handler.NewChannelMonitorV2Handler(channelMonitorV2Service, apiKeyService)
 	imageProfitRepository := repository.ProvideImageProfitRepository(db, statisticsPools)
-	imageProfitService, cleanup4 := service.ProvideImageProfitService(imageProfitRepository, configConfig)
+	imageProfitService, cleanup5 := service.ProvideImageProfitService(imageProfitRepository, configConfig)
 	imageProfitHandler := admin.NewImageProfitHandler(imageProfitService)
 	dashboardAggregationRepository := repository.ProvideDashboardAggregationRepository(statisticsPools)
 	dashboardStatsCache := repository.NewDashboardCache(redisClient, configConfig)
-	dashboardService, cleanup5 := service.ProvideDashboardService(usageLogRepository, dashboardAggregationRepository, dashboardStatsCache, configConfig)
-	dashboardAggregationService, cleanup6 := service.ProvideDashboardAggregationService(dashboardAggregationRepository, timingWheelService, leaderLockCache, db, configConfig, settingRepository)
+	dashboardService, cleanup6 := service.ProvideDashboardService(usageLogRepository, dashboardAggregationRepository, dashboardStatsCache, configConfig)
+	dashboardAggregationService, cleanup7 := service.ProvideDashboardAggregationService(dashboardAggregationRepository, timingWheelService, leaderLockCache, db, configConfig, settingRepository)
 	dashboardHandler := admin.NewDashboardHandler(dashboardService, dashboardAggregationService)
 	adminGroupRepository := repository.NewAdminGroupRepository(client, db)
 	adminAccountRepository := repository.NewAdminAccountRepository(client, db, schedulerCache)
@@ -258,6 +260,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), e
 	dataManagementHandler := admin.NewDataManagementHandler(dataManagementService)
 	imagePayloadCleanupService, err := service.ProvideImagePayloadCleanupService(settingRepository, db, configConfig)
 	if err != nil {
+		cleanup7()
 		cleanup6()
 		cleanup5()
 		cleanup4()
@@ -281,6 +284,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), e
 	promoHandler := admin.NewPromoHandler(promoService)
 	encryptionKey, err := payment.ProvideEncryptionKey(configConfig)
 	if err != nil {
+		cleanup7()
 		cleanup6()
 		cleanup5()
 		cleanup4()
@@ -362,6 +366,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), e
 	passkeySessionStore := repository.NewPasskeySessionStore(redisClient)
 	passkeyService, err := service.NewPasskeyService(configConfig, passkeyRepository, passkeySessionStore, userRepository)
 	if err != nil {
+		cleanup7()
 		cleanup6()
 		cleanup5()
 		cleanup4()
@@ -396,10 +401,11 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), e
 	apiKeyAuthMiddleware := middleware.NewAPIKeyAuthMiddleware(apiKeyService, subscriptionService, configConfig)
 	auditLogMiddleware := middleware.NewAuditLogMiddleware(auditLogService)
 	stepUpAuthMiddleware := middleware.NewStepUpAuthMiddleware(totpService, userService, settingService)
-	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient)
+	engine := server.ProvideRouter(configConfig, handlers, jwtAuthMiddleware, optionalJWTAuthMiddleware, adminAuthMiddleware, apiKeyAuthMiddleware, auditLogMiddleware, stepUpAuthMiddleware, apiKeyService, subscriptionService, opsService, settingService, compositeRouteResolver, redisClient, store)
 	httpServer := server.ProvideHTTPServer(configConfig, engine)
-	recorder, cleanup7, err := repository.ProvideDatabaseDiagnostics(statisticsPools, configConfig)
+	recorder, cleanup8, err := repository.ProvideDatabaseDiagnostics(statisticsPools, configConfig)
 	if err != nil {
+		cleanup7()
 		cleanup6()
 		cleanup5()
 		cleanup4()
@@ -408,9 +414,9 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), e
 		cleanup()
 		return nil, nil, err
 	}
-	usageSettlementWorker, cleanup8 := service.ProvideUsageSettlementWorker(usageBillingRepository, billingCacheService, configConfig)
+	usageSettlementWorker, cleanup9 := service.ProvideUsageSettlementWorker(usageBillingRepository, billingCacheService, configConfig)
 	usageRollupRepository := repository.ProvideUsageRollupRepository(statisticsPools)
-	usageRollupWorker, cleanup9 := service.ProvideUsageRollupWorker(usageRollupRepository, configConfig)
+	usageRollupWorker, cleanup10 := service.ProvideUsageRollupWorker(usageRollupRepository, configConfig)
 	opsMetricsCollector := service.ProvideOpsMetricsCollector(opsRepository, settingRepository, accountRepository, concurrencyService, db, redisClient, configConfig)
 	opsAggregationService := service.ProvideOpsAggregationService(opsRepository, settingRepository, db, redisClient, configConfig)
 	opsAlertEvaluatorService := service.ProvideOpsAlertEvaluatorService(opsService, opsRepository, emailService, redisClient, configConfig, proxyRepository)
@@ -438,6 +444,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, func(), e
 		Cleanup:       v,
 	}
 	return application, func() {
+		cleanup10()
 		cleanup9()
 		cleanup8()
 		cleanup7()

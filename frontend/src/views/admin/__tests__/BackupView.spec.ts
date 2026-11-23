@@ -6,6 +6,7 @@ import BackupView from '../BackupView.vue'
 const {
   getS3Config,
   getImageStorageConfig,
+  updateImageStorageConfig,
   getImagePayloadCleanup,
   updateImagePayloadCleanup,
   getSchedule,
@@ -16,6 +17,7 @@ const {
 } = vi.hoisted(() => ({
   getS3Config: vi.fn(),
   getImageStorageConfig: vi.fn(),
+  updateImageStorageConfig: vi.fn(),
   getImagePayloadCleanup: vi.fn(),
   updateImagePayloadCleanup: vi.fn(),
   getSchedule: vi.fn(),
@@ -34,7 +36,7 @@ vi.mock('@/api', () => ({
       getImageStorageConfig,
       getImagePayloadCleanup,
       updateImagePayloadCleanup,
-      updateImageStorageConfig: vi.fn(),
+      updateImageStorageConfig,
       testImageStorageConnection: vi.fn(),
       getSchedule,
       updateSchedule,
@@ -103,6 +105,7 @@ describe('admin BackupView', () => {
     updateImagePayloadCleanup.mockReset().mockImplementation(async config => config)
     getS3Config.mockResolvedValue({})
     getImageStorageConfig.mockResolvedValue({ config: {}, secret_configured: false })
+    updateImageStorageConfig.mockReset().mockImplementation(async config => config)
     getSchedule.mockResolvedValue({ enabled: false, cron_expr: '', retain_days: 14, retain_count: 10 })
     updateSchedule.mockReset().mockResolvedValue({})
     deleteBackup.mockReset().mockResolvedValue(undefined)
@@ -115,6 +118,42 @@ describe('admin BackupView', () => {
     wrappers.splice(0).forEach(wrapper => wrapper.unmount())
     vi.restoreAllMocks()
     document.body.innerHTML = ''
+  })
+
+  it('switches to local images with configurable defaults and preserves S3 settings', async () => {
+    getImageStorageConfig.mockResolvedValue({config: {enabled: true, endpoint: 'https://s3.test', bucket: 'images', reuse_backup_s3: false, access_key_id: 'access'}, secret_configured: true})
+    const wrapper = mountBackupView()
+    await flushPromises()
+    const card = wrapper.get('[data-testid="image-storage"]')
+    await card.get('#image-storage-backend').setValue('local')
+    expect((card.get('#image-storage-local-capacity').element as HTMLInputElement).value).toBe('20')
+    expect((card.get('#image-storage-local-retention').element as HTMLInputElement).value).toBe('12')
+    expect((card.get('#image-storage-local-cleanup').element as HTMLInputElement).value).toBe('2')
+    expect((card.get('#image-storage-local-alert').element as HTMLInputElement).value).toBe('2')
+    expect(card.get('.btn-primary').attributes('disabled')).toBeDefined()
+    await card.get('#image-storage-local-url').setValue('https://direct.test')
+    await card.get('#image-storage-local-retention').setValue('6')
+    await card.get('#image-storage-local-alert').setValue('3')
+    await card.get('.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateImageStorageConfig).toHaveBeenCalledWith(expect.objectContaining({backend: 'local', local_public_base_url: 'https://direct.test', local_max_size_gb: 20, local_retention_hours: 6, local_cleanup_interval_hours: 2, local_alert_threshold_gb: 3, endpoint: 'https://s3.test', bucket: 'images', access_key_id: 'access', secret_access_key: ''}))
+  })
+
+  it('blocks invalid capacity alerts and leaves the form disabled when loading fails', async () => {
+    getImageStorageConfig.mockResolvedValue({config: {backend: 'local', enabled: true, local_public_base_url: 'https://direct.test'}, secret_configured: false})
+    const wrapper = mountBackupView()
+    await flushPromises()
+    const card = wrapper.get('[data-testid="image-storage"]')
+    await card.get('#image-storage-local-alert').setValue('20')
+    expect(card.get('.btn-primary').attributes('disabled')).toBeDefined()
+    await card.get('.btn-primary').trigger('click')
+    expect(updateImageStorageConfig).not.toHaveBeenCalled()
+    await card.get('#image-storage-backend').setValue('s3')
+    expect(card.get('.btn-primary').attributes('disabled')).toBeUndefined()
+    getImageStorageConfig.mockRejectedValue(new Error('load failed'))
+    const failed = mountBackupView()
+    await flushPromises()
+    expect(failed.get('[data-testid="image-storage"] fieldset').attributes('disabled')).toBeDefined()
   })
 
   it('saves independent image payload retention settings', async () => {

@@ -252,3 +252,119 @@ func TestImageStorageSettingsFallBackToConfigFile(t *testing.T) {
 	require.Equal(t, "yaml-bucket", fetched.Bucket)
 	require.Empty(t, fetched.SecretAccessKey)
 }
+
+func TestImageStorageSettingsLocalDefaultsAndSwitchPreservesS3(t *testing.T) {
+	svc, repo, built := newImageStorageFixture(t, config.ImageStorageConfig{})
+	ctx := context.Background()
+	_, err := svc.Update(ctx, ImageStorageSettings{Enabled: true, Bucket: "images", Endpoint: "https://s3.test", AccessKeyID: "access", SecretAccessKey: "secret"})
+	require.NoError(t, err)
+	settings, err := svc.Get(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "s3", settings.Backend)
+	settings.Backend = "local"
+	settings.LocalPublicBaseURL = "https://direct.test/"
+	settings.LocalMaxSizeGB, settings.LocalRetentionHours, settings.LocalCleanupIntervalHours, settings.LocalAlertThresholdGB = 0, 0, 0, 0
+	_, err = svc.Update(ctx, *settings)
+	require.NoError(t, err)
+	_, enabled := svc.resolve()
+	require.True(t, enabled)
+	local := (*built)[0]
+	require.Equal(t, "local", local.Backend)
+	require.Equal(t, "https://direct.test", local.LocalPublicBaseURL)
+	require.Equal(t, 20, local.LocalMaxSizeGB)
+	require.Equal(t, 12, local.LocalRetentionHours)
+	require.Equal(t, 2, local.LocalCleanupIntervalHours)
+	require.Equal(t, 2, local.LocalAlertThresholdGB)
+	settings, err = svc.Get(ctx)
+	require.NoError(t, err)
+	settings.Backend = "s3"
+	_, err = svc.Update(ctx, *settings)
+	require.NoError(t, err)
+	_, enabled = svc.resolve()
+	require.True(t, enabled)
+	require.Equal(t, "secret", (*built)[1].SecretAccessKey)
+	raw, err := repo.GetValue(ctx, settingKeyImageStorageConfig)
+	require.NoError(t, err)
+	require.Contains(t, raw, "enc:secret")
+}
+
+func TestImageStorageSettingsLocalDoesNotRequireBackupOrEncryption(t *testing.T) {
+	svc, _, built := newImageStorageFixtureWithKey(t, config.ImageStorageConfig{}, false)
+	svc.backup = nil
+	_, err := svc.Update(context.Background(), ImageStorageSettings{Enabled: true, Backend: "local", ReuseBackupS3: true, LocalPublicBaseURL: "https://direct.test"})
+	require.NoError(t, err)
+	_, enabled := svc.resolve()
+	require.True(t, enabled)
+	require.Len(t, *built, 1)
+	require.Empty(t, (*built)[0].Bucket)
+	require.Empty(t, (*built)[0].SecretAccessKey)
+}
+
+func TestImageStorageSettingsRejectInvalidLocalPolicy(t *testing.T) {
+	for _, input := range []ImageStorageSettings{
+		{Backend: "unknown"},
+		{Backend: "local", Enabled: true},
+		{Backend: "local", LocalPublicBaseURL: "https://images.test/path"},
+		{Backend: "local", LocalPublicBaseURL: "https://user:secret@images.test"},
+		{Backend: "local", LocalPublicBaseURL: "file:///tmp/images"},
+		{Backend: "local", LocalPublicBaseURL: "https://images.test?token=secret"},
+		{Backend: "local", LocalMaxSizeGB: 2, LocalAlertThresholdGB: 2},
+		{Backend: "local", LocalRetentionHours: -1},
+		{Backend: "local", LocalCleanupIntervalHours: 8761},
+		{Backend: "local", LocalAlertThresholdGB: -1},
+	} {
+		svc, _, _ := newImageStorageFixture(t, config.ImageStorageConfig{})
+		_, err := svc.Update(context.Background(), input)
+		require.Error(t, err, "%+v", input)
+	}
+}
+
+func TestImageStorageSettingsMaskedFallbackSecretSurvivesSave(t *testing.T) {
+	svc, _, built := newImageStorageFixture(t, config.ImageStorageConfig{Enabled: true, Endpoint: "https://s3.test", Bucket: "images", AccessKeyID: "access", SecretAccessKey: "secret"})
+	settings, err := svc.Get(context.Background())
+	require.NoError(t, err)
+	_, err = svc.Update(context.Background(), *settings)
+	require.NoError(t, err)
+	_, enabled := svc.resolve()
+	require.True(t, enabled)
+	require.Equal(t, "secret", (*built)[0].SecretAccessKey)
+	require.True(t, svc.SecretConfigured(context.Background()))
+}
+
+type transientImageSettingsRepo struct {
+	*stubSettingRepo
+	fail bool
+}
+
+func (r *transientImageSettingsRepo) GetValue(ctx context.Context, key string) (string, error) {
+	if r.fail {
+		r.fail = false
+		return "", errors.New("temporary database error")
+	}
+	return r.stubSettingRepo.GetValue(ctx, key)
+}
+
+func TestImageStorageSettingsRetryTransientLoadFailure(t *testing.T) {
+	svc, repo, _ := newImageStorageFixture(t, config.ImageStorageConfig{Enabled: true, Bucket: "images", AccessKeyID: "access", SecretAccessKey: "secret"})
+	svc.settingRepo = &transientImageSettingsRepo{stubSettingRepo: repo, fail: true}
+	_, enabled := svc.resolve()
+	require.False(t, enabled)
+	_, enabled = svc.resolve()
+	require.True(t, enabled, "temporary settings failures must not be cached forever")
+}
+
+func TestImageStorageSettingsS3IgnoresUnfinishedLocalEdits(t *testing.T) {
+	svc, _, _ := newImageStorageFixture(t, config.ImageStorageConfig{})
+	ctx := context.Background()
+	saved, err := svc.Update(ctx, ImageStorageSettings{Backend: "local", LocalPublicBaseURL: "https://images.test", LocalMaxSizeGB: 30, LocalRetentionHours: 8, LocalCleanupIntervalHours: 3, LocalAlertThresholdGB: 4})
+	require.NoError(t, err)
+	saved.Backend = "s3"
+	saved.LocalMaxSizeGB = -1
+	saved.LocalAlertThresholdGB = 99
+	saved.LocalPublicBaseURL = "unfinished"
+	updated, err := svc.Update(ctx, *saved)
+	require.NoError(t, err)
+	require.Equal(t, 30, updated.LocalMaxSizeGB)
+	require.Equal(t, 4, updated.LocalAlertThresholdGB)
+	require.Equal(t, "https://images.test", updated.LocalPublicBaseURL)
+}

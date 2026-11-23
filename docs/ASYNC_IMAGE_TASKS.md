@@ -18,11 +18,19 @@ OpenAI, Gemini and Grok groups are supported. Requests use the same JSON or mult
 
 ## Enabling the feature (object storage)
 
-Asynchronous image tasks are **disabled by default** and gated on object storage. When the switch is off — or the S3 credentials are incomplete — the async endpoints return `404` and never create a task or write to Redis. This is deliberate: without offloading, large `b64_json` results (several MB each, e.g. `gpt-image-1`) would accumulate in Redis and exhaust its memory.
+Asynchronous image tasks are **disabled by default** and gated on configured image storage. Select S3-compatible storage or a local directory. When the switch is off or the selected backend is incomplete, the async endpoints return `404` and never create a task or write to Redis. This keeps large `b64_json` results out of Redis.
 
 ### From the admin UI (recommended)
 
-**Admin → Backup → Async image object storage.** Saving the form takes effect immediately — the object-storage client is rebuilt on the next request, so there is no container restart.
+**Admin → Backup → Image storage and async tasks.** Select **Cloudflare R2 / S3** or **Local server directory**. Saving takes effect on new writes without a container restart. The selection also applies to existing synchronous image offloading and OpenAI/Grok input image URL proxying; database backup storage stays separate. Existing passthrough responses remain passthrough.
+
+Local storage defaults to **20 GiB**, **12 hours** of retention/access, **2-hour** cleanup intervals and a **2 GiB remaining-quota email threshold**; all four values are editable. Set the local download origin to a public HTTPS origin, for example `https://direct.duomi.cloud`. Download links use `/v1/image-files/<existing-object-key>?expires=…&signature=…` and do not require an API key. The signature is required. Access stops at expiry; physical deletion can lag by one cleanup interval. Limit changes apply to future saves and do not extend issued links. Valid files are not evicted to make room: writes that would exceed the capacity fail.
+
+The local directory is a deployment setting (`IMAGE_STORAGE_LOCAL_DIRECTORY` / `image_storage.local_directory`); by default it is `image-storage` below `DATA_DIR`, `/app/data` when available, or `./data`. Keep it on a persistent volume and do not serve it as a public static directory. The application serves signed GET/HEAD/Range requests with `no-store` headers. Its persisted JWT secret derives a separate signing key; keep that secret and the directory when replacing the container. Cleanup and unexpired local downloads continue after switching back to S3. One application process owns the directory; independent-disk replicas are unsupported.
+
+Capacity emails reuse the existing system SMTP and operations alert template. Recipients are enabled operations alert addresses, falling back to verified, enabled account-quota notification addresses. A low-capacity episode is persisted locally and notified once; recovery rearms it. Failed delivery is retried in the background at most once every five minutes, and successful recipients are deduplicated by the existing notification service. Neither checks nor SMTP block image writes. Configure recipients and SMTP before relying on these alerts.
+
+The input URL proxy isolates caches by storage target, checks local file validity and limits cached signed links to their remaining lifetime. Channel options that strip URL queries preserve managed storage signatures.
 
 Because the async image storage and the database backup share one S3 client, the form defaults to **reusing the backup S3 configuration**: it borrows the endpoint, region and credentials already configured above and keeps only its own bucket and prefix, so backups stay under `backups/` while images go to `images/`. Leave the bucket empty to use the backup bucket as well. Untick the box to point images at a completely separate account.
 

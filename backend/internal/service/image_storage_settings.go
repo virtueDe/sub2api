@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -27,8 +29,14 @@ type ImageStorageFactory func(ctx context.Context, cfg *config.ImageStorageConfi
 // ReuseBackupS3 为真时不保存自己的凭证，直接借用数据库备份已配置的 S3 端点与密钥，
 // 只用自己的 Bucket/Prefix 区分对象；这样"数据走 backups/、图片走 images/"无需重复配置。
 type ImageStorageSettings struct {
-	Enabled       bool `json:"enabled"`
-	ReuseBackupS3 bool `json:"reuse_backup_s3"`
+	Enabled                   bool   `json:"enabled"`
+	ReuseBackupS3             bool   `json:"reuse_backup_s3"`
+	Backend                   string `json:"backend"`
+	LocalPublicBaseURL        string `json:"local_public_base_url"`
+	LocalMaxSizeGB            int    `json:"local_max_size_gb"`
+	LocalRetentionHours       int    `json:"local_retention_hours"`
+	LocalCleanupIntervalHours int    `json:"local_cleanup_interval_hours"`
+	LocalAlertThresholdGB     int    `json:"local_alert_threshold_gb"`
 
 	Bucket           string `json:"bucket"` // 留空且复用备份时，沿用备份桶
 	Prefix           string `json:"prefix"`
@@ -103,10 +111,15 @@ func (s *ImageStorageSettingService) resolve() (*ImageResultUploader, bool) {
 
 	cfg, err := s.effectiveConfig(ctx)
 	if err != nil {
+		s.resolved = false
 		logger.L().Warn("image_storage.settings_load_failed; async image tasks stay disabled", zap.Error(err))
 		return nil, false
 	}
 	if !cfg.Enabled {
+		return nil, false
+	}
+	if err := validateImageStorageSettings(*settingsFromConfig(*cfg)); err != nil {
+		logger.L().Warn("image storage configuration is invalid", zap.Error(err))
 		return nil, false
 	}
 	if !cfg.IsConfigured() {
@@ -117,6 +130,7 @@ func (s *ImageStorageSettingService) resolve() (*ImageResultUploader, bool) {
 
 	storage, err := s.factory(ctx, cfg)
 	if err != nil {
+		s.resolved = false
 		logger.L().Error("image_storage.client_build_failed; async image tasks stay disabled", zap.Error(err))
 		return nil, false
 	}
@@ -160,14 +174,20 @@ func (s *ImageStorageSettingService) SecretConfigured(ctx context.Context) bool 
 		cfg, err := s.backupCredentials(ctx)
 		return err == nil && cfg != nil && cfg.SecretAccessKey != ""
 	}
-	return settings.SecretAccessKey != ""
+	return settings.SecretAccessKey != "" || (settings.Endpoint == s.fallback.Endpoint && settings.AccessKeyID == s.fallback.AccessKeyID && s.fallback.SecretAccessKey != "")
 }
 
 // Update 保存设置并立即生效。SecretAccessKey 留空表示沿用已保存的值。
 func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorageSettings) (*ImageStorageSettings, error) {
 	normalizeImageStorageSettings(&in)
+	if err := s.preserveInactiveLocalSettings(ctx, &in); err != nil {
+		return nil, err
+	}
+	if err := validateImageStorageSettings(in); err != nil {
+		return nil, err
+	}
 
-	if in.ReuseBackupS3 {
+	if in.ReuseBackupS3 && in.Backend != "local" {
 		// 复用备份凭证时不落自己的密钥，避免同一份密钥在库里存两份。
 		in.Endpoint, in.Region, in.AccessKeyID, in.SecretAccessKey = "", "", "", ""
 		in.ForcePathStyle = false
@@ -205,6 +225,12 @@ func (s *ImageStorageSettingService) Update(ctx context.Context, in ImageStorage
 // 与 Update 一样支持留空 SecretAccessKey 表示沿用已保存的值。
 func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in ImageStorageSettings) error {
 	normalizeImageStorageSettings(&in)
+	if err := s.preserveInactiveLocalSettings(ctx, &in); err != nil {
+		return err
+	}
+	if err := validateImageStorageSettings(in); err != nil {
+		return err
+	}
 	if !in.ReuseBackupS3 && in.SecretAccessKey == "" {
 		old, err := s.load(ctx)
 		if err == nil && old != nil {
@@ -218,9 +244,28 @@ func (s *ImageStorageSettingService) TestConnection(ctx context.Context, in Imag
 	if !cfg.IsConfigured() {
 		return ErrImageStorageIncomplete
 	}
-	if _, err := s.factory(ctx, cfg); err != nil {
+	storage, err := s.factory(ctx, cfg)
+	if err != nil {
 		return err
 	}
+	if tester, ok := storage.(interface{ TestConnection(context.Context) error }); ok {
+		return tester.TestConnection(ctx)
+	}
+	return nil
+}
+
+func (s *ImageStorageSettingService) preserveInactiveLocalSettings(ctx context.Context, in *ImageStorageSettings) error {
+	if in.Backend != "s3" {
+		return nil
+	}
+	old, err := s.Get(ctx)
+	if err != nil {
+		return err
+	}
+	// Hidden, unfinished local edits must not prevent switching back to S3.
+	in.LocalMaxSizeGB, in.LocalRetentionHours = old.LocalMaxSizeGB, old.LocalRetentionHours
+	in.LocalCleanupIntervalHours, in.LocalAlertThresholdGB = old.LocalCleanupIntervalHours, old.LocalAlertThresholdGB
+	in.LocalPublicBaseURL = old.LocalPublicBaseURL
 	return nil
 }
 
@@ -239,17 +284,32 @@ func (s *ImageStorageSettingService) effectiveConfig(ctx context.Context) (*conf
 
 func (s *ImageStorageSettingService) toImageStorageConfig(ctx context.Context, in *ImageStorageSettings) (*config.ImageStorageConfig, error) {
 	cfg := &config.ImageStorageConfig{
-		Enabled:         in.Enabled,
-		Bucket:          in.Bucket,
-		Prefix:          in.Prefix,
-		PublicBaseURL:   in.PublicBaseURL,
-		PresignExpiry:   in.PresignExpiry,
-		MaxDownloadByte: in.MaxDownloadBytes,
-		Endpoint:        in.Endpoint,
-		Region:          in.Region,
-		AccessKeyID:     in.AccessKeyID,
-		SecretAccessKey: in.SecretAccessKey,
-		ForcePathStyle:  in.ForcePathStyle,
+		Enabled:                   in.Enabled,
+		Backend:                   in.Backend,
+		LocalDirectory:            s.fallback.LocalDirectory,
+		LocalPublicBaseURL:        in.LocalPublicBaseURL,
+		LocalMaxSizeGB:            in.LocalMaxSizeGB,
+		LocalRetentionHours:       in.LocalRetentionHours,
+		LocalCleanupIntervalHours: in.LocalCleanupIntervalHours,
+		LocalAlertThresholdGB:     in.LocalAlertThresholdGB,
+		Bucket:                    in.Bucket,
+		Prefix:                    in.Prefix,
+		PublicBaseURL:             in.PublicBaseURL,
+		PresignExpiry:             in.PresignExpiry,
+		MaxDownloadByte:           in.MaxDownloadBytes,
+		Endpoint:                  in.Endpoint,
+		Region:                    in.Region,
+		AccessKeyID:               in.AccessKeyID,
+		SecretAccessKey:           in.SecretAccessKey,
+		ForcePathStyle:            in.ForcePathStyle,
+	}
+	if cfg.IsLocal() {
+		return cfg, nil
+	}
+	// A masked config.yaml secret need not be copied into the settings row.
+	if !in.ReuseBackupS3 && cfg.SecretAccessKey == "" && cfg.Endpoint == s.fallback.Endpoint && cfg.AccessKeyID == s.fallback.AccessKeyID {
+		cfg.SecretAccessKey = s.fallback.SecretAccessKey
+		return cfg, nil
 	}
 
 	if in.ReuseBackupS3 {
@@ -294,33 +354,62 @@ func (s *ImageStorageSettingService) load(ctx context.Context) (*ImageStorageSet
 		return nil, nil //nolint:nilnil // no repository means no stored settings
 	}
 	raw, err := s.settingRepo.GetValue(ctx, settingKeyImageStorageConfig)
-	if err != nil || strings.TrimSpace(raw) == "" {
+	if err != nil && !errors.Is(err, ErrSettingNotFound) {
+		return nil, err
+	}
+	if strings.TrimSpace(raw) == "" {
 		return nil, nil //nolint:nilnil // never configured is a valid state
 	}
 	var settings ImageStorageSettings
 	if err := json.Unmarshal([]byte(raw), &settings); err != nil {
 		return nil, fmt.Errorf("parse image storage settings: %w", err)
 	}
+	normalizeImageStorageSettings(&settings)
 	return &settings, nil
 }
 
 func settingsFromConfig(cfg config.ImageStorageConfig) *ImageStorageSettings {
-	return &ImageStorageSettings{
-		Enabled:          cfg.Enabled,
-		Bucket:           cfg.Bucket,
-		Prefix:           cfg.Prefix,
-		PublicBaseURL:    cfg.PublicBaseURL,
-		PresignExpiry:    cfg.PresignExpiry,
-		MaxDownloadBytes: cfg.MaxDownloadByte,
-		Endpoint:         cfg.Endpoint,
-		Region:           cfg.Region,
-		AccessKeyID:      cfg.AccessKeyID,
-		SecretAccessKey:  cfg.SecretAccessKey,
-		ForcePathStyle:   cfg.ForcePathStyle,
+	settings := &ImageStorageSettings{
+		Enabled:                   cfg.Enabled,
+		Backend:                   cfg.Backend,
+		LocalPublicBaseURL:        cfg.LocalPublicBaseURL,
+		LocalMaxSizeGB:            cfg.LocalMaxSizeGB,
+		LocalRetentionHours:       cfg.LocalRetentionHours,
+		LocalCleanupIntervalHours: cfg.LocalCleanupIntervalHours,
+		LocalAlertThresholdGB:     cfg.LocalAlertThresholdGB,
+		Bucket:                    cfg.Bucket,
+		Prefix:                    cfg.Prefix,
+		PublicBaseURL:             cfg.PublicBaseURL,
+		PresignExpiry:             cfg.PresignExpiry,
+		MaxDownloadBytes:          cfg.MaxDownloadByte,
+		Endpoint:                  cfg.Endpoint,
+		Region:                    cfg.Region,
+		AccessKeyID:               cfg.AccessKeyID,
+		SecretAccessKey:           cfg.SecretAccessKey,
+		ForcePathStyle:            cfg.ForcePathStyle,
 	}
+	normalizeImageStorageSettings(settings)
+	return settings
 }
 
 func normalizeImageStorageSettings(in *ImageStorageSettings) {
+	in.Backend = strings.ToLower(strings.TrimSpace(in.Backend))
+	if in.Backend == "" {
+		in.Backend = "s3"
+	}
+	in.LocalPublicBaseURL = strings.TrimRight(strings.TrimSpace(in.LocalPublicBaseURL), "/")
+	if in.LocalMaxSizeGB == 0 {
+		in.LocalMaxSizeGB = 20
+	}
+	if in.LocalRetentionHours == 0 {
+		in.LocalRetentionHours = 12
+	}
+	if in.LocalCleanupIntervalHours == 0 {
+		in.LocalCleanupIntervalHours = 2
+	}
+	if in.LocalAlertThresholdGB == 0 {
+		in.LocalAlertThresholdGB = 2
+	}
 	in.Bucket = strings.TrimSpace(in.Bucket)
 	in.Endpoint = strings.TrimSpace(in.Endpoint)
 	in.Region = strings.TrimSpace(in.Region)
@@ -344,4 +433,20 @@ func normalizeImageStorageSettings(in *ImageStorageSettings) {
 	if in.MaxDownloadBytes <= 0 {
 		in.MaxDownloadBytes = defaultImageMaxDownloadBytes
 	}
+}
+
+func validateImageStorageSettings(in ImageStorageSettings) error {
+	if in.Backend != "s3" && in.Backend != "local" {
+		return infraerrors.BadRequest("INVALID_IMAGE_STORAGE_BACKEND", "image storage backend must be s3 or local")
+	}
+	if in.LocalMaxSizeGB < 1 || in.LocalMaxSizeGB > 1048576 || in.LocalRetentionHours < 1 || in.LocalRetentionHours > 8760 || in.LocalCleanupIntervalHours < 1 || in.LocalCleanupIntervalHours > 8760 || in.LocalAlertThresholdGB < 1 || in.LocalAlertThresholdGB >= in.LocalMaxSizeGB {
+		return infraerrors.BadRequest("INVALID_LOCAL_IMAGE_STORAGE_LIMITS", "local image capacity must exceed the positive alert threshold; retention and cleanup must be between 1 and 8760 hours")
+	}
+	if in.Backend == "local" && (in.Enabled || in.LocalPublicBaseURL != "") {
+		u, err := url.Parse(in.LocalPublicBaseURL)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Hostname() == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+			return infraerrors.BadRequest("INVALID_LOCAL_IMAGE_BASE_URL", "local image public base URL must be an HTTP(S) origin without path, credentials, query or fragment")
+		}
+	}
+	return nil
 }

@@ -117,9 +117,20 @@ export default {
         reload: '重新加载清理设置',
       },
       imageStorage: {
-        title: '异步生图对象存储',
-        description: '开启后，异步生图接口可用，生成结果转存到对象存储，只把短链接写入 Redis。与备份共用同一套 S3 客户端，保存后立即生效，无需重启。',
-        enabled: '启用异步生图',
+        title: '图片存储与异步生图',
+        description: '统一控制异步生图结果、已有同步图片转存及图片 URL 代理的存储位置。保存后新写入立即生效，已有链接按原有效期保留；备份存储独立配置。',
+        enabled: '启用图片存储与异步生图',
+        backend: '图片存储位置',
+        backendS3: 'Cloudflare R2 / S3',
+        backendLocal: '服务器本地目录',
+        localPublicBaseUrl: '本地图片下载域名',
+        localMaxSizeGb: '图片容量上限（GiB）',
+        localRetentionHours: '图片保留与访问有效期（小时）',
+        localCleanupIntervalHours: '过期文件清理间隔（小时）',
+        localAlertThresholdGb: '剩余容量邮件预警阈值（GiB）',
+        localHint: '文件名与对象存储一致。到期立即停止访问，文件在下次清理时删除；参数修改仅影响新文件。容量满时拒绝增加占用，不提前删除有效图片。',
+        localAlertHint: '剩余配额不超过阈值时发送一次邮件，恢复后可再次预警。使用已启用的运维告警收件人，未配置时使用已验证的账号配额通知邮箱。',
+        testStorage: '测试存储',
         reuseBackupS3: '复用上方备份的 S3 配置（只用不同的存储桶/前缀）',
         bucket: '存储桶',
         bucketInherited: '留空则沿用备份存储桶',
@@ -127,7 +138,7 @@ export default {
         publicBaseUrl: '公开访问域名',
         publicBaseUrlPlaceholder: '留空则返回预签名临时链接',
         presignExpiryHours: '预签名链接有效期（小时）',
-        saved: '异步生图对象存储配置已保存'
+        saved: '图片存储配置已保存'
       },
       schedule: {
         title: '定时备份',

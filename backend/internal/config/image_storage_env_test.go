@@ -39,3 +39,24 @@ func TestLoadImageStorageFromEnv(t *testing.T) {
 	require.True(t, cfg.ImageStorage.IsConfigured())
 	require.True(t, cfg.ImageStorage.Active(), "async image tasks must be active when every credential is supplied via env")
 }
+
+func TestImageStorageLocalEnv(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("IMAGE_STORAGE_BACKEND", "local")
+	t.Setenv("IMAGE_STORAGE_ENABLED", "true")
+	t.Setenv("IMAGE_STORAGE_LOCAL_PUBLIC_BASE_URL", "https://direct.test")
+	t.Setenv("IMAGE_STORAGE_LOCAL_MAX_SIZE_GB", "30")
+	t.Setenv("IMAGE_STORAGE_LOCAL_RETENTION_HOURS", "8")
+	t.Setenv("IMAGE_STORAGE_LOCAL_CLEANUP_INTERVAL_HOURS", "3")
+	t.Setenv("IMAGE_STORAGE_LOCAL_ALERT_THRESHOLD_GB", "4")
+	t.Setenv("IMAGE_STORAGE_LOCAL_DIRECTORY", "/app/data/images-local")
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.True(t, cfg.ImageStorage.Active())
+	require.Equal(t, "local", cfg.ImageStorage.Backend)
+	require.Equal(t, "/app/data/images-local", cfg.ImageStorage.LocalDirectory)
+	require.Equal(t, 30, cfg.ImageStorage.LocalMaxSizeGB)
+	require.Equal(t, 8, cfg.ImageStorage.LocalRetentionHours)
+	require.Equal(t, 3, cfg.ImageStorage.LocalCleanupIntervalHours)
+	require.Equal(t, 4, cfg.ImageStorage.LocalAlertThresholdGB)
+}
