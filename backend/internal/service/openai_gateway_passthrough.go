@@ -873,6 +873,14 @@ func sanitizeOpenAIPassthroughClientErrorText(account *Account, text string) str
 	if sanitized == "" || account == nil {
 		return sanitized
 	}
+	// These public protocol identifiers must stay recognizable even when an
+	// arbitrary override value (for example "encrypted") is their substring.
+	switch sanitized {
+	case "invalid_encrypted_content", "thinking_signature_invalid", "context_length_exceeded",
+		"invalid_request_error", "server_error", "upstream_error",
+		"server_is_overloaded", "slow_down", "rate_limit_exceeded":
+		return sanitized
+	}
 	for _, credKey := range []string{"api_key", "access_token", "refresh_token"} {
 		if secret := strings.TrimSpace(account.GetCredential(credKey)); len(secret) >= 6 {
 			sanitized = strings.ReplaceAll(sanitized, secret, "[redacted]")

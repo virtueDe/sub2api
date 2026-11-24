@@ -404,6 +404,27 @@ func TestReplaceCaseInsensitive_ByteLengthChangingCaseFolding(t *testing.T) {
 func TestOpenAIGatewayService_APIKeyPassthrough_StructuredErrorHardening(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	t.Run("public error identifiers survive overlapping override values", func(t *testing.T) {
+		for code, override := range map[string]string{
+			"invalid_encrypted_content":  "encrypted",
+			"context_length_exceeded":    "context",
+			"thinking_signature_invalid": "signature",
+		} {
+			t.Run(code, func(t *testing.T) {
+				rec, c := newOpenAIPassthroughErrorTestContext()
+				forwardOpenAIPassthroughErrorForTest(t, c, http.StatusBadRequest,
+					`{"error":{"message":"The encrypted content could not be verified.","type":"invalid_request_error","code":"`+code+`"}}`,
+					map[string]any{
+						"api_key": "sk-test", "header_override_enabled": true,
+						"header_overrides": map[string]any{"x-relay-mode": override, "x-relay-type": "request"},
+					})
+				require.Equal(t, http.StatusBadRequest, rec.Code)
+				require.Equal(t, code, gjson.Get(rec.Body.String(), "error.code").String())
+				require.Equal(t, "invalid_request_error", gjson.Get(rec.Body.String(), "error.type").String())
+			})
+		}
+	})
+
 	t.Run("header override secrets are redacted from every structured error field", func(t *testing.T) {
 		for name, override := range map[string]string{
 			"static":   "relay-secret-123",
