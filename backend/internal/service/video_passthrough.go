@@ -264,7 +264,7 @@ func (s *OpenAIGatewayService) forwardVideoAPIPassthrough(ctx context.Context, c
 			req.Header.Set("Range", value)
 		}
 	}
-	account.ApplyHeaderOverrides(req.Header)
+	account.ApplyHeaderOverrides(req.Context(), req.Header)
 	proxy := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxy = account.Proxy.URL()
