@@ -60,6 +60,79 @@ func TestIndependentVideoAccountCapabilitiesAndSecrets(t *testing.T) {
 	require.Equal(t, "sk", merged["kling_secret_key"])
 }
 
+func TestVideoAPIModeValidation(t *testing.T) {
+	for _, platform := range []string{PlatformSeedance, PlatformWan, PlatformKling, PlatformSora} {
+		t.Run(platform, func(t *testing.T) {
+			credentials := map[string]any{"api_key": "test-key", VideoAPIModeCredential: VideoAPIModePassthrough}
+			require.NoError(t, ValidateVideoAccount(platform, AccountTypeAPIKey, credentials))
+			require.Equal(t, VideoAPIModePassthrough, (&Account{Credentials: credentials}).VideoAPIMode())
+
+			credentials[VideoAPIModeCredential] = "unknown"
+			require.Error(t, ValidateVideoAccount(platform, AccountTypeAPIKey, credentials))
+		})
+	}
+
+	credentials := map[string]any{
+		VideoAPIModeCredential: VideoAPIModePassthrough,
+		"kling_access_key":     "access",
+		"kling_secret_key":     "secret",
+	}
+	require.Error(t, ValidateVideoAccount(PlatformKling, AccountTypeAPIKey, credentials))
+	require.Equal(t, VideoAPIModeNative, (&Account{}).VideoAPIMode())
+}
+
+func TestVideoAPIPassthroughURL(t *testing.T) {
+	for _, tc := range []struct {
+		base, taskID string
+		content      bool
+		want         string
+	}{
+		{"https://example.com", "", false, "https://example.com/v1/videos"},
+		{"https://example.com/v1", "task-1", false, "https://example.com/v1/videos/task-1"},
+		{"https://example.com/proxy/api/v1/", "task-1", true, "https://example.com/proxy/api/v1/videos/task-1/content"},
+	} {
+		got, err := buildVideoAPIPassthroughURL(tc.base, tc.taskID, tc.content)
+		require.NoError(t, err)
+		require.Equal(t, tc.want, got)
+	}
+	_, err := buildVideoAPIPassthroughURL("https://example.com", "../private", false)
+	require.Error(t, err)
+}
+
+func TestVideoAPIPassthroughCompletion(t *testing.T) {
+	for _, tc := range []struct {
+		body       string
+		videoCount int
+	}{
+		{`{"status":"queued"}`, 0},
+		{`{"status":"in_progress"}`, 0},
+		{`{"status":"failed"}`, 0},
+		{`{"status":"completed","seconds":"8","size":"1280x720"}`, 1},
+	} {
+		result := &OpenAIForwardResult{}
+		parseVideoAPIPassthroughCompletion([]byte(tc.body), result)
+		require.Equal(t, tc.videoCount, result.VideoCount)
+		if tc.videoCount > 0 {
+			require.Equal(t, 8, result.VideoDurationSeconds)
+			require.Equal(t, "720p", result.VideoResolution)
+		}
+	}
+}
+
+func TestVideoAPIPassthroughKeepsPublicURLsAndProxiesContentEndpoints(t *testing.T) {
+	for _, tc := range []struct{ input, want string }{
+		{"https://cdn.example/video.mp4", "https://cdn.example/video.mp4"},
+		{"https://relay.example/v1/videos/task-1/content", "/v1/videos/" + PublicVideoTaskID("kling:passthrough:task-1") + "/content"},
+	} {
+		data := []byte(`{"id":"task-1","status":"completed","media_id":"media-1","url":"` + tc.input + `","output":[{"url":"` + tc.input + `"}]}`)
+		body, err := videoAPIPassthroughResponse(data, &OpenAIForwardResult{ResponseID: "kling:passthrough:task-1"})
+		require.NoError(t, err)
+		require.Equal(t, tc.want, gjson.GetBytes(body, "url").String())
+		require.Equal(t, tc.want, gjson.GetBytes(body, "output.0.url").String())
+		require.Equal(t, "media-1", gjson.GetBytes(body, "media_id").String())
+	}
+}
+
 func TestProviderVideoBillingPreservesLongDuration(t *testing.T) {
 	price := 0.1
 	group := &Group{ID: 1, Platform: PlatformWan, ModelPricing: []ChannelModelPricing{{Platform: PlatformWan, Models: []string{"wan-video"}, BillingMode: BillingModeVideo, PerRequestPrice: &price}}}

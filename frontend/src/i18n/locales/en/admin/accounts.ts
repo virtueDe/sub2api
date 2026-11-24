@@ -631,6 +631,13 @@ export default {
       apiKeyRequired: 'API Key *',
       klingApiKeyHint: 'Use an API Key for compatible gateways, or Access Key and Secret Key for the native Kling API. Model sync requires an API Key and an OpenAI-compatible /models endpoint.',
       klingKeyPairRequired: 'Kling Access Key and Secret Key must be provided together',
+      videoApiMode: {
+        title: 'Video API mode',
+        native: 'Native protocol adapter',
+        passthrough: 'Pass through /v1/videos',
+        nativeHint: 'Convert unified video requests to the selected platform’s native protocol.',
+        passthroughHint: 'Use an API Key with upstream /v1/videos, preserving request fields and files except configured model mappings. The upstream must return id and status, then a public url or a content endpoint. Task ownership and successful-task billing remain managed by the gateway.'
+      },
       videoRoutes: {
         title: 'Route video models by resolution',
         hint: 'Clients send a public model and resolution (or size). Each resolution selects its upstream model; omitted resolution uses the default and unsupported tiers are rejected. Targets are hidden from this account’s public catalog and direct requests.',

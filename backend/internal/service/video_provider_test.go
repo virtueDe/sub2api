@@ -101,6 +101,16 @@ func TestVideoProviderTaskNamespacesAndPaths(t *testing.T) {
 	}
 }
 
+func TestVideoAPIRoutingRequestKeepsModelSpecificFields(t *testing.T) {
+	body := []byte(`{"model":"omni-1.2-flash","prompt":"waves","duration":"8s","aspect_ratio":"9:16","reference_images":[{"url":"https://example.com/a.png","role":"first_frame"}],"reference_videos":["extend://media-1"],"custom_options":{"camera":"orbit"}}`)
+	info, err := ParseVideoAPIRoutingRequest("application/json", body)
+	require.NoError(t, err)
+	require.Equal(t, "omni-1.2-flash", info.Model)
+	require.Equal(t, 8, info.DurationSeconds)
+	require.Len(t, info.InputImageURLs, 1)
+	require.Empty(t, info.Resolution)
+}
+
 func TestSoraMultipartPreservesReferenceAndMapsModel(t *testing.T) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)

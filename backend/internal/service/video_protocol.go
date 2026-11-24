@@ -97,6 +97,15 @@ func ParsePublicVideoTaskID(id string) (GrokMediaEndpoint, string, error) {
 		return "", "", fmt.Errorf("invalid video ID")
 	}
 	key := string(decoded)
+	for _, platform := range []string{PlatformSeedance, PlatformWan, PlatformKling, PlatformSora} {
+		prefix := platform + ":passthrough:"
+		if strings.HasPrefix(key, prefix) {
+			if err := validateUpstreamPathSegment("video ID", strings.TrimPrefix(key, prefix)); err != nil {
+				return "", "", err
+			}
+			return videoAPIPassthroughStatusEndpoint(platform), key, nil
+		}
+	}
 	for prefix, endpoint := range map[string]GrokMediaEndpoint{
 		"seedance:": SeedanceEndpointStatus, "wan:": "wan_status", "kling:text2video:": "kling_text_status", "kling:image2video:": "kling_image_status", "sora:": "sora_status",
 	} {
@@ -341,7 +350,11 @@ func writeProviderVideoResponse(c *gin.Context, resp *http.Response, data []byte
 	if c.GetBool(VideoUnifiedContextKey) {
 		publicResult := *result
 		publicResult.Model = publicModel
-		data, _ = json.Marshal(unifiedVideoResponse(endpoint, data, &publicResult))
+		if endpoint.IsVideoAPIPassthrough() {
+			data, _ = videoAPIPassthroughResponse(data, &publicResult)
+		} else {
+			data, _ = json.Marshal(unifiedVideoResponse(endpoint, data, &publicResult))
+		}
 		resp.Header.Set("Content-Type", "application/json")
 	} else if publicModel != "" {
 		for _, path := range []string{"model", "model_name", "data.model", "data.model_name"} {
@@ -371,6 +384,9 @@ func (s *OpenAIGatewayService) FlushVideoResponse(c *gin.Context) {
 }
 
 func unifiedVideoResponse(endpoint GrokMediaEndpoint, data []byte, result *OpenAIForwardResult) map[string]any {
+	if endpoint.IsVideoAPIPassthrough() {
+		return map[string]any{"status": normalizeVideoAPIPassthroughStatus(gjson.GetBytes(data, "status").String()), "error": gjson.GetBytes(data, "error").Value(), "metadata": map[string]string{"video_url": videoAPIPassthroughContentURL(data)}}
+	}
 	provider := endpoint.VideoProvider()
 	if endpoint.IsSeedance() {
 		provider = PlatformSeedance

@@ -47,7 +47,11 @@ func (s *AccountTestService) testVideoProviderAccount(c *gin.Context, a *Account
 	if !routed {
 		resolution = "720p"
 	}
-	body, _ := json.Marshal(map[string]any{"model": model, "prompt": prompt, "seconds": seconds, "resolution": resolution})
+	payload := map[string]any{"model": model, "prompt": prompt, "seconds": seconds, "resolution": resolution}
+	if a.VideoAPIMode() == VideoAPIModePassthrough {
+		delete(payload, "seconds")
+	}
+	body, _ := json.Marshal(payload)
 	commonBody := body
 	endpoint, body, contentType, err := ConvertUnifiedVideoRequest(a.Platform, "application/json", body)
 	if err != nil {
@@ -66,7 +70,9 @@ func (s *AccountTestService) testVideoProviderAccount(c *gin.Context, a *Account
 		capture.Set(videoUnifiedInputKey, unifiedVideoInput{body: commonBody, contentType: "application/json"})
 		var result *OpenAIForwardResult
 		var err error
-		if endpoint.IsSeedance() {
+		if endpoint.IsVideoAPIPassthrough() || (endpoint.IsGenerationRequest() && a.VideoAPIMode() == VideoAPIModePassthrough) {
+			result, err = gateway.ForwardUnifiedVideoAPI(ctx, capture, a, endpoint, key, commonBody, "application/json")
+		} else if endpoint.IsSeedance() {
 			result, err = gateway.ForwardSeedance(ctx, capture, a, endpoint, key, payload)
 		} else {
 			result, err = gateway.ForwardVideoProvider(ctx, capture, a, endpoint, key, payload, contentType)
@@ -116,12 +122,15 @@ func (s *AccountTestService) testVideoProviderAccount(c *gin.Context, a *Account
 		if meta, ok := video["metadata"].(map[string]string); ok {
 			videoURL = meta["video_url"]
 		}
-		if a.Platform == PlatformSora {
+		if (a.Platform == PlatformSora || statusEndpoint.IsVideoAPIPassthrough()) && videoURL == "" {
 			base, err := gateway.validateUpstreamBaseURL(videoAccountBaseURL(a))
 			if err != nil {
 				return s.sendErrorAndEnd(c, err.Error())
 			}
 			target, err := buildVideoProviderURL(base, "sora_content", created.ResponseID)
+			if statusEndpoint.IsVideoAPIPassthrough() {
+				target, err = buildVideoAPIPassthroughURL(base, videoProviderTaskID(statusEndpoint, created.ResponseID), true)
+			}
 			if err != nil {
 				return s.sendErrorAndEnd(c, err.Error())
 			}

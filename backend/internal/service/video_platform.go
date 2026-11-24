@@ -24,6 +24,10 @@ const (
 	PlatformWan      = domain.PlatformWan
 	PlatformKling    = domain.PlatformKling
 	PlatformSora     = domain.PlatformSora
+
+	VideoAPIModeCredential  = "video_api_mode"
+	VideoAPIModeNative      = "native"
+	VideoAPIModePassthrough = "passthrough"
 )
 
 func IsVideoPlatform(platform string) bool { return domain.IsVideoPlatform(platform) }
@@ -75,6 +79,20 @@ func ValidateVideoAccount(platform, accountType string, credentials map[string]a
 		return fmt.Errorf("%s accounts only support apikey credentials", platform)
 	}
 	a := &Account{Credentials: credentials}
+	if raw, exists := credentials[VideoAPIModeCredential]; exists {
+		if _, valid := raw.(string); !valid {
+			return fmt.Errorf("video API mode must be a string")
+		}
+	}
+	if mode := a.VideoAPIMode(); mode != VideoAPIModeNative && mode != VideoAPIModePassthrough {
+		return fmt.Errorf("invalid video API mode: %s", mode)
+	}
+	if a.VideoAPIMode() == VideoAPIModePassthrough {
+		if strings.TrimSpace(a.GetCredential("api_key")) == "" {
+			return fmt.Errorf("%s passthrough mode requires an API key", platform)
+		}
+		return nil
+	}
 	if platform == PlatformKling && (a.GetCredential("kling_access_key") != "" || a.GetCredential("kling_secret_key") != "") {
 		if strings.TrimSpace(a.GetCredential("kling_access_key")) == "" || strings.TrimSpace(a.GetCredential("kling_secret_key")) == "" {
 			return fmt.Errorf("kling requires both access key and secret key")
@@ -85,6 +103,14 @@ func ValidateVideoAccount(platform, accountType string, credentials map[string]a
 		return fmt.Errorf("%s requires an API key", platform)
 	}
 	return nil
+}
+
+func (a *Account) VideoAPIMode() string {
+	mode := strings.TrimSpace(a.GetCredential(VideoAPIModeCredential))
+	if mode == "" {
+		return VideoAPIModeNative
+	}
+	return mode
 }
 
 func videoAccountBaseURL(a *Account) string {

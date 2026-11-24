@@ -759,6 +759,13 @@ export default {
       apiKeyRequired: 'API Key *',
       klingApiKeyHint: '兼容渠道使用 API Key；Kling 原生接口使用 Access Key 和 Secret Key。同步上游模型需要 API Key，且渠道提供 OpenAI 兼容的 /models 接口。',
       klingKeyPairRequired: 'Kling Access Key 和 Secret Key 必须同时填写',
+      videoApiMode: {
+        title: '视频接口模式',
+        native: '原生协议适配',
+        passthrough: '透传 /v1/videos',
+        nativeHint: '将统一视频请求转换为所选平台的原生协议。',
+        passthroughHint: '使用 API Key 调用上游 /v1/videos，保留请求字段和文件；仅应用已配置的模型映射。上游需返回 id、status，完成后返回公网 url 或提供 content 下载接口。任务归属和成功计费仍由系统管理。'
+      },
       videoRoutes: {
         title: '按分辨率映射视频模型',
         hint: '客户只需填写公开模型和 resolution（或 size）。系统按分辨率调用对应的上游模型；未传分辨率时使用默认档位，不支持的档位会报错。目标模型将从此账号的公开列表和直接调用入口隐藏。',

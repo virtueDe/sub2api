@@ -285,6 +285,25 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    ['Seedance / Ark', 'seedance'], ['Wan / DashScope', 'wan'], ['Kling', 'kling'], ['Sora', 'sora']
+  ])('creates a %s video passthrough account', async (label, platform) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, label)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('video passthrough')
+    expect(wrapper.get<HTMLSelectElement>('[data-testid="video-api-mode"]').element.value).toBe('native')
+    await wrapper.get('[data-testid="video-api-mode"]').setValue('passthrough')
+    await wrapper.get('input[placeholder="API Key"]').setValue('upstream-key')
+    expect(wrapper.find('input[placeholder="Access Key"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform, credentials: { api_key: 'upstream-key', video_api_mode: 'passthrough' }
+    })
+    wrapper.unmount()
+  })
+
   it.each(['Seedance / Ark', 'Wan / DashScope', 'Kling', 'Sora'])('creates resolution routes for %s through the form', async (label) => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, label)

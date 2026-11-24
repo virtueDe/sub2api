@@ -21,7 +21,9 @@ func (s *OpenAIGatewayService) ForwardProviderVideoContent(ctx context.Context, 
 	statusContext.Set(VideoCaptureResponseContextKey, true)
 	var result *OpenAIForwardResult
 	var err error
-	if endpoint.IsSeedance() {
+	if endpoint.IsVideoAPIPassthrough() {
+		result, err = s.forwardVideoAPIPassthrough(ctx, statusContext, a, endpoint, key, nil, "", false)
+	} else if endpoint.IsSeedance() {
 		result, err = s.ForwardSeedance(ctx, statusContext, a, endpoint, key, nil)
 	} else {
 		result, err = s.ForwardVideoProvider(ctx, statusContext, a, endpoint, key, nil, "")
@@ -47,7 +49,11 @@ func (s *OpenAIGatewayService) ForwardProviderVideoContent(ctx context.Context, 
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"type": "video_not_ready", "message": "Video is not completed"}})
 		return nil, fmt.Errorf("video is not completed")
 	}
-	if provider == PlatformSora {
+	if endpoint.IsVideoAPIPassthrough() && videoAPIPassthroughContentURL(data) == "" {
+		_, err := s.forwardVideoAPIPassthrough(ctx, c, a, endpoint, key, nil, "", true)
+		return result, err
+	}
+	if provider == PlatformSora && !endpoint.IsVideoAPIPassthrough() {
 		_, err := s.ForwardVideoProvider(ctx, c, a, "sora_content", key, nil, "")
 		return result, err
 	}
@@ -61,6 +67,9 @@ func (s *OpenAIGatewayService) ForwardProviderVideoContent(ctx context.Context, 
 		path = "data.task_result.videos.0.url"
 	}
 	rawURL := gjson.GetBytes(data, path).String()
+	if endpoint.IsVideoAPIPassthrough() {
+		rawURL = videoAPIPassthroughContentURL(data)
+	}
 	if provider == PlatformWan && rawURL == "" {
 		rawURL = gjson.GetBytes(data, "output.results.video_url").String()
 	}

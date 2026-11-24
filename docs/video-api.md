@@ -82,6 +82,27 @@ JSON 导入也可在 `credentials` 中添加以下配置，不需要数据库迁
 
 ## 统一接口
 
+### 上游 `/v1/videos` 透传
+
+Seedance / Ark、Wan / DashScope、Kling、Sora 的账号创建和编辑界面均可选择
+**视频接口模式 → 透传 /v1/videos**。未配置该选项的已有账号继续使用原生协议适配。
+透传需要上游 API Key 和 Base URL；Kling 在此模式下不使用 Access Key / Secret Key 签名。
+JSON 导入对应 `credentials.video_api_mode: "passthrough"`，切回原生使用 `"native"`。
+
+- 提交固定调用上游 `POST /v1/videos`，JSON 字段和 multipart 文件保留，仅应用已配置的模型映射。
+  模型名称不限定为账号平台的内置示例，Veo、Omni 或其他兼容模型均可通过账号模型列表与定价配置接入。
+  `reference_images`、首尾帧 `role`、`reference_videos`、音频参数、`duration: "8s"` 等交给上游验证。
+- 上游创建响应必须包含 `id`；查询使用 `GET /v1/videos/{id}`，返回 `status`。
+  网关包装任务 ID 并保存账号归属；模式标识随任务 ID 保存，修改账号模式不会改变已有任务的查询协议。
+  状态响应保留上游进度、`media_id`、`output` 和其他扩展字段。
+- 完成后有公网 HTTPS `url`（或 `output[0].url`）则保留直链；客户端也可以调用网关的
+  `/v1/videos/{id}/content`。若上游不返回公网直链，网关内容接口会访问上游同任务的 `/content`，并携带账号 Key。
+  任务未完成时内容接口返回 409；内容代理支持 HEAD 和 Range。
+- 按次计费允许省略时长、分辨率并使用上游默认值；按秒计费需要显式时长和分辨率（或 size），避免猜测账单单位。
+  只有查询或下载观察到成功才结算，重复查询和下载共享一次计费标识；回调和客户端自定义任务 ID 仍不支持。
+
+选择原生协议适配时，继续使用下面的通用字段转换和各厂商原生端点。
+
 以下命令使用 Bash 环境变量。`SUB2API_BASE_URL` 为网关地址，`SUB2API_KEY` 为客户端 Key。
 
 ```bash

@@ -30,16 +30,20 @@ type videoProviderEndpoint struct {
 }
 
 var videoProviderEndpoints = map[GrokMediaEndpoint]videoProviderEndpoint{
-	"wan_create":         {"wan", "/services/aigc/video-generation/video-synthesis", "/api/v1", "model", "output.task_id", true, false},
-	"wan_image_create":   {"wan", "/services/aigc/image2video/video-synthesis", "/api/v1", "model", "output.task_id", true, false},
-	"wan_status":         {"wan", "/tasks", "/api/v1", "model", "output.task_id", false, false},
-	"kling_text_create":  {"kling", "/videos/text2video", "/v1", "model_name", "data.task_id", true, false},
-	"kling_image_create": {"kling", "/videos/image2video", "/v1", "model_name", "data.task_id", true, false},
-	"kling_text_status":  {"kling", "/videos/text2video", "/v1", "model_name", "data.task_id", false, false},
-	"kling_image_status": {"kling", "/videos/image2video", "/v1", "model_name", "data.task_id", false, false},
-	"sora_create":        {"sora", "/videos", "/v1", "model", "id", true, false},
-	"sora_status":        {"sora", "/videos", "/v1", "model", "id", false, false},
-	"sora_content":       {"sora", "/videos", "/v1", "model", "id", false, true},
+	"wan_create":                  {"wan", "/services/aigc/video-generation/video-synthesis", "/api/v1", "model", "output.task_id", true, false},
+	"wan_image_create":            {"wan", "/services/aigc/image2video/video-synthesis", "/api/v1", "model", "output.task_id", true, false},
+	"wan_status":                  {"wan", "/tasks", "/api/v1", "model", "output.task_id", false, false},
+	"kling_text_create":           {"kling", "/videos/text2video", "/v1", "model_name", "data.task_id", true, false},
+	"kling_image_create":          {"kling", "/videos/image2video", "/v1", "model_name", "data.task_id", true, false},
+	"kling_text_status":           {"kling", "/videos/text2video", "/v1", "model_name", "data.task_id", false, false},
+	"kling_image_status":          {"kling", "/videos/image2video", "/v1", "model_name", "data.task_id", false, false},
+	"sora_create":                 {"sora", "/videos", "/v1", "model", "id", true, false},
+	"sora_status":                 {"sora", "/videos", "/v1", "model", "id", false, false},
+	"sora_content":                {"sora", "/videos", "/v1", "model", "id", false, true},
+	"seedance_passthrough_status": {"seedance", "/videos", "/v1", "model", "id", false, false},
+	"wan_passthrough_status":      {"wan", "/videos", "/v1", "model", "id", false, false},
+	"kling_passthrough_status":    {"kling", "/videos", "/v1", "model", "id", false, false},
+	"sora_passthrough_status":     {"sora", "/videos", "/v1", "model", "id", false, false},
 }
 
 func (e GrokMediaEndpoint) VideoProvider() string       { return videoProviderEndpoints[e].provider }
@@ -49,6 +53,9 @@ func VideoProviderTaskKey(endpoint GrokMediaEndpoint, id string) string {
 	d := videoProviderEndpoints[endpoint]
 	// Kling task IDs live in separate text/image collections.
 	prefix := d.provider
+	if endpoint.IsVideoAPIPassthrough() {
+		return prefix + ":passthrough:" + strings.TrimSpace(id)
+	}
 	if d.provider == "kling" {
 		prefix += ":" + strings.TrimPrefix(d.path, "/videos/")
 	}
@@ -347,8 +354,8 @@ func (s *OpenAIGatewayService) ProviderVideoBillingReady(ctx context.Context, ke
 	if resolved != nil && resolved.Mode == BillingModePerRequest {
 		return true
 	}
-	if strings.HasPrefix(result.ResponseID, "seedance:") {
-		return (resolved == nil || resolved.Mode == BillingModeToken) && result.Usage.OutputTokens > 0
+	if strings.HasPrefix(result.ResponseID, "seedance:") && (resolved == nil || resolved.Mode == BillingModeToken) {
+		return result.Usage.OutputTokens > 0
 	}
 	return resolved != nil && resolved.Mode == BillingModeVideo && result.VideoDurationSeconds > 0 && result.VideoResolution != ""
 }

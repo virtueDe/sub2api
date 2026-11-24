@@ -48,6 +48,37 @@ func TestSeedanceVideoCountPreservesTokenTariff(t *testing.T) {
 	require.InDelta(t, 0.004, cost.ActualCost, 1e-12)
 }
 
+func TestPassthroughVideoPerSecondCostForAllPlatforms(t *testing.T) {
+	for _, platform := range []string{PlatformSeedance, PlatformWan, PlatformKling, PlatformSora} {
+		t.Run(platform, func(t *testing.T) {
+			price := 0.1
+			group := &Group{ID: 1, Platform: platform, ModelPricing: []ChannelModelPricing{{Models: []string{"video"}, BillingMode: BillingModeVideo, PerRequestPrice: &price}}}
+			billing := &BillingService{}
+			s := &OpenAIGatewayService{resolver: NewModelPricingResolver(nil, billing), billingService: billing}
+			key := &APIKey{Group: group, GroupID: &group.ID}
+			result := &OpenAIForwardResult{ResponseID: platform + ":passthrough:task", Model: "video", VideoCount: 1, VideoDurationSeconds: 8, VideoResolution: "1080p"}
+			require.True(t, s.ProviderVideoBillingReady(context.Background(), key, result))
+			cost, err := s.calculateOpenAIRecordUsageCost(context.Background(), result, key, []string{"video"}, 1, 1, 2, 1, UsageTokens{}, "", nil, false, time.Now())
+			require.NoError(t, err)
+			require.InDelta(t, 0.8, cost.TotalCost, 1e-12)
+			require.InDelta(t, 1.6, cost.ActualCost, 1e-12)
+		})
+	}
+}
+
+func TestPassthroughPerSecondRequiresExplicitResolution(t *testing.T) {
+	price := 0.1
+	group := &Group{ID: 1, Platform: PlatformSeedance, ModelPricing: []ChannelModelPricing{{Models: []string{"video"}, BillingMode: BillingModeVideo, PerRequestPrice: &price}}}
+	billing := &BillingService{}
+	s := &OpenAIGatewayService{resolver: NewModelPricingResolver(nil, billing), billingService: billing}
+	key := &APIKey{Group: group, GroupID: &group.ID}
+	a := &Account{Platform: PlatformSeedance, Credentials: map[string]any{VideoModelRoutesCredential: map[string]VideoModelRoute{"video": {
+		DefaultResolution: "720p", Resolutions: map[string]string{"720p": "video-720p"},
+	}}}}
+	require.Error(t, s.ValidateVideoAPIPassthroughPricing(context.Background(), key, a, GrokMediaRequestInfo{Model: "video", DurationSeconds: 8}))
+	require.NoError(t, s.ValidateVideoAPIPassthroughPricing(context.Background(), key, a, GrokMediaRequestInfo{Model: "video", DurationSeconds: 8, Resolution: "720p"}))
+}
+
 func TestProviderVideoPerRequestReservationUsesVideoMultiplier(t *testing.T) {
 	for _, kind := range []InflightEstimateKind{InflightEstimateVideo, InflightEstimateTokenVideo} {
 		for _, textRate := range []float64{0, 9} {

@@ -134,22 +134,43 @@ func videoRoutesHideModel(routes map[string]VideoModelRoute, model string) bool 
 
 type videoResolutionContextKey struct{}
 
+type videoAPINativeResolutionContextKey struct{}
+
+type videoAPINativeResolution struct {
+	resolution string
+	err        error
+}
+
+func requestedVideoAccountResolution(ctx context.Context, account *Account) (string, bool, error) {
+	resolution, present := ctx.Value(videoResolutionContextKey{}).(string)
+	if native, ok := ctx.Value(videoAPINativeResolutionContextKey{}).(videoAPINativeResolution); ok && account.VideoAPIMode() != VideoAPIModePassthrough {
+		return native.resolution, true, native.err
+	}
+	return resolution, present, nil
+}
+
 // Presence distinguishes an omitted client resolution from a provider default.
 func WithVideoRequestedResolution(ctx context.Context, resolution string) context.Context {
 	return context.WithValue(ctx, videoResolutionContextKey{}, resolution)
 }
 
 func videoResolutionCompatible(ctx context.Context, account *Account, model string) bool {
-	resolution, present := ctx.Value(videoResolutionContextKey{}).(string)
+	resolution, present, err := requestedVideoAccountResolution(ctx, account)
+	if err != nil {
+		return false
+	}
 	if !present {
 		return true
 	} // Lookup tasks never re-evaluate current routes.
-	_, _, _, err := account.ResolveVideoModel(model, resolution)
+	_, _, _, err = account.ResolveVideoModel(model, resolution)
 	return err == nil
 }
 
 func ValidateSelectedVideoResolution(ctx context.Context, account *Account, info GrokMediaRequestInfo, seedance bool) error {
-	resolution, _ := ctx.Value(videoResolutionContextKey{}).(string)
+	resolution, _, err := requestedVideoAccountResolution(ctx, account)
+	if err != nil {
+		return err
+	}
 	_, effective, routed, err := account.ResolveVideoModel(info.Model, resolution)
 	if err != nil {
 		return err
@@ -165,7 +186,7 @@ func ValidateSelectedVideoResolution(ctx context.Context, account *Account, info
 
 // Classify an unsupported tier separately from temporary capacity exhaustion.
 func (s *OpenAIGatewayService) VideoResolutionRoutingError(ctx context.Context, groupID *int64, platform, model string) error {
-	resolution, present := ctx.Value(videoResolutionContextKey{}).(string)
+	_, present := ctx.Value(videoResolutionContextKey{}).(string)
 	if !present || s.accountRepo == nil {
 		return nil
 	}
@@ -177,6 +198,11 @@ func (s *OpenAIGatewayService) VideoResolutionRoutingError(ctx context.Context, 
 	for i := range accounts {
 		account := &accounts[i]
 		if !account.IsModelSupported(model) {
+			continue
+		}
+		resolution, _, resolutionErr := requestedVideoAccountResolution(ctx, account)
+		if resolutionErr != nil {
+			rejected = resolutionErr
 			continue
 		}
 		_, _, _, routeErr := account.ResolveVideoModel(model, resolution)

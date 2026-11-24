@@ -229,3 +229,97 @@ func TestProviderVideoRejectsMissingPricingBeforeSubmission(t *testing.T) {
 	require.Zero(t, upstream.calls)
 	slots.assertReleased(t)
 }
+
+func TestVideoAPIPassthroughLifecycleForAllPlatforms(t *testing.T) {
+	for _, platform := range []string{service.PlatformSeedance, service.PlatformWan, service.PlatformKling, service.PlatformSora} {
+		t.Run(platform, func(t *testing.T) {
+			h, slots, bindings, upstream := newGrokMediaSlotHandler(t, false, false, platform)
+			logs := &providerVideoUsageLogs{}
+			credentials := map[string]any{"api_key": "owner-key", "base_url": "https://video.example/v1", service.VideoAPIModeCredential: service.VideoAPIModePassthrough}
+			repo := grokMediaSlotRepo{openAIImagesFailoverAccountRepo: openAIImagesFailoverAccountRepo{accounts: []service.Account{{ID: 1, Platform: platform, Type: service.AccountTypeAPIKey,
+				Status: service.StatusActive, Schedulable: true, Concurrency: 50, GroupIDs: []int64{24}, Credentials: credentials}}}}
+			billing := &service.BillingService{}
+			h.gatewayService = service.NewOpenAIGatewayService(repo, logs, nil, nil, nil, nil, bindings, h.cfg, nil, service.NewConcurrencyService(slots), billing, nil, nil, upstream,
+				&service.DeferredService{}, nil, nil, service.NewModelPricingResolver(nil, billing), nil, nil, nil, nil)
+			body := `{"model":"omni-1.2-flash","prompt":"waves","duration":"8s","reference_images":[{"url":"https://example.com/a.png","role":"first_frame"}],"aspect_ratio":"9:16","custom_options":{"camera":"orbit"}}`
+			statusBody := `{"id":"task-1","status":"in_progress","progress":17,"media_id":"media-1"}`
+			upstream.call = func(req *http.Request, id int64) (*http.Response, error) {
+				require.Equal(t, int64(1), id)
+				require.Equal(t, "Bearer owner-key", req.Header.Get("Authorization"))
+				if strings.HasSuffix(req.URL.Path, "/content") {
+					require.Equal(t, "/v1/videos/task-1/content", req.URL.Path)
+					require.Equal(t, "bytes=0-3", req.Header.Get("Range"))
+					return &http.Response{StatusCode: 206, Header: http.Header{"Content-Type": []string{"video/mp4"}, "Content-Range": []string{"bytes 0-3/10"}}, Body: io.NopCloser(strings.NewReader("data"))}, nil
+				}
+				response := statusBody
+				if req.Method == http.MethodPost {
+					require.Equal(t, "/v1/videos", req.URL.Path)
+					forwarded, err := io.ReadAll(req.Body)
+					require.NoError(t, err)
+					require.Equal(t, body, string(forwarded))
+					response = `{"id":"task-1","status":"queued","progress":0}`
+				} else {
+					require.Equal(t, "/v1/videos/task-1", req.URL.Path)
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(response))}, nil
+			}
+			contextFor := func(method, id, suffix string) (*gin.Context, *httptest.ResponseRecorder) {
+				c, w := grokMediaSlotContext(context.Background(), method == http.MethodPost)
+				key, _ := middleware.GetAPIKeyFromContext(c)
+				key.Group.Platform, key.Group.RateMultiplier = platform, 1
+				price := 0.2
+				key.Group.ModelPricing = []service.ChannelModelPricing{{Platform: platform, Models: []string{"omni-1.2-flash"}, BillingMode: service.BillingModePerRequest, PerRequestPrice: &price}}
+				payload := ""
+				if method == http.MethodPost {
+					payload = body
+				}
+				c.Request = httptest.NewRequest(method, "/v1/videos/"+id+suffix, strings.NewReader(payload))
+				c.Request.Header.Set("Content-Type", "application/json")
+				c.Params = gin.Params{{Key: "request_id", Value: id}}
+				return c, w
+			}
+			c, w := contextFor(http.MethodPost, "", "")
+			h.ProviderVideos(c)
+			require.Equal(t, 200, w.Code, w.Body.String())
+			id := gjson.Get(w.Body.String(), "id").String()
+			endpoint, key, err := service.ParsePublicVideoTaskID(id)
+			require.NoError(t, err)
+			require.True(t, endpoint.IsVideoAPIPassthrough())
+			require.Equal(t, platform+":passthrough:task-1", key)
+			require.Empty(t, logs.logs)
+			// Lookup protocol is fixed by the task, even if the account mode changes.
+			credentials[service.VideoAPIModeCredential] = service.VideoAPIModeNative
+			c, w = contextFor(http.MethodGet, id, "")
+			h.ProviderVideos(c)
+			require.Equal(t, 200, w.Code, w.Body.String())
+			require.Equal(t, int64(17), gjson.Get(w.Body.String(), "progress").Int())
+			require.Equal(t, "media-1", gjson.Get(w.Body.String(), "media_id").String())
+			c, w = contextFor(http.MethodGet, id, "")
+			clientKey, _ := middleware.GetAPIKeyFromContext(c)
+			clientKey.ID++
+			before := upstream.calls
+			h.ProviderVideos(c)
+			require.Equal(t, 404, w.Code)
+			require.Equal(t, before, upstream.calls)
+			statusBody = `{"id":"task-1","status":"completed","progress":100,"url":"https://cdn.example/video.mp4","output":[{"url":"https://cdn.example/video.mp4"}],"media_id":"media-1"}`
+			for range 2 {
+				c, w = contextFor(http.MethodGet, id, "")
+				h.ProviderVideos(c)
+				require.Equal(t, 200, w.Code, w.Body.String())
+				require.Equal(t, "https://cdn.example/video.mp4", gjson.Get(w.Body.String(), "url").String())
+				require.Equal(t, "https://cdn.example/video.mp4", gjson.Get(w.Body.String(), "output.0.url").String())
+			}
+			require.Len(t, logs.logs, 1)
+			require.InDelta(t, 0.2, logs.logs[0].ActualCost, 1e-12)
+			statusBody = `{"id":"task-1","status":"completed","progress":100}`
+			c, w = contextFor(http.MethodGet, id, "/content")
+			c.Request.Header.Set("Range", "bytes=0-3")
+			h.ProviderVideos(c)
+			require.Equal(t, 206, w.Code, w.Body.String())
+			require.Equal(t, "data", w.Body.String())
+			require.Len(t, logs.logs, 1)
+			require.Len(t, bindings.billed, 1)
+			slots.assertReleased(t)
+		})
+	}
+}

@@ -353,6 +353,22 @@ describe('EditAccountModal', () => {
     wrapper.unmount()
   })
 
+  it.each(['seedance', 'wan', 'kling', 'sora'])('loads and saves %s video passthrough mode', async (platform) => {
+    const account = { ...buildAccount(), platform, credentials: { video_api_mode: 'passthrough' }, credentials_status: { has_api_key: true } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLSelectElement>('[data-testid="video-api-mode"]').element.value).toBe('passthrough')
+    expect(wrapper.find('input[placeholder="Access Key"]').exists()).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).toHaveBeenCalledOnce()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({ video_api_mode: 'passthrough' })
+    await wrapper.get('[data-testid="video-api-mode"]').setValue('native')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials).toMatchObject({ video_api_mode: 'native' })
+    wrapper.unmount()
+  })
+
   it.each([true, false])('adds or rotates a Kling compatible API key (native credentials: %s)', async (nativeCredentials) => {
     const account = {
       ...buildAccount(), platform: 'kling', credentials: {},

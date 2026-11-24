@@ -74,12 +74,12 @@ func (h *OpenAIGatewayHandler) ProviderVideos(c *gin.Context) {
 		h.errorResponse(c, status, "invalid_request_error", message)
 		return
 	}
-	endpoint, native, contentType, err := service.PrepareUnifiedVideoRequest(c, videoGroupPlatform(c), body)
+	endpoint, prepared, contentType, err := service.PrepareVideoAPIRequest(c, videoGroupPlatform(c), body)
 	if err != nil {
 		h.errorResponse(c, 400, "invalid_request_error", err.Error())
 		return
 	}
-	requestmodel.ResetRequestBody(c.Request, native)
+	requestmodel.ResetRequestBody(c.Request, prepared)
 	c.Request.Header.Set("Content-Type", contentType)
 	h.handleGrokMedia(c, endpoint, "")
 }

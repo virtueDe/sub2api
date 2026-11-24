@@ -18,6 +18,12 @@ import (
 )
 
 func TestVideoModelRoutesSelectAccountAndBillSnapshot(t *testing.T) {
+	for _, resolutionFields := range []string{`"resolution":"1080p"`, `"metadata":{"parameters":{"size":"1080*1920"}}`} {
+		t.Run(resolutionFields, func(t *testing.T) { testVideoModelRoutesSelectAccountAndBillSnapshot(t, resolutionFields) })
+	}
+}
+
+func testVideoModelRoutesSelectAccountAndBillSnapshot(t *testing.T, resolutionFields string) {
 	h, slots, bindings, upstream := newGrokMediaSlotHandler(t, false, false, service.PlatformWan)
 	logs := &providerVideoUsageLogs{}
 	accounts := make([]service.Account, 0, 2)
@@ -39,7 +45,11 @@ func TestVideoModelRoutesSelectAccountAndBillSnapshot(t *testing.T) {
 			payload, err := io.ReadAll(req.Body)
 			require.NoError(t, err)
 			require.Equal(t, "private-1080p", gjson.GetBytes(payload, "model").String())
-			require.Equal(t, "1080P", gjson.GetBytes(payload, "parameters.resolution").String())
+			if strings.Contains(resolutionFields, "metadata") {
+				require.Equal(t, "1080*1920", gjson.GetBytes(payload, "parameters.size").String())
+			} else {
+				require.Equal(t, "1080P", gjson.GetBytes(payload, "parameters.resolution").String())
+			}
 			body = `{"output":{"task_id":"job-1","task_status":"PENDING"}}`
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
@@ -53,7 +63,7 @@ func TestVideoModelRoutesSelectAccountAndBillSnapshot(t *testing.T) {
 			Intervals: []service.PricingInterval{{TierLabel: "1080p", PerRequestPrice: &high}}}}
 		body := ""
 		if method == http.MethodPost {
-			body = `{"model":"sd-video","resolution":"1080p","prompt":"waves","seconds":5}`
+			body = `{"model":"sd-video",` + resolutionFields + `,"prompt":"waves","seconds":5}`
 		}
 		c.Request = httptest.NewRequest(method, "/v1/videos", strings.NewReader(body))
 		c.Request.Header.Set("Content-Type", "application/json")

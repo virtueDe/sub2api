@@ -225,7 +225,15 @@
           </div>
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
-        <div v-if="account.platform === 'kling'" class="space-y-3">
+        <div v-if="isVideoPlatform(account.platform)">
+          <label class="input-label">{{ t('admin.accounts.videoApiMode.title') }}</label>
+          <select v-model="videoApiMode" class="input" data-testid="video-api-mode">
+            <option value="native">{{ t('admin.accounts.videoApiMode.native') }}</option>
+            <option value="passthrough">{{ t('admin.accounts.videoApiMode.passthrough') }}</option>
+          </select>
+          <p class="input-hint">{{ t(`admin.accounts.videoApiMode.${videoApiMode}Hint`) }}</p>
+        </div>
+        <div v-if="account.platform === 'kling' && videoApiMode !== 'passthrough'" class="space-y-3">
           <label class="input-label">Kling Access Key</label>
           <input v-model="editKlingAccessKey" type="password" autocomplete="new-password" class="input font-mono" placeholder="Access Key" />
           <label class="input-label">Kling Secret Key</label>
@@ -255,7 +263,7 @@
             "
           />
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
-          <p v-if="account.platform === 'kling'" class="input-hint">{{ t('admin.accounts.klingApiKeyHint') }}</p>
+          <p v-if="account.platform === 'kling' && videoApiMode !== 'passthrough'" class="input-hint">{{ t('admin.accounts.klingApiKeyHint') }}</p>
         </div>
 
         <!-- Model Restriction Section (不适用于 Antigravity) -->
@@ -3696,6 +3704,7 @@ const editApiKey = ref('')
 const editKlingAccessKey = ref('')
 const editKlingSecretKey = ref('')
 const videoModelRoutes = ref<VideoModelRouteRow[]>([])
+const videoApiMode = ref('native')
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
@@ -4642,6 +4651,7 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
 
 const syncFormFromAccount = (newAccount: Account | null) => {
   videoModelRoutes.value = readVideoModelRoutes(newAccount?.credentials?.video_model_routes)
+  videoApiMode.value = newAccount?.credentials?.video_api_mode === 'passthrough' ? 'passthrough' : 'native'
   if (!newAccount) {
     return
   }
@@ -5785,12 +5795,13 @@ const handleSubmit = async () => {
       const hasExistingApiKey =
         props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)
       if (isVideoPlatform(props.account.platform)) {
+        newCredentials.video_api_mode = videoApiMode.value
         const result = buildVideoModelRoutes(videoModelRoutes.value, buildModelRestrictionMapping())
         if (result.error) { appStore.showError(t(`admin.accounts.videoRoutes.errors.${result.error}`)); return }
         if (Object.keys(result.routes).length) newCredentials.video_model_routes = result.routes
         else delete newCredentials.video_model_routes
       }
-      if (props.account.platform === 'kling') {
+      if (props.account.platform === 'kling' && videoApiMode.value !== 'passthrough') {
         const hasAccessKey = !!editKlingAccessKey.value.trim() || (props.account.credentials_status?.has_kling_access_key ?? !!currentCredentials.kling_access_key)
         const hasSecretKey = !!editKlingSecretKey.value.trim() || (props.account.credentials_status?.has_kling_secret_key ?? !!currentCredentials.kling_secret_key)
         if (hasAccessKey !== hasSecretKey) {

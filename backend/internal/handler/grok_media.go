@@ -122,7 +122,8 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 
 	defer beginImageGenerationCapture(c, body)()
 	contentType := c.GetHeader("Content-Type")
-	if endpoint == service.SeedanceEndpointCreate || endpoint.IsProviderVideoCreate() {
+	unifiedCreate := c.GetBool(service.VideoUnifiedContextKey) && endpoint.IsGenerationRequest()
+	if !unifiedCreate && (endpoint == service.SeedanceEndpointCreate || endpoint.IsProviderVideoCreate()) {
 		resolution, resolutionErr := service.RequestVideoResolution(c, endpoint, body, contentType)
 		if resolutionErr != nil {
 			h.errorResponse(c, 400, "invalid_request_error", resolutionErr.Error())
@@ -133,7 +134,15 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	parseTiming := imagetiming.Start(c.Request.Context(), "request_parse")
 	requestInfo := service.ParseGrokMediaRequest(contentType, body)
 	parseTiming.End(nil)
-	if endpoint == service.SeedanceEndpointCreate {
+	if unifiedCreate {
+		requestInfo, err = service.ParseVideoAPIRoutingRequest(contentType, body)
+		if err != nil {
+			h.errorResponse(c, 400, "invalid_request_error", err.Error())
+			return
+		}
+		c.Request = c.Request.WithContext(service.WithVideoRequestedResolution(c.Request.Context(), requestInfo.Resolution))
+	}
+	if !unifiedCreate && endpoint == service.SeedanceEndpointCreate {
 		requestInfo, err = service.ParseSeedanceRequest(body)
 		if err != nil {
 			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -141,10 +150,12 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 	}
 	if endpoint.IsProviderVideoCreate() {
-		requestInfo, err = service.ParseVideoProviderRoutingRequest(endpoint, contentType, body)
-		if err != nil {
-			h.errorResponse(c, 400, "invalid_request_error", err.Error())
-			return
+		if !unifiedCreate {
+			requestInfo, err = service.ParseVideoProviderRoutingRequest(endpoint, contentType, body)
+			if err != nil {
+				h.errorResponse(c, 400, "invalid_request_error", err.Error())
+				return
+			}
 		}
 		if !h.gatewayService.VideoProviderPricingConfigured(c.Request.Context(), apiKey, requestInfo.Model) {
 			h.errorResponse(c, 400, "video_pricing_required", "Configure per-request or per-second video pricing for this model before submitting tasks")
@@ -411,7 +422,13 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		)
 
 		account := selection.Account
-		if endpoint == service.SeedanceEndpointCreate || endpoint.IsProviderVideoCreate() {
+		if unifiedCreate && account.VideoAPIMode() == service.VideoAPIModePassthrough {
+			if pricingErr := h.gatewayService.ValidateVideoAPIPassthroughPricing(requestCtx, apiKey, account, requestInfo); pricingErr != nil {
+				h.errorResponse(c, 400, "video_pricing_required", pricingErr.Error())
+				return
+			}
+		}
+		if !unifiedCreate && (endpoint == service.SeedanceEndpointCreate || endpoint.IsProviderVideoCreate()) {
 			if routeErr := service.ValidateSelectedVideoResolution(requestCtx, account, requestInfo, endpoint.IsSeedance()); routeErr != nil {
 				h.errorResponse(c, 400, "invalid_request_error", routeErr.Error())
 				return
@@ -470,6 +487,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			defer releaseAccount()
 			if c.GetBool("video_download") {
 				return h.gatewayService.ForwardProviderVideoContent(requestCtx, c, account, endpoint, requestID)
+			}
+			if unifiedCreate || endpoint.IsVideoAPIPassthrough() {
+				return h.gatewayService.ForwardUnifiedVideoAPI(requestCtx, c, account, endpoint, requestID, body, contentType)
 			}
 			if endpoint.IsSeedance() {
 				return h.gatewayService.ForwardSeedance(requestCtx, c, account, endpoint, requestID, body)

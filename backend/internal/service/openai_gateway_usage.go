@@ -609,7 +609,8 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	seedanceTask := result != nil && strings.HasPrefix(result.ResponseID, "seedance:")
 	if result != nil && result.VideoCount > 0 && IsProviderVideoTask(result.ResponseID) {
 		resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
-		if resolved != nil && (resolved.Mode == BillingModePerRequest || (!seedanceTask && resolved.Mode == BillingModeVideo)) {
+		seedancePassthrough := result != nil && strings.HasPrefix(result.ResponseID, "seedance:passthrough:")
+		if resolved != nil && (resolved.Mode == BillingModePerRequest || ((!seedanceTask || seedancePassthrough) && resolved.Mode == BillingModeVideo)) {
 			units := float64(result.VideoCount)
 			if resolved.Mode == BillingModeVideo {
 				if result.VideoDurationSeconds <= 0 || result.VideoResolution == "" {

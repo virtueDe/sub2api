@@ -1569,7 +1569,15 @@
           :platform="form.platform"
           :plan="currentOpenCodeOrCNMode()"
         />
-        <div v-if="form.platform === 'kling'" class="space-y-3">
+        <div v-if="isVideoPlatform(form.platform)">
+          <label class="input-label">{{ t('admin.accounts.videoApiMode.title') }}</label>
+          <select v-model="videoApiMode" class="input" data-testid="video-api-mode">
+            <option value="native">{{ t('admin.accounts.videoApiMode.native') }}</option>
+            <option value="passthrough">{{ t('admin.accounts.videoApiMode.passthrough') }}</option>
+          </select>
+          <p class="input-hint">{{ t(`admin.accounts.videoApiMode.${videoApiMode}Hint`) }}</p>
+        </div>
+        <div v-if="form.platform === 'kling' && videoApiMode !== 'passthrough'" class="space-y-3">
           <label class="input-label">Kling Access Key</label>
           <input v-model="klingAccessKey" type="password" autocomplete="new-password" class="input font-mono" placeholder="Access Key" />
           <label class="input-label">Kling Secret Key</label>
@@ -1580,7 +1588,7 @@
           <input
             v-model="apiKeyValue"
             type="password"
-            :required="form.platform !== 'kling' || !(klingAccessKey.trim() && klingSecretKey.trim())"
+            :required="videoApiMode === 'passthrough' || form.platform !== 'kling' || !(klingAccessKey.trim() && klingSecretKey.trim())"
             class="input font-mono"
             :placeholder="apiKeyValuePlaceholder"
           />
@@ -4325,7 +4333,7 @@ const baseUrlHint = computed(() => {
 })
 
 const apiKeyHint = computed(() => {
-  if (form.platform === 'kling') return t('admin.accounts.klingApiKeyHint')
+  if (form.platform === 'kling' && videoApiMode.value !== 'passthrough') return t('admin.accounts.klingApiKeyHint')
   if (isVideoPlatform(form.platform)) return ''
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
@@ -4466,6 +4474,7 @@ const apiKeyValue = ref('')
 const klingAccessKey = ref('')
 const klingSecretKey = ref('')
 const videoModelRoutes = ref<VideoModelRouteRow[]>([])
+const videoApiMode = ref('native')
 const upstreamBillingAutoProbeEnabled = ref(true)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
@@ -5222,6 +5231,7 @@ watch(
   () => form.platform,
   (newPlatform) => {
     videoModelRoutes.value = []
+    videoApiMode.value = 'native'
     // Reset base URL based on platform
     if (isVideoPlatform(newPlatform)) {
       accountCategory.value = 'apikey'
@@ -5729,6 +5739,7 @@ const resetForm = () => {
   klingAccessKey.value = ''
   klingSecretKey.value = ''
   videoModelRoutes.value = []
+  videoApiMode.value = 'native'
   upstreamRequestIdHeader.value = ''
   upstreamBillingAutoProbeEnabled.value = true
   editQuotaLimit.value = null
@@ -6210,11 +6221,11 @@ const handleSubmit = async () => {
   // For apikey type, create directly
   const hasKlingAccessKey = !!klingAccessKey.value.trim()
   const hasKlingSecretKey = !!klingSecretKey.value.trim()
-  if (form.platform === 'kling' && hasKlingAccessKey !== hasKlingSecretKey) {
+  if (form.platform === 'kling' && videoApiMode.value !== 'passthrough' && hasKlingAccessKey !== hasKlingSecretKey) {
     appStore.showError(t('admin.accounts.klingKeyPairRequired'))
     return
   }
-  if (!apiKeyValue.value.trim() && !(form.platform === 'kling' && hasKlingAccessKey && hasKlingSecretKey)) {
+  if (!apiKeyValue.value.trim() && !(form.platform === 'kling' && videoApiMode.value !== 'passthrough' && hasKlingAccessKey && hasKlingSecretKey)) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
@@ -6237,13 +6248,14 @@ const handleSubmit = async () => {
     api_key: apiKeyValue.value.trim()
   }
   if (isVideoPlatform(form.platform)) {
+    credentials.video_api_mode = videoApiMode.value
     const result = buildVideoModelRoutes(videoModelRoutes.value, buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value))
     if (result.error) { appStore.showError(t(`admin.accounts.videoRoutes.errors.${result.error}`)); return }
     if (Object.keys(result.routes).length) credentials.video_model_routes = result.routes
   }
   if (form.platform === 'kling') {
     if (!apiKeyValue.value.trim()) delete credentials.api_key
-    if (hasKlingAccessKey && hasKlingSecretKey) {
+    if (videoApiMode.value !== 'passthrough' && hasKlingAccessKey && hasKlingSecretKey) {
       credentials.kling_access_key = klingAccessKey.value.trim()
       credentials.kling_secret_key = klingSecretKey.value.trim()
     }
