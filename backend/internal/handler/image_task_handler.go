@@ -330,7 +330,12 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 				completionCtx, taskCtx.GetInt64(opsAccountIDKey))
 			completionCtx = service.WithImageUpstreamResponsePassthrough(completionCtx, passthrough)
 		}
-		if err := h.tasks.Complete(completionCtx, taskID, statusCode, json.RawMessage(body)); err != nil {
+		failure, err := h.tasks.CompleteWithOutcome(completionCtx, taskID, statusCode, json.RawMessage(body))
+		if failure != nil {
+			executionErr = errors.New("image result offload failed")
+			h.recordAsyncFailure(taskID, platform, taskCtx, failure.StatusCode, failure.Error)
+		}
+		if err != nil {
 			executionErr = err
 			logger.L().Error("image_task.complete_store_failed", zap.String("task_id", taskID), zap.Error(err))
 		}
@@ -419,15 +424,7 @@ func (h *AsyncImageHandler) recordAsyncFailure(taskID, platform string, taskCtx 
 		Severity:          classifyOpsSeverity(errorType, statusCode), StatusCode: statusCode, ErrorMessage: message,
 		ErrorBody: string(taskErr), UserAgent: taskCtx.GetHeader("User-Agent"), CreatedAt: time.Now(),
 	}
-	if v, ok := taskCtx.Get(opsRequestTypeKey); ok {
-		switch value := v.(type) {
-		case int16:
-			entry.RequestType = &value
-		case int:
-			converted := int16(value)
-			entry.RequestType = &converted
-		}
-	}
+	entry.RequestType = opsRequestTypeFromContext(taskCtx)
 	if v, ok := taskCtx.Get(opsAccountIDKey); ok {
 		if value, ok := v.(int64); ok && value > 0 {
 			entry.AccountID = &value

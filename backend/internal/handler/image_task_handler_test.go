@@ -3,10 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -68,6 +71,82 @@ func TestAsyncImageFailureUsesGatewayAttribution(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAsyncImageOffloadFailureIsRecordedWithSpecificCause(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &ingressRejectOpsRepo{}
+	ops := service.NewOpsService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	store := &asyncImageMemoryStore{tasks: make(map[string]*service.ImageTaskRecord)}
+	client := &http.Client{Transport: asyncImageRoundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ETIMEDOUT}
+	})}
+	uploader := service.NewImageResultUploader(&asyncImageFailureStorage{}, "images/", 0, client)
+	tasks := service.NewImageTaskServiceWithUploader(store, uploader, time.Hour, time.Minute)
+	owner := service.ImageTaskOwner{UserID: 7, APIKeyID: 9}
+	task, err := tasks.Create(context.Background(), owner)
+	require.NoError(t, err)
+
+	h := &AsyncImageHandler{tasks: tasks, ops: ops}
+	h.execute = func(_ string, c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"data": []gin.H{{"url": "https://images.example.test/generated.png?X-Amz-Signature=private-signature"}}})
+	}
+	logCore, offloadLogs := observer.New(zap.ErrorLevel)
+	logContext := logger.IntoContext(context.Background(), zap.New(logCore))
+	request, _ := gin.CreateTestContext(httptest.NewRecorder())
+	request.Request = httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-1","prompt":"cat"}`)).WithContext(logContext)
+	groupID := int64(3)
+	request.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+		ID: 9, UserID: 7, GroupID: &groupID,
+		Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI},
+	})
+	request.Set(opsRequestTypeKey, int16(service.RequestTypeImageSync))
+	request.Set(opsAccountIDKey, int64(55))
+	request.Set(opsModelKey, "gpt-image-1")
+	taskCtx, recorder, cancel, err := newAsyncImageContext(request, []byte(`{"model":"gpt-image-1","prompt":"cat"}`), time.Minute)
+	require.NoError(t, err)
+	h.run(task.ID, service.PlatformOpenAI, taskCtx, recorder, cancel)
+
+	require.Len(t, repo.entries, 1)
+	entry := repo.entries[0]
+	require.NotNil(t, entry.UserID)
+	require.Equal(t, int64(7), *entry.UserID)
+	require.NotNil(t, entry.APIKeyID)
+	require.Equal(t, int64(9), *entry.APIKeyID)
+	require.NotNil(t, entry.AccountID)
+	require.Equal(t, int64(55), *entry.AccountID)
+	require.NotNil(t, entry.RequestType)
+	require.Equal(t, int16(service.RequestTypeImageAsync), *entry.RequestType)
+	require.Equal(t, "internal", entry.ErrorPhase)
+	require.Equal(t, "platform", entry.ErrorOwner)
+	require.Equal(t, "gateway", entry.ErrorSource)
+	require.Equal(t, "P1", entry.Severity)
+	require.Contains(t, entry.ErrorMessage, "image 0")
+	require.Contains(t, entry.ErrorMessage, "download")
+	require.Contains(t, entry.ErrorMessage, "timed out")
+	require.Contains(t, entry.ErrorMessage, "[task_id="+task.ID+"]")
+	require.NotContains(t, entry.ErrorMessage, "private-signature")
+	require.NotContains(t, entry.ErrorBody, "private-signature")
+	require.Len(t, offloadLogs.FilterMessage("image_task.offload_failed").All(), 1)
+	require.NotContains(t, offloadLogs.FilterMessage("image_task.offload_failed").All()[0].ContextMap()["error"], "private-signature")
+	failedTask, err := tasks.Get(context.Background(), owner, task.ID)
+	require.NoError(t, err)
+	require.Equal(t, service.ImageTaskStatusFailed, failedTask.Status)
+	require.Equal(t, http.StatusBadGateway, failedTask.HTTPStatus)
+	_, err = tasks.Get(context.Background(), service.ImageTaskOwner{UserID: 8, APIKeyID: owner.APIKeyID}, task.ID)
+	require.ErrorIs(t, err, service.ErrImageTaskNotFound)
+}
+
+type asyncImageRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f asyncImageRoundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+type asyncImageFailureStorage struct{}
+
+func (*asyncImageFailureStorage) Save(context.Context, string, string, []byte) (string, error) {
+	return "", errors.New("unexpected object storage call")
 }
 
 func TestAsyncGeminiValidationPreservesErrors(t *testing.T) {

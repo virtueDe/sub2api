@@ -65,6 +65,13 @@ type ImageTaskOwner struct {
 	APIKeyID int64
 }
 
+// ImageTaskCompletionFailure describes a generation response that could not be
+// finalized for the caller, such as an image that could not be offloaded.
+type ImageTaskCompletionFailure struct {
+	StatusCode int
+	Error      json.RawMessage
+}
+
 type ImageTaskStore interface {
 	Save(ctx context.Context, task *ImageTaskRecord, ttl time.Duration) error
 	Get(ctx context.Context, id string) (*ImageTaskRecord, error)
@@ -189,11 +196,18 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 }
 
 func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode int, result json.RawMessage) error {
+	_, err := s.CompleteWithOutcome(ctx, id, statusCode, result)
+	return err
+}
+
+// CompleteWithOutcome finalizes a successful upstream response and also reports
+// persisted task failures so the handler can write them to the Ops error log.
+func (s *ImageTaskService) CompleteWithOutcome(ctx context.Context, id string, statusCode int, result json.RawMessage) (*ImageTaskCompletionFailure, error) {
 	if !json.Valid(result) {
-		return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "upstream returned a non-JSON image response"))
+		return nil, s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "upstream returned a non-JSON image response"))
 	}
 	if imageUpstreamResponsePassthrough(ctx) {
-		return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
+		return nil, s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
 	}
 	resolveTiming := imagetiming.Start(ctx, "storage_resolve")
 	uploader, _ := s.current()
@@ -204,12 +218,15 @@ func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode i
 		storeTiming.End(err)
 		if err != nil {
 			// 转存失败不回退存 base64，避免大 blob 撑爆 Redis：直接把任务标记为失败。
-			logger.L().Error("image_task.offload_failed", zap.String("task_id", id), zap.Error(err))
-			return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "failed to store generated image to object storage"))
+			message := imageTaskOffloadFailureMessage(err)
+			taskErr := imageTaskErrorJSON("api_error", message)
+			logger.FromContext(ctx).Error("image_task.offload_failed", zap.String("task_id", id), zap.String("error", message))
+			failure := &ImageTaskCompletionFailure{StatusCode: http.StatusBadGateway, Error: taskErr}
+			return failure, s.Fail(ctx, id, failure.StatusCode, taskErr)
 		}
 		result = rewritten
 	}
-	return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
+	return nil, s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
 }
 
 func (s *ImageTaskService) Fail(ctx context.Context, id string, statusCode int, taskErr json.RawMessage) error {

@@ -271,6 +271,26 @@ func TestImageTaskServiceCompleteOffloadFailureMarksFailed(t *testing.T) {
 	require.NotContains(t, string(got.Result), "b64_json", "failed offload must not persist base64 to Redis")
 }
 
+func TestImageTaskServiceCompleteOffloadFailureKeepsSpecificCause(t *testing.T) {
+	store := &imageTaskMemoryStore{}
+	storage := &fakeImageStorage{err: errors.New(`S3 PutObject: request to https://storage.example.test/bucket/image.png?X-Amz-Signature=private-signature failed: bucket unreachable`)}
+	uploader := NewImageResultUploader(storage, "images/", 0, nil)
+	svc := NewImageTaskServiceWithUploader(store, uploader, time.Hour, time.Minute)
+	owner := ImageTaskOwner{UserID: 1, APIKeyID: 2}
+	created, err := svc.Create(context.Background(), owner)
+	require.NoError(t, err)
+	result := json.RawMessage(`{"data":[{"b64_json":"aGVsbG8="}]}`)
+
+	require.NoError(t, svc.Complete(context.Background(), created.ID, http.StatusOK, result))
+	got, err := svc.Get(context.Background(), owner, created.ID)
+	require.NoError(t, err)
+	require.Equal(t, ImageTaskStatusFailed, got.Status)
+	require.Contains(t, string(got.Error), "bucket unreachable")
+	require.Contains(t, string(got.Error), "S3 PutObject")
+	require.NotContains(t, string(got.Error), "failed to store generated image to object storage")
+	require.NotContains(t, string(got.Error), "private-signature")
+}
+
 func TestImageResultUploaderDefaultClientRejectsPrivateURL(t *testing.T) {
 	var hits atomic.Int32
 	internal := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
