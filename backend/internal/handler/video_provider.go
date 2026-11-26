@@ -93,6 +93,7 @@ func prepareProviderVideoBilling(ctx context.Context, h *OpenAIGatewayHandler, k
 		return nil
 	}
 	merged := *result
+	merged.VideoBillingSettlementID = strings.TrimSpace(pending.VideoBillingSettlementID)
 	merged.Model, merged.BillingModel = pending.Model, firstNonEmptyString(pending.BillingModel, pending.Model)
 	merged.UpstreamModel = firstNonEmptyString(pending.UpstreamModel, result.UpstreamModel)
 	merged.ResponseID = taskID
@@ -110,6 +111,9 @@ func prepareProviderVideoBilling(ctx context.Context, h *OpenAIGatewayHandler, k
 		return nil
 	}
 	merged.RequestID, merged.ResponseID = service.StableGrokVideoBillingRequestID(taskID), taskID
+	if merged.VideoBillingSettlementID != "" {
+		merged.RequestID = merged.VideoBillingSettlementID
+	}
 	merged.Duration = service.GrokVideoE2EDuration(pending.CreatedAt, time.Now())
 	return &merged
 }

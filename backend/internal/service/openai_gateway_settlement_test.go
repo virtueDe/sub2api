@@ -14,15 +14,80 @@ import (
 type openAIJournalSettlementRepoStub struct {
 	UsageBillingRepository
 	UsageSettlementRepository
-	prepareErr error
-	prepares   int
-	prepared   *UsageSettlementSnapshot
+	prepareErr  error
+	prepares    int
+	prepared    *UsageSettlementSnapshot
+	applyRef    UsageSettlementRef
+	completeRef UsageSettlementRef
 }
 
 func (r *openAIJournalSettlementRepoStub) PrepareSettlement(_ context.Context, snapshot *UsageSettlementSnapshot) error {
 	r.prepares++
 	r.prepared = snapshot
 	return r.prepareErr
+}
+
+func (r *openAIJournalSettlementRepoStub) ApplySettlement(_ context.Context, ref UsageSettlementRef, _ *ImageGenerationDetail) (*UsageSettlementSnapshot, *UsageBillingApplyResult, error) {
+	r.applyRef = ref
+	return r.prepared, &UsageBillingApplyResult{Applied: true}, nil
+}
+
+func (r *openAIJournalSettlementRepoStub) CompleteSettlement(_ context.Context, ref UsageSettlementRef) error {
+	r.completeRef = ref
+	return nil
+}
+
+func (r *openAIJournalSettlementRepoStub) BeginSettlement(context.Context, string, int64, int64) error {
+	return nil
+}
+
+func (r *openAIJournalSettlementRepoStub) FailSettlement(context.Context, UsageSettlementRef, bool) error {
+	return nil
+}
+
+func (r *openAIJournalSettlementRepoStub) ReviewExpiredSettlements(context.Context) (int64, error) {
+	return 0, nil
+}
+
+func (r *openAIJournalSettlementRepoStub) UpdateSettlementImageDetail(context.Context, UsageSettlementRef, *ImageGenerationDetail) error {
+	return nil
+}
+
+func (r *openAIJournalSettlementRepoStub) ClaimSettlement(context.Context) (*UsageSettlementRef, error) {
+	return nil, nil
+}
+
+func TestOpenAIGatewayServiceRecordUsage_VideoUsesPersistedSettlementIdentity(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{}
+	repo := &openAIJournalSettlementRepoStub{}
+	svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, repo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+	svc.cfg.Database.ImageBillingReservationEnabled = true
+	groupID := int64(126)
+	videoPrice := 0.08
+	settlementID := "settlement:video:test"
+	ctx := WithUsageSettlement(context.Background(), settlementID)
+
+	err := svc.RecordUsage(ctx, &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{
+			RequestID: "grok-video:task-1", ResponseID: "task-1",
+			Model: "grok-imagine-video-1.5", BillingModel: "grok-imagine-video-1.5",
+			VideoCount: 1, VideoResolution: VideoBillingResolution480P, VideoDurationSeconds: 1,
+		},
+		APIKey: &APIKey{ID: 10126, UserID: 20126, GroupID: &groupID, Group: &Group{
+			ID: groupID, Platform: PlatformGrok, RateMultiplier: 1,
+			VideoPrice480P: &videoPrice,
+		}},
+		User: &User{ID: 20126}, Account: &Account{ID: 30126, Platform: PlatformGrok},
+	})
+
+	require.NoError(t, err)
+	require.Equal(t, settlementID, repo.applyRef.RequestID)
+	require.Equal(t, int64(10126), repo.applyRef.APIKeyID)
+	require.NotNil(t, repo.prepared)
+	require.Equal(t, settlementID, repo.prepared.Command.RequestID)
+	require.Equal(t, settlementID, repo.prepared.Usage.RequestID)
+	require.Equal(t, repo.applyRef, repo.completeRef)
+	require.Zero(t, usageRepo.calls, "durable settlement owns the usage row")
 }
 
 func TestOpenAIGatewayServiceRecordUsage_ImageFactsSurviveDatabaseTimeout(t *testing.T) {

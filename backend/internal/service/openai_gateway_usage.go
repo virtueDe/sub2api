@@ -352,11 +352,12 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			requestID = upstreamRequestID
 		}
 	}
-	// Async Grok video: always use the stable task id for dedup (status + content polls
-	// share one bill). Context-local client/local IDs would otherwise create a new row
-	// per poll if Redis claim is lost.
+	// Async video uses its persisted settlement ID when the create-time reservation
+	// exists. Otherwise retain the stable task ID for ordinary usage deduplication.
 	if result.VideoCount > 0 {
-		if stable := StableGrokVideoBillingRequestID(firstNonEmpty(
+		if settlementID := UsageSettlementFromContext(ctx); settlementID != "" {
+			requestID = settlementID
+		} else if stable := StableGrokVideoBillingRequestID(firstNonEmpty(
 			strings.TrimPrefix(strings.TrimSpace(result.RequestID), "grok-video:"),
 			strings.TrimSpace(result.ResponseID),
 			strings.TrimPrefix(strings.TrimSpace(requestID), "grok-video:"),

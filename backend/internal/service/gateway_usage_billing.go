@@ -315,8 +315,7 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 		// Async per-video tasks can acquire token metadata on later polls. Those
 		// tokens do not price the task and must not change its billing fingerprint.
 		// Keep the original usage log intact for inspection.
-		if usageLog.VideoCount > 0 && p.Cost.BillingMode == string(BillingModePerRequest) &&
-			IsProviderVideoTask(strings.TrimPrefix(requestID, "grok-video:")) {
+		if usageLog.VideoCount > 0 && p.Cost.BillingMode == string(BillingModePerRequest) {
 			cmd.InputTokens, cmd.OutputTokens = 0, 0
 			cmd.CacheCreationTokens, cmd.CacheReadTokens = 0, 0
 		}

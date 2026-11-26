@@ -310,11 +310,16 @@ func doUpstreamRequest(client *http.Client, req *http.Request, drainTimeouts ...
 	if err := service.BeginImageBillingDispatch(req.Context()); err != nil {
 		return nil, err
 	}
+	if err := service.BeginVideoBillingDispatch(req.Context()); err != nil {
+		return nil, err
+	}
 	observe := service.ObserveImageBillingAttempt(req.Context())
+	observeVideo := service.ObserveVideoBillingAttempt(req.Context())
 	resp, err := imagetiming.HTTP(req, func(traced *http.Request) (*http.Response, error) {
 		return doUnobservedUpstreamRequest(client, traced, drainTimeouts...)
 	})
 	observe(resp, err)
+	observeVideo(resp, err)
 	return resp, err
 }
 

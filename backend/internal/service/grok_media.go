@@ -378,12 +378,13 @@ func (s *OpenAIGatewayService) SelectMediaVideoRequestAccount(
 // first observes a completed video URL. Status may omit model/duration; we fall
 // back to this snapshot, then defaults.
 type GrokVideoPendingBilling struct {
-	Model                string `json:"model"`
-	BillingModel         string `json:"billing_model,omitempty"`
-	UpstreamModel        string `json:"upstream_model,omitempty"`
-	VideoResolution      string `json:"video_resolution,omitempty"`
-	VideoDurationSeconds int    `json:"video_duration_seconds,omitempty"`
-	OriginalModel        string `json:"original_model,omitempty"`
+	Model                    string `json:"model"`
+	BillingModel             string `json:"billing_model,omitempty"`
+	UpstreamModel            string `json:"upstream_model,omitempty"`
+	VideoResolution          string `json:"video_resolution,omitempty"`
+	VideoDurationSeconds     int    `json:"video_duration_seconds,omitempty"`
+	OriginalModel            string `json:"original_model,omitempty"`
+	VideoBillingSettlementID string `json:"video_billing_settlement_id,omitempty"`
 	// CreatedAt is when the gateway accepted the async create (RFC3339Nano UTC).
 	// duration_ms for deferred billing is measured from this instant until the
 	// first official done+video.url observation (status poll or content download),
@@ -911,6 +912,7 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 		ImageInputSize:       usage.ImageInputSize,
 		ImageOutputSizes:     usage.ImageOutputSizes,
 		VideoCount:           usage.VideoCount,
+		VideoFailed:          usage.VideoFailed,
 		VideoResolution:      usage.VideoResolution,
 		VideoDurationSeconds: usage.VideoDurationSeconds,
 	}, nil
@@ -970,6 +972,11 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 	if err != nil {
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		return nil, err
+	}
+	status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(statusBody, "status").String()))
+	if status == "failed" || status == "expired" || status == "canceled" || status == "cancelled" {
+		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"type": "video_failed", "message": "Video generation failed"}})
+		return &OpenAIForwardResult{ResponseID: strings.TrimSpace(requestID), VideoFailed: true}, fmt.Errorf("grok video task is %s", status)
 	}
 
 	contentURL, err := grokMediaSignedVideoContentURL(statusBody, requestID)
@@ -1324,6 +1331,7 @@ type grokMediaUsageMetadata struct {
 	ImageInputSize       string
 	ImageOutputSizes     []string
 	VideoCount           int
+	VideoFailed          bool
 	VideoResolution      string
 	VideoDurationSeconds int
 }
@@ -1344,6 +1352,8 @@ func grokMediaUsageFromResponse(endpoint GrokMediaEndpoint, requestInfo GrokMedi
 		meta.VideoResolution = requestInfo.Resolution
 		meta.VideoDurationSeconds = requestInfo.DurationSeconds
 	case GrokMediaEndpointVideoStatus:
+		status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "status").String()))
+		meta.VideoFailed = status == "failed" || status == "expired" || status == "canceled" || status == "cancelled"
 		// Prefer status-body URL success + upstream duration/resolution when present.
 		if IsGrokVideoStatusBillable(responseBody) {
 			// provisional units; handler merges with pending snapshot before RecordUsage.

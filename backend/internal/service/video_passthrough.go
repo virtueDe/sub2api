@@ -326,7 +326,12 @@ func (s *OpenAIGatewayService) forwardVideoAPIPassthrough(ctx context.Context, c
 }
 
 func parseVideoAPIPassthroughCompletion(data []byte, result *OpenAIForwardResult) {
-	if normalizeVideoAPIPassthroughStatus(gjson.GetBytes(data, "status").String()) != "completed" {
+	status := normalizeVideoAPIPassthroughStatus(gjson.GetBytes(data, "status").String())
+	if status == "failed" {
+		result.VideoFailed = true
+		return
+	}
+	if status != "completed" {
 		return
 	}
 	result.VideoCount = 1

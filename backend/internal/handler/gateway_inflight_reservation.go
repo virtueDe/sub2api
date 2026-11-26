@@ -38,6 +38,10 @@ type imageBillingReserver interface {
 	ReserveImageBilling(context.Context, *service.APIKey, *service.UserSubscription, service.InflightEstimateRequest) (context.Context, func(), error)
 }
 
+type videoBillingReserver interface {
+	ReserveVideoBilling(context.Context, *service.APIKey, *service.UserSubscription, service.InflightEstimateRequest) (context.Context, func(), error)
+}
+
 func inflightNoop() {}
 
 // reserveInflightBalance 在 CheckBillingEligibility 之后为余额模式请求登记在途预留。
@@ -81,6 +85,14 @@ func reserveInflightBalanceCtx(
 			imageReq := req
 			imageReq.Kind = service.InflightEstimateImage
 			reserved, done, err := reserver.ReserveImageBilling(ctx, apiKey, subscription, imageReq)
+			if err != nil || service.UsageSettlementFromContext(reserved) != "" {
+				return reserved, done, err
+			}
+		}
+	}
+	if estimator != nil && (req.Kind == service.InflightEstimateVideo || req.Kind == service.InflightEstimateTokenVideo) {
+		if reserver, ok := estimator.(videoBillingReserver); ok {
+			reserved, done, err := reserver.ReserveVideoBilling(ctx, apiKey, subscription, req)
 			if err != nil || service.UsageSettlementFromContext(reserved) != "" {
 				return reserved, done, err
 			}

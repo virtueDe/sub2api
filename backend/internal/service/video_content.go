@@ -46,8 +46,11 @@ func (s *OpenAIGatewayService) ForwardProviderVideoContent(ctx context.Context, 
 	}
 	status := unifiedVideoResponse(endpoint, data, result)["status"]
 	if status != "completed" {
+		if status == "failed" {
+			result.VideoFailed = true
+		}
 		c.JSON(http.StatusConflict, gin.H{"error": gin.H{"type": "video_not_ready", "message": "Video is not completed"}})
-		return nil, fmt.Errorf("video is not completed")
+		return result, fmt.Errorf("video is not completed")
 	}
 	if endpoint.IsVideoAPIPassthrough() && videoAPIPassthroughContentURL(data) == "" {
 		_, err := s.forwardVideoAPIPassthrough(ctx, c, a, endpoint, key, nil, "", true)

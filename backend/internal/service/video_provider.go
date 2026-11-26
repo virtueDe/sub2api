@@ -459,6 +459,9 @@ func (s *OpenAIGatewayService) ForwardVideoProvider(ctx context.Context, c *gin.
 		return nil, fmt.Errorf("invalid video upstream JSON response")
 	}
 	if (d.provider == "kling" && gjson.GetBytes(data, "code").Int() != 0) || (d.provider == "wan" && gjson.GetBytes(data, "code").String() != "") {
+		if d.create {
+			RejectVideoBillingReservation(ctx)
+		}
 		writeGrokMediaResponse(c, resp, data, s.responseHeaderFilter)
 		return nil, fmt.Errorf("%s video upstream rejected request", d.provider)
 	}
@@ -482,9 +485,11 @@ func (s *OpenAIGatewayService) ForwardVideoProvider(ctx context.Context, c *gin.
 func parseVideoProviderCompletion(provider string, data []byte, result *OpenAIForwardResult) {
 	var done bool
 	var seconds gjson.Result
+	var status string
 	switch provider {
 	case "wan":
-		done = gjson.GetBytes(data, "output.task_status").String() == "SUCCEEDED"
+		status = gjson.GetBytes(data, "output.task_status").String()
+		done = strings.EqualFold(status, "SUCCEEDED")
 		seconds = gjson.GetBytes(data, "usage.duration")
 		if !seconds.Exists() {
 			seconds = gjson.GetBytes(data, "usage.output_video_duration")
@@ -497,18 +502,30 @@ func parseVideoProviderCompletion(provider string, data []byte, result *OpenAIFo
 		}
 		result.VideoResolution, _ = lookupProviderVideoResolution(gjson.GetBytes(data, "usage.SR").String())
 	case "kling":
-		done = gjson.GetBytes(data, "data.task_status").String() == "succeed"
+		status = gjson.GetBytes(data, "data.task_status").String()
+		done = strings.EqualFold(status, "succeed") || strings.EqualFold(status, "succeeded")
 		seconds = gjson.GetBytes(data, "data.task_result.videos.0.duration")
 	case "sora":
-		done = gjson.GetBytes(data, "status").String() == "completed"
+		status = gjson.GetBytes(data, "status").String()
+		done = strings.EqualFold(status, "completed") || strings.EqualFold(status, "succeeded")
 		seconds = gjson.GetBytes(data, "seconds")
 		result.VideoResolution = videoPixelResolution(gjson.GetBytes(data, "size").String())
 	}
+	result.VideoFailed = isTerminalVideoFailure(status)
 	if !done {
 		return
 	}
 	result.VideoCount = 1
 	if result.VideoDurationSeconds == 0 && seconds.Float() > 0 {
 		result.VideoDurationSeconds = int(math.Ceil(seconds.Float()))
+	}
+}
+
+func isTerminalVideoFailure(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "failed", "task_failed", "canceled", "cancelled", "expired":
+		return true
+	default:
+		return false
 	}
 }
